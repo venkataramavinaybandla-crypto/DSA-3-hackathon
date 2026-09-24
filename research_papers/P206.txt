@@ -1,0 +1,6 @@
+Title: Threshold Models of Collective Behavior
+Authors: Granovetter
+Year: 1978
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Threshold Models of Collective Behavior' by Granovetter (1978). Classic foundational literature published in original journal/conference proceedings.

@@ -1,0 +1,6 @@
+Title: The Anatomy of a Large-Scale Hypertextual Web Search Engine
+Authors: Brin & Page
+Year: 1998
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'The Anatomy of a Large-Scale Hypertextual Web Search Engine' by Brin & Page (1998). Classic foundational literature published in original journal/conference proceedings.

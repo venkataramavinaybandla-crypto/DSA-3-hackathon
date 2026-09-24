@@ -1,0 +1,1330 @@
+Transformer-XL: Attentive Language Models
+Beyond a Fixed-Length Context
+ZihangDai∗12,ZhilinYang∗12,YimingYang1,JaimeCarbonell1,
+QuocV.Le2,RuslanSalakhutdinov1
+1CarnegieMellonUniversity,2GoogleBrain
+{dzihang,zhiliny,yiming,jgc,rsalakhu}@cs.cmu.edu, qvl@google.com
+Abstract Term Memory (LSTM) networks (Hochreiter and
+Schmidhuber, 1997), have been a standard solu-
+Transformers have a potential of learning
+tion to language modeling and obtained strong
+longer-term dependency, but are limited by a
+results on multiple benchmarks. Despite the
+fixed-lengthcontextinthesettingoflanguage
+modeling. We propose a novel neural ar- wide adaption, RNNs are difficult to optimize
+chitecture Transformer-XL that enables learn- due to gradient vanishing and explosion (Hochre-
+ing dependency beyond a fixed length with- iter et al., 2001), and the introduction of gat-
+out disrupting temporal coherence. It con- ing in LSTMs and the gradient clipping tech-
+sistsofasegment-levelrecurrencemechanism
+nique (Graves, 2013) might not be sufficient to
+and a novel positional encoding scheme. Our
+fully address this issue. Empirically, previous
+methodnotonlyenablescapturinglonger-term
+work has found that LSTM language models use
+dependency,butalsoresolvesthecontextfrag-
+200 context words on average (Khandelwal et al.,
+mentationproblem. Asaresult,Transformer-
+XLlearnsdependencythatis80%longerthan 2018),indicatingroomforfurtherimprovement.
+RNNs and 450% longer than vanilla Trans- On the other hand, the direct connections be-
+formers, achieves better performance on both tween long-distance word pairs baked in atten-
+shortandlongsequences,andisupto1,800+
+tion mechanisms might ease optimization and en-
+times faster than vanilla Transformers during
+able the learning of long-term dependency (Bah-
+evaluation. Notably, we improve the state-of-
+danau et al., 2014; Vaswani et al., 2017). Re-
+the-artresultsofbpc/perplexityto0.99onen-
+cently,Al-Rfouetal.(2018)designedasetofaux-
+wiki8, 1.08 on text8, 18.3 on WikiText-103,
+21.8 on One Billion Word, and 54.5 on Penn iliary losses to train deep Transformer networks
+Treebank (without finetuning). When trained forcharacter-levellanguagemodeling,whichout-
+only on WikiText-103, Transformer-XL man- perform LSTMs by a large margin. Despite the
+ages to generate reasonably coherent, novel
+success, the LM training in Al-Rfou et al. (2018)
+text articles with thousands of tokens. Our
+is performed on separated fixed-length segments
+code,pretrainedmodels,andhyperparameters
+ofafewhundredcharacters,withoutanyinforma-
+areavailableinbothTensorflowandPyTorch1.
+tion flow across segments. As a consequence of
+1 Introduction thefixedcontextlength,themodelcannotcapture
+any longer-term dependency beyond the prede-
+Languagemodelingisamongtheimportantprob-
+fined context length. In addition, the fixed-length
+lemsthatrequiremodelinglong-termdependency,
+segments are created by selecting a consecutive
+withsuccessfulapplicationssuchasunsupervised
+chunkofsymbolswithoutrespectingthesentence
+pretraining(DaiandLe,2015;Petersetal.,2018;
+oranyothersemanticboundary. Hence,themodel
+Radford et al., 2018; Devlin et al., 2018). How-
+lacks necessary contextual information needed to
+ever, it has been a challenge to equip neural
+wellpredictthefirstfewsymbols,leadingtoinef-
+networks with the capability to model long-term
+ficientoptimizationandinferiorperformance. We
+dependency in sequential data. Recurrent neu-
+refertothisproblemascontextfragmentation.
+ral networks (RNNs), in particular Long Short-
+To address the aforementioned limitations of
+∗Equalcontribution. Orderdeterminedbyswappingthe fixed-length contexts, we propose a new architec-
+oneinYangetal.(2017).
+turecalledTransformer-XL(meaningextralong).
+1https://github.com/kimiyoung/
+transformer-xl We introduce the notion of recurrence into our
+9102
+nuJ
+2
+]GL.sc[
+3v06820.1091:viXra
+
+deep self-attention network. In particular, instead as an additional input. Existing works range
+of computing the hidden states from scratch for fromoneswherecontextrepresentationsareman-
+eachnewsegment, wereusethehiddenstatesob- uallydefined(MikolovandZweig,2012;Jietal.,
+tained in previous segments. The reused hidden 2015;WangandCho,2015)toothersthatrelyon
+states serve as memory for the current segment, document-level topics learned from data (Dieng
+which builds up a recurrent connection between etal.,2016;Wangetal.,2017).
+the segments. As a result, modeling very long- More broadly, in generic sequence modeling,
+term dependency becomes possible because in- how to capture long-term dependency has been a
+formation can be propagated through the recur- long-standing research problem. From this per-
+rent connections. Meanwhile, passing informa- spective, since the ubiquitous adaption of LSTM,
+tion from the previous segment can also resolve many efforts have been spent on relieving the
+the problem of context fragmentation. More im- vanishing gradient problem, including better ini-
+portantly, we show the necessity of using relative tialization (Le et al., 2015), additional loss sig-
+positional encodings rather than absolute ones, in nal(Trinhetal.,2018),augmentedmemorystruc-
+order to enable state reuse without causing tem- ture(Keetal.,2018)andothersthatmodifythein-
+poral confusion. Hence, as an additional techni- ternal architecture of RNNs to ease the optimiza-
+cal contribution, we introduce a simple but more tion (Wu et al., 2016; Li et al., 2018). Different
+effective relative positional encoding formulation from them, our work is based on the Transformer
+thatgeneralizestoattentionlengthslongerthanthe architecture andshows that languagemodeling as
+oneobservedduringtraining. areal-worldtaskbenefitsfromtheabilitytolearn
+Transformer-XL obtained strong results on five longer-termdependency.
+datasets, varying from word-level to character-
+level language modeling. Transformer-XL is also 3 Model
+able to generate relatively coherent long text arti-
+Given a corpus of tokens x = (x ,...,x ), the
+cles with thousands of tokens (see Appendix E), 1 T
+task of language modeling is to estimate the joint
+trainedononly100Mtokens.
+probabilityP(x),whichisoftenauto-regressively
+Our main technical contributions include intro- (cid:81)
+factorized as P(x) = P(x | x ). With the
+ducing the notion of recurrence in a purely self- t t <t
+factorization, the problem reduces to estimating
+attentivemodelandderivinganovelpositionalen-
+each conditional factor. In this work, we stick to
+codingscheme. Thesetwotechniquesformacom-
+thestandardneuralapproachtomodelingthecon-
+plete set of solutions, as any one of them alone
+ditional probability. Specifically, a trainable neu-
+does not address the issue of fixed-length con-
+ralnetworkisusedtoencodethecontextx into
+<t
+texts. Transformer-XL is the first self-attention
+a fixed size hidden state, which is multiplied with
+model that achieves substantially better results
+thewordembeddingstoobtainthelogits. Thelog-
+thanRNNsonbothcharacter-levelandword-level
+itsarethenfedintotheSoftmaxfunction,yielding
+languagemodeling.
+acategoricalprobabilitydistributionoverthenext
+token.
+2 RelatedWork
+3.1 VanillaTransformerLanguageModels
+In the last few years, the field of language mod-
+eling has witnessed many significant advances, In order to apply Transformer or self-attention to
+including but not limited to devising novel ar- language modeling, the central problem is how to
+chitectures to better encode the context (Bengio train a Transformer to effectively encode an arbi-
+et al., 2003; Mikolov et al., 2010; Merity et al., trarilylongcontextintoafixedsizerepresentation.
+2016;Al-Rfouetal.,2018),improvingregulariza- Given infinite memory and computation, a sim-
+tionandoptimizationalgorithms(GalandGhahra- ple solution would be to process the entire con-
+mani, 2016) , speeding up the Softmax computa- textsequenceusinganunconditionalTransformer
+tion(Graveetal.,2016a),andenrichingtheoutput decoder,similartoafeed-forwardneuralnetwork.
+distributionfamily(Yangetal.,2017). However,thisisusuallyinfeasiblewiththelimited
+To capture the long-range context in language resourceinpractice.
+modeling, a line of work directly feeds a repre- Onefeasiblebutcrudeapproximationistosplit
+sentation of the wider context into the network the entire corpus into shorter segments of man-
+
+x1 x2 x3 x4 x5 x6 x7 x8 x1 x2 x3 x4 x5 x6 x1 x2 x3 x4 x5 x6 x1 x2 x3 x4 x5 x6
+Segment 1 Segment 2 Limited Context Limited Context Limited Context
+(a)Trainphase. (b)Evaluationphase.
+Figure1: Illustrationofthevanillamodelwithasegmentlength4.
+ageable sizes, and only train the model within 3.2 Segment-LevelRecurrencewithState
+eachsegment,ignoringallcontextualinformation Reuse
+from previous segments. This is the idea adopted
+To address the limitations of using a fixed-length
+by Al-Rfou et al. (2018). We call it the vanilla
+context, we propose to introduce a recurrence
+model and visualize it in Fig. 1a. Under this
+mechanism to the Transformer architecture. Dur-
+trainingparadigm,informationneverflowsacross
+ing training, the hidden state sequence computed
+segments in either the forward or backward pass.
+for the previous segment is fixed and cached to
+Therearetwocriticallimitationsofusingafixed-
+be reused as an extended context when the model
+length context. First, the largest possible depen-
+processes the next new segment, as shown in Fig.
+dency length is upper bounded by the segment
+2a. Although the gradient still remains within a
+length, which is a few hundred on character-level
+segment, this additional input allows the network
+language modeling (Al-Rfou et al., 2018). There-
+toexploitinformationinthehistory,leadingtoan
+fore,althoughtheself-attentionmechanismisless
+ability of modeling longer-term dependency and
+affected by the vanishing gradient problem com-
+avoiding context fragmentation. Formally, let the
+pared to RNNs, the vanilla model is not able to
+two consecutive segments of length L be s =
+τ
+fullyexploitthisoptimizationadvantage. Second,
+[x ,··· ,x ] and s = [x ,··· ,x ]
+τ,1 τ,L τ+1 τ+1,1 τ+1,L
+though it is possible to use padding to respect the
+respectively. Denoting the n-th layer hidden state
+sentenceorothersemanticboundaries,inpractice
+sequence produced for the τ-th segment s by
+τ
+ithasbeenstandardpracticetosimplychunklong hn ∈ RL×d, where d is the hidden dimension.
+τ
+text into fixed-length segments due to improved
+Then,then-thlayerhiddenstateforsegments
+τ+1
+efficiency(Petersetal.,2018;Devlinetal.,2018;
+isproduced(schematically)asfollows,
+Al-Rfou et al., 2018). However, simply chunking h(cid:101) n
+τ+
+−
+1
+1 = (cid:2) SG(hn
+τ
+−1)◦hn
+τ+
+−
+1
+1(cid:3) ,
+asequenceintofixed-lengthsegmentswillleadto
+thecontextfragmentationproblemasdiscussedin
+qn
+τ+1
+,kn
+τ+1
+,v
+τ
+n
++1
+=hn
+τ+
+−
+1
+1W
+q
+(cid:62),h(cid:101) n
+τ+
+−
+1
+1W
+k
+(cid:62),h(cid:101) n
+τ+
+−
+1
+1W
+v
+(cid:62),
+hn =Transformer-Layer(qn ,kn ,vn ).
+Section1. τ+1 τ+1 τ+1 τ+1
+wherethefunctionSG(·)standsforstop-gradient,
+the notation [h ◦h ] indicates the concatenation
+u v
+of two hidden sequences along the length dimen-
+During evaluation, at each step, the vanilla sion, and W · denotes model parameters. Com-
+modelalsoconsumesasegmentofthesamelength paredtothestandardTransformer,thecriticaldif-
+asintraining,butonlymakesonepredictionatthe ference lies in that the key kn and value vn
+τ+1 τ+1
+last position. Then, at the next step, the segment areconditionedontheextendedcontexth(cid:101) n−1 and
+τ+1
+isshiftedtotherightbyonlyoneposition,andthe hence hn−1 cached from the previous segment.
+τ
+newsegmenthastobeprocessedallfromscratch. We emphasize this particular design by the green
+As shown in Fig. 1b, this procedure ensures that pathsinFig. 2a.
+each prediction utilizes the longest possible con- With this recurrence mechanism applied to ev-
+textexposedduringtraining,andalsorelievescon- ery two consecutive segments of a corpus, it es-
+text fragmentation issue encountered in training. sentiallycreatesasegment-levelrecurrenceinthe
+However, this evaluation procedure is extremely hiddenstates. Asaresult,theeffectivecontextbe-
+expensive. We will show thatour proposed archi- ingutilizedcangowaybeyondjusttwosegments.
+tectureisabletosubstantiallyimprovetheevalua- However,noticethattherecurrentdependencybe-
+tionspeed. tweenhn andhn−1 shiftsonelayerdownwards
+τ+1 τ
+
+x1 x2 x3 x4 x5 x6 x7 x8 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12
+Fixed (No Grad) New Segment Fixed (No Grad) New Segment Extended Context
+(a)Trainingphase. (b)Evaluationphase.
+Figure2: IllustrationoftheTransformer-XLmodelwithasegmentlength4.
+per-segment, which differs from the same-layer der to reuse the hidden states. That is, how can
+recurrence in conventional RNN-LMs. Conse- wekeepthepositionalinformationcoherentwhen
+quently, the largest possible dependency length we reuse the states? Recall that, in the standard
+grows linearly w.r.t. the number of layers as well Transformer,theinformationofsequenceorderis
+as the segment length, i.e., O(N × L), as vi- providedbyasetofpositionalencodings,denoted
+sualized by the shaded area in Fig. 2b. This as U ∈ RLmax×d, where the i-th row U
+i
+corre-
+is analogous to truncated BPTT (Mikolov et al., sponds to the i-th absolute position within a seg-
+2010), a technique developed for training RNN- ment and L prescribes the maximum possible
+max
+LMs. However, different from truncated BPTT, lengthtobemodeled. Then,theactualinputtothe
+ourmethodcachesasequenceofhiddenstatesin- Transformer is the element-wise addition of the
+stead of the last one, and should be applied to- wordembeddingsandthepositionalencodings. If
+gether with the relative positional encoding tech- we simply adapt this positional encoding to our
+niquedescribedinSection3.3. recurrence mechanism, the hidden state sequence
+Besides achieving extra long context and re- wouldbecomputedschematicallyby
+solving fragmentation, another benefit that comes h =f(h ,E +U )
+τ+1 τ sτ+1 1:L
+with the recurrence scheme is significantly faster h =f(h ,E +U ),
+τ τ−1 sτ 1:L
+evaluation. Specifically, during evaluation, the
+where E ∈ RL×d is the word embedding se-
+representations from the previous segments can
+sτ
+quence of s , and f represents a transformation
+τ
+bereusedinsteadofbeingcomputedfromscratch
+function. Notice that, both E and E are as-
+as in the case of the vanilla model. In our ex-
+sτ sτ+1
+sociated with the same positional encoding U .
+1:L
+periments on enwiki8, Transformer-XL is up to
+As a result, the model has no information to dis-
+1,800+ times faster than the vanilla model during
+tinguishthepositionaldifferencebetweenx and
+τ,j
+evaluation(seeSection4).
+x for any j = 1,...,L, resulting in a sheer
+τ+1,j
+Finally, notice that the recurrence scheme does
+performanceloss.
+not need to be restricted to only the previous seg-
+In order to avoid this failure mode, the funda-
+ment. In theory, we can cache as many previous
+mental idea is to only encode the relative posi-
+segments as the GPU memory allows, and reuse
+tional information in the hidden states. Concep-
+all of them as the extra context when processing
+tually, the positional encoding gives the model a
+thecurrentsegment. Thus, wecan cacheaprede-
+temporal clue or “bias” about how information
+fined length-M old hidden states spanning (pos-
+should be gathered, i.e., where to attend. For the
+sibly) multiple segments, and refer to them as the
+same purpose, instead of incorporating bias stati-
+memorymn ∈ RM×d,duetoaclearconnectionto
+τ callyintotheinitialembedding,onecaninjectthe
+the memory augmented neural networks (Graves
+same information into the attention score of each
+et al., 2014; Weston et al., 2014). In our experi-
+layer. More importantly, it is more intuitive and
+ments,wesetM equaltothesegmentlengthdur-
+generalizabletodefinethetemporalbiasinarela-
+ingtraining,andincreaseitbymultipletimesdur-
+tivemanner. Forinstance,whenaqueryvectorq
+τ,i
+ingevaluation.
+attends on the key vectors k , it does not need
+τ,≤i
+to know the absolute position of each key vector
+3.3 RelativePositionalEncodings
+to identify the temporal order of the segment. In-
+While we found the idea presented in the pre- stead, it suffices to know the relative distance be-
+vious subsection very appealing, there is a cru- tweeneachkeyvectork anditselfq ,i.e. i−j.
+τ,j τ,i
+cial technical challenge we haven’t solved in or- Practically, one can create a set of relative posi-
+
+tionalencodingsR ∈ RLmax×d,wherethei-throw • Finally,wedeliberatelyseparatethetwoweight
+R indicates a relative distance of i between two matrices W and W for producing the
+i k,E k,R
+positions. By injecting the relative distance dy- content-based key vectors and location-based
+namicallyintotheattentionscore,thequeryvector keyvectorsrespectively.
+can easily distinguish the representations of x Under the new parameterization, each term has
+τ,j
+and x from their different distances, making anintuitivemeaning: term(a)representscontent-
+τ+1,j
+the state reuse mechanism feasible. Meanwhile, based addressing, term (b) captures a content-
+wewon’tloseanytemporalinformation,astheab- dependent positional bias, term (c) governs a
+solute position can be recovered recursively from global content bias, and (d) encodes a global po-
+relativedistances. sitionalbias.
+Previously,theideaofrelativepositionalencod- In comparison, the formulation in Shaw et al.
+ings has been explored in the context of machine (2018) only has terms (a) and (b), dropping the
+translation (Shaw et al., 2018) and music gener- twobiasterms(c)and(d). Moreover,Shawetal.
+ation (Huang et al., 2018). Here, we offer a dif- (2018) merge the multiplication W R into a sin-
+k
+ferent derivation, arriving at a new form of rel-
+gletrainablematrixRˆ
+,whichabandonstheinduc-
+ative positional encodings, which not only has a tive bias built into the original sinusoid positional
+one-to-one correspondence to its absolute coun- encoding (Vaswani et al., 2017). In contrast, our
+terpart but also enjoys much better generalization relative positional embedding R adapts the sinu-
+empirically(seeSection4). Firstly,inthestandard soid formulation. As a benefit of the inductive
+Transformer (Vaswani et al., 2017), the attention bias,amodeltrainedonamemoryofsomecertain
+score between query q and key vector k within length can automatically generalize to a memory
+i j
+thesamesegmentcanbedecomposedas severaltimeslongerduringevaluation.
+Aabs =E(cid:62)W(cid:62)W E +E(cid:62)W(cid:62)W U Equipping the recurrence mechanism with our
+i,j xi q k xj xi q k j
+(cid:124) (cid:123)(cid:122) (cid:125) (cid:124) (cid:123)(cid:122) (cid:125) proposedrelativepositionalembedding,wefinally
+(a) (b)
+arrive at the Transformer-XL architecture. For
++U(cid:62)W(cid:62)W E +U(cid:62)W(cid:62)W U .
+i q k xj i q k j completeness, we summarize the computational
+(cid:124) (cid:123)(cid:122) (cid:125) (cid:124) (cid:123)(cid:122) (cid:125)
+(c) (d) procedure for a N-layer Transformer-XL with a
+Following the idea of only relying on rela-
+singleattentionheadhere. Forn = 1,...,N:
+tive positional information, we propose to re-
+parameterizethefourtermsasfollows
+h(cid:101) n
+τ
+−1 = (cid:2) SG(mn
+τ
+−1)◦hn
+τ
+−1(cid:3)
+Arel =E(cid:62)W(cid:62)W E +E(cid:62)W(cid:62)W R
+qn
+τ
+,kn
+τ
+,v
+τ
+n =hn
+τ
+−1W
+q
+n(cid:62),h(cid:101) n
+τ
+−1W
+k
+n
+,E
+(cid:62),h(cid:101) n
+τ
+−1W
+v
+n(cid:62)
+i,j (cid:124) xi q (cid:123)(cid:122) k,E xj (cid:125) (cid:124) xi q (cid:123)(cid:122) k,R i− (cid:125) j An τ,i,j =qn τ,i (cid:62)kn τ,j +qn τ,i (cid:62)W k n ,R R i−j
+(a) (b)
++u(cid:62)k +v(cid:62)Wn R
++u(cid:62)W E +v(cid:62)W R . τ,j k,R i−j
+(cid:124) (cid:123) k (cid:122) ,E xj (cid:125) (cid:124) k (cid:123) , (cid:122) R i− (cid:125) j an τ =Masked-Softmax(An τ )v τ n
+(c) (d) on =LayerNorm(Linear(an)+hn−1)
+τ τ τ
+• The first change we make is to replace all ap-
+hn =Positionwise-Feed-Forward(on)
+τ τ
+pearancesoftheabsolutepositionalembedding
+U j for computing key vectors in term (b) and with h0 τ := E sτ defined as the word embed-
+(d) with its relative counterpart R . This es- ding sequence. In addition, it is worth mention-
+i−j
+sentially reflects the prior that only the relative ing that a naive way to compute A requires com-
+distance matters for where to attend. Note that puting W k n ,R R i−j for all pairs (i,j), whose cost
+Risasinusoidencodingmatrix(Vaswanietal., is quadratic w.r.t. the sequence length. How-
+2017)withoutlearnableparameters. ever, noticing that the value of i − j only ranges
+fromzerotothesequencelength, weshowasim-
+• Secondly, we introduce a trainable parameter
+ple computation procedure in Appendix B, which
+u ∈ Rd to replace the query U(cid:62)W(cid:62) in term
+i q reduces the cost to be linear w.r.t. the sequence
+(c). In this case, since the query vector is the
+length.
+sameforallquerypositions,itsuggeststhatthe
+attentivebiastowardsdifferentwordsshouldre- 4 Experiments
+main the same regardless of the query position.
+4.1 MainResults
+With a similar reasoning, a trainable parameter
+v ∈ Rd is added to substitute U(cid:62)W(cid:62) in term WeapplyTransformer-XLtoavarietyofdatasets
+i q
+(d). on both word-level and character-level language
+
+Model #Param PPL Model #Param bpc
+Graveetal.(2016b)-LSTM - 48.7 Cooijmansetal.(2016)-BN-LSTM - 1.36
+Baietal.(2018)-TCN - 45.2 Chungetal.(2016)-LNHM-LSTM 35M 1.29
+Dauphinetal.(2016)-GCNN-8 - 44.9 Zillyetal.(2016)-RHN 45M 1.27
+Graveetal.(2016b)-LSTM+Neuralcache - 40.8 Krauseetal.(2016)-LargemLSTM 45M 1.27
+Dauphinetal.(2016)-GCNN-14 - 37.2 Al-Rfouetal.(2018)-12LTransformer 44M 1.18
+Merityetal.(2018)-QRNN 151M 33.0
+Al-Rfouetal.(2018)-64LTransformer 235M 1.13
+Raeetal.(2018)-Hebbian+Cache - 29.9
+Ours-24LTransformer-XL 277M 1.08
+Ours-Transformer-XLStandard 151M 24.0
+BaevskiandAuli(2018)-AdaptiveInput(cid:5) 247M 20.5
+Table3: Comparisonwithstate-of-the-artresultsontext8.
+Ours-Transformer-XLLarge 257M 18.3
+Table 1: Comparison with state-of-the-art results on Model #Param PPL
+WikiText-103.(cid:5)indicatescontemporarywork.
+Shazeeretal.(2014)-SparseNon-Negative 33B 52.9
+Chelbaetal.(2013)-RNN-1024+9Gram 20B 51.3
+Model #Param bpc KuchaievandGinsburg(2017)-G-LSTM-2 - 36.0
+Dauphinetal.(2016)-GCNN-14bottleneck - 31.9
+Haetal.(2016)-LNHyperNetworks 27M 1.34
+Jozefowiczetal.(2016)-LSTM 1.8B 30.6
+Chungetal.(2016)-LNHM-LSTM 35M 1.32
+Jozefowiczetal.(2016)-LSTM+CNNInput 1.04B 30.0
+Zillyetal.(2016)-RHN 46M 1.27 Shazeeretal.(2017)-Low-BudgetMoE ∼5B 34.1
+Mujikaetal.(2017)-FS-LSTM-4 47M 1.25 Shazeeretal.(2017)-High-BudgetMoE ∼5B 28.0
+Krauseetal.(2016)-LargemLSTM 46M 1.24
+Shazeeretal.(2018)-MeshTensorflow 4.9B 24.0
+Knol(2017)-cmixv13 - 1.23 BaevskiandAuli(2018)-AdaptiveInput(cid:5) 0.46B 24.1
+Al-Rfouetal.(2018)-12LTransformer 44M 1.11 BaevskiandAuli(2018)-AdaptiveInput(cid:5) 1.0B 23.7
+Ours-12LTransformer-XL 41M 1.06
+Ours-Transformer-XLBase 0.46B 23.5
+Al-Rfouetal.(2018)-64LTransformer 235M 1.06 Ours-Transformer-XLLarge 0.8B 21.8
+Ours-18LTransformer-XL 88M 1.03
+Ours-24LTransformer-XL 277M 0.99
+Table4: Comparisonwithstate-of-the-artresultsonOneBil-
+lionWord.(cid:5)indicatescontemporarywork.
+Table2:Comparisonwithstate-of-the-artresultsonenwik8.
+modeling to have a comparison with state-of-the- former variants have a large margin over conven-
+artsystems,includingWikiText-103(Merityetal., tional RNN-based models. Notably, our 12-layer
+2016), enwik8 (LLC, 2009), text8 (LLC, 2009), architecture achieves the same result as the 64-
+One Billion Word (Chelba et al., 2013), and Penn layer network from Al-Rfou et al. (2018), using
+Treebank(MikolovandZweig,2012). only17%oftheparameterbudget. Inordertosee
+WikiText-103isthelargestavailableword-level whether better performances can be obtained by
+languagemodelingbenchmarkwithlong-termde- increasing the model size, we train 18-layer and
+pendency. It contains 103M training tokens from 24-layer Transformer-XLs with increased model
+28K articles, with an average length of 3.6K to- sizes. With the attention length 784 during train-
+kens per article, which allows testing the abil- ing and 3,800 during evaluation, we obtained a
+ity of long-term dependency modeling. We set new SoTA result and our method is the first to
+the attention length to 384 during training and break through 1.0 on widely-studied character-
+1600duringevaluation. Weadoptedadaptivesoft- level benchmarks. Different from Al-Rfou et al.
+max and input representations (Baevski and Auli, (2018), Transformer-XL does not need any auxil-
+2018; Grave et al., 2016a). As shown in Table 1, iary losses, and thus all benefits are credited to a
+Transformer-XLreducesthepreviousstate-of-the- betterarchitecture.
+art (SoTA) perplexity from 20.5 to 18.3, which Similartobutdifferentfromenwik8,text8con-
+demonstrates the superiority of the Transformer- tains 100M processed Wikipedia characters cre-
+XLarchitecture. ated by lowering case the text and removing any
+Thedatasetenwik8contains100Mbytesofun- characterotherthanthe26lettersathroughz,and
+processed Wikipedia text. We compare our ar- space. Due to the similarity, we simply adapt the
+chitecture with the previous results in Table 2. best model and the same hyper-parameters on en-
+Under the model size constraint, the 12-layer wik8totext8withoutfurthertuning. Thecompari-
+Transformer-XLachievesanewSoTAresult,out- sonwithpreviousmethodsissummarizedinTable
+performingthe12-layervanillaTransformerfrom 3. Again,Transformer-XLachievesthenewSoTA
+Al-Rfou et al. (2018) by 0.05, while both Trans- resultwithaclearmargin.
+
+Model #Param PPL that absolute encodings only work well with half
+losses because half losses exclude positions with
+Inanetal.(2016)-TiedVariationalLSTM 24M 73.2
+Zillyetal.(2016)-VariationalRHN 23M 65.4 veryshortattentionlengthsduringtrainingforbet-
+ZophandLe(2016)-NASCell 25M 64.0
+ter generalization. Table 6 shows that both the
+Merityetal.(2017)-AWD-LSTM 24M 58.8
+Phametal.(2018)-EfficientNAS 24M 58.6 recurrence mechanism and our encoding scheme
+Liuetal.(2018)-DifferentiableNAS 23M 56.1 are necessary to achieve the best performance, as
+Yangetal.(2017)-AWD-LSTM-MoS 22M 55.97
+wellasgeneralizingtolongerattentionsequences
+Melisetal.(2018)-Dropouttuning 24M 55.3
+during evaluation time. Although the backprop-
+Ours-Transformer-XL 24M 54.52
+agation length during training is only 128, with
+Merityetal.(2017)-AWD-LSTM+Finetune† 24M 57.3
+the two techniques the attention length can be in-
+Yangetal.(2017)-MoS+Finetune† 22M 54.44
+creasedto640attesttime. Inthestandardsetting
+with151Mparameters,theperplexitydecreasesas
+Table 5: Comparison with state-of-the-art results on Penn
+Treebank.†indicatesusingtwo-stepfinetuning. theattentionlengthincreases.
+Since the recurrence mechanism costs addi-
+tional memory, we also compare Transformer-XL
+One Billion Word does not preserve any long-
+withbaselinesunderthesameGPUmemorycon-
+term dependency because sentences have been
+straints. As shown in Table 10 in Appendix A,
+shuffled. Consequently, this dataset mainly tests
+despite using a shorter backpropagation length,
+the ability of modeling only short-term depen-
+Transformer-XLremainssuperiortothebaselines.
+dency. The comparison between Transformer-XL
+The second study targets at isolating the ef-
+and the other methods is shown in Table 4. Al-
+fectsofresolvingthecontextfragmentationprob-
+thoughTransformer-XLismainlydesignedtobet-
+lem from the benefit of capturing longer context
+ter capture longer-term dependency, it dramati-
+length. In order to achieve this goal, we deliber-
+cally improves the single-model SoTA from 23.7
+ately choose a dataset that does not require long-
+to 21.8. Specifically, Transformer-XL signifi-
+term dependency, so that any improvement from
+cantly outperforms a contemporary method using
+establishing the recurrence can be attributed to
+vanilla Transformers (Baevski and Auli, 2018),
+solving the context fragmentation. Specifically,
+suggesting the advantage of Transformer-XL is
+weperformthiscontrolledexperimentontheOne
+generalizabletomodelingshortsequences.
+BillionWorddataset,whichcanonlybenefitfrom
+We also report the results on word-level Penn
+removing the context fragmentation. We train
+Treebank in Table 5. Similar to AWD-LSTM
+a 20-layer Transformer-XL with ∼0.3B parame-
+(Merityetal.,2017),weapplyvariationaldropout
+ters for 400K steps. As shown in Table 7, using
+and weight average to Transformer-XL. With
+segment-level recurrence substantially improves
+proper regularization, Transformer-XL achieves a
+performance even when long-term dependency is
+new SoTA result among models without two-step
+not needed, which is consistent with our previous
+finetuning. Penn Treebank has only 1M training
+discussionthattherecurrencemechanismresolves
+tokens, which implies that Transformer-XL also
+thecontextfragmentationproblem. Moreover,our
+generalizeswellevenonsmalldatasets.
+relative positional encodings is also superior to
+4.2 AblationStudy Shawetal.(2018)onshortsequences.
+We conduct two sets of ablation studies to exam-
+4.3 RelativeEffectiveContextLength
+inetheeffectsoftwoproposedtechniquesusedin
+Transformer-XL: the recurrence mechanism and Khandelwal et al. (2018) proposed a method to
+thenewpositionalencodingscheme. evaluate the Effective Context Length (ECL) of a
+The first study is performed on WikiText-103, sequence model. ECL is the longest length to
+which requires modeling long-term dependency. which increasing the context span would lead to
+The results are reported in Table 6. Among the a gain more than a threshold. However, ECL ig-
+comparedencodingschemes,Shawetal.(2018)is nores the fact that it is harder to get improve-
+relative, while Vaswani et al. (2017) and Al-Rfou ment when a model already achieves a lower per-
+etal.(2018)areabsolute. “Full”and“half”losses plexity using only a shorter context, and thus it
+refer to applying a cross entropy loss to all or the is not suitable for fair comparison among mul-
+recent half positions in the segment. We found tiple models. We instead propose a new metric
+
+Remark Recurrence Encoding Loss PPLinit PPLbest AttnLen
+Transformer-XL(128M) (cid:51) Ours Full 27.02 26.77 500
+- (cid:51) Shawetal.(2018) Full 27.94 27.94 256
+- (cid:51) Ours Half 28.69 28.33 460
+- (cid:55) Ours Full 29.59 29.02 260
+- (cid:55) Ours Half 30.10 30.10 120
+- (cid:55) Shawetal.(2018) Full 29.75 29.75 120
+- (cid:55) Shawetal.(2018) Half 30.50 30.50 120
+- (cid:55) Vaswanietal.(2017) Half 30.97 30.97 120
+Transformer(128M)† (cid:55) Al-Rfouetal.(2018) Half 31.16 31.16 120
+23.09 640
+Transformer-XL(151M) (cid:51) Ours Full 23.43 23.16 450
+23.35 300
+Table 6: Ablation study on WikiText-103. For the first two blocks, we use a slightly smaller model (128M parameters).
+† indicates that the corresponding row is reduced to the same setting as the Transformer network in (Al-Rfou et al., 2018),
+exceptthattwoauxiliarylossesarenotimplementedinourexperiments.“PPLinit”referstousingthesamelengthastraining.
+“PPLbest”indicatestheperplexityobtainedbyusingtheoptimallength. “AttnLen”istheshortestpossibleattentionlength
+duringevaluationtoachievethecorrespondingresult(PPLbest). Increasingtheattentionlengthduringevaluationimproves
+performance only when our positional encoding is used. The “Transformer-XL (151M)” setting uses a standard parameter
+budgetaspreviouswork(Merityetal.,2018),whereweobserveasimilareffectwhenincreasingtheattentionlengthduring
+evaluation.
+Method PPL AttnLen HowmuchAl-Rfouetal.(2018)isslower
+Ours 25.2 3,800 1,874x
+WithShawetal.(2018)encodings 25.7 2,800 1,409x
+Withoutrecurrence 27.1 1,800 773x
+800 363x
+Table7:AblationstudyonOneBillionWord,adatasetwith-
+outlong-termdependency. Table9: Slowdownintermsofrunningtimeduringevalua-
+tion.Evaluationisbasedonper-tokentimeononeGPU.
+Model r=0.1 r=0.5 r=1.0
+Transformer-XL151M 900 800 700
+erage with r = 0.1. The RECL of Transformer-
+QRNN 500 400 300
+LSTM 400 300 200 XL is 80% and 450% longer than recurrent net-
+works and Transformer respectively. Both the re-
+Transformer-XL128M 700 600 500
+-useShawetal.(2018)encoding 400 400 300 currencemechanismandourpositionalencodings
+-removerecurrence 300 300 300
+contributetoalongerRECL.Thisfurthersubstan-
+Transformer 128 128 128
+tiatesourargumentthatTransformer-XLisableto
+Table8: Relativeeffectivecontextlength(RECL)compari- modellonger-termdependency.
+son.SeetextforthedefinitionofRECLandr.Thefirstthree
+modelsandthelastfourmodelsarecomparedastwomodel
+groups when we calculate RECL (RECL is computed on a 4.4 GeneratedText
+modelgroupratherthanasinglemodel).Eachgrouphasthe
+sameparameterbudget.
+Trained only on WikiText-103 which is medium-
+sized, Transformer-XLisalready ableto generate
+relatively coherent articles with thousands of to-
+called Relative Effective Context Length (RECL).
+kens without manual cherry picking, despite mi-
+RECL is defined on a model group instead of a
+norflaws. PleaserefertoAppendixEforsamples.
+single model, and the gain of a long context is
+measurebytherelativeimprovementoverthebest
+short context model. As such, the model group
+4.5 EvaluationSpeed
+shares the same baseline to enable fair compari-
+son. RECL also has a parameter r, which means Finally, we compare the evaluation speed of our
+constraining the comparison on top-r hard exam- model with the vanilla Transformer model (Al-
+ples. SeeAppedixCformoredetailsaboutRECL. Rfou et al., 2018). As shown in Table 9, due to
+As shown in Table 8, Transformer-XL manages the state reuse scheme, Transformer-XL achieves
+to model dependency of 900 words long on av- anupto1,874timesspeedupduringevaluation.
+
+5 Conclusions AndrewMDaiandQuocVLe.2015. Semi-supervised
+sequence learning. In Advances in neural informa-
+Transformer-XL obtains strong perplexity results, tionprocessingsystems,pages3079–3087.
+models longer-term dependency than RNNs and
+Yann N Dauphin, Angela Fan, Michael Auli, and
+Transformer, achieves substantial speedup during
+David Grangier. 2016. Language modeling with
+evaluation, and is able to generate coherent text
+gated convolutional networks. arXiv preprint
+articles. We envision interesting applications of arXiv:1612.08083.
+Transformer-XL in the fields of text generation,
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+unsupervised feature learning, image and speech
+KristinaToutanova.2018. Bert:Pre-trainingofdeep
+modeling.
+bidirectional transformers for language understand-
+ing. arXivpreprintarXiv:1810.04805.
+Acknowledgments
+ZD and YY were supported in part by National Adji B Dieng, Chong Wang, Jianfeng Gao, and John
+Paisley. 2016. Topicrnn: A recurrent neural net-
+Science Foundation (NSF) under the grant IIS-
+work with long-range semantic dependency. arXiv
+1546329 and by the DOE-Office of Science un-
+preprintarXiv:1611.01702.
+der the grant ASCR #KJ040201. ZY and RS
+were supported in part by the Office of Naval Yarin Gal and Zoubin Ghahramani. 2016. A theoret-
+ically grounded application of dropout in recurrent
+Research grant N000141812861, the NSF grant
+neuralnetworks. InAdvancesinneuralinformation
+IIS1763562,theNvidiafellowship,andtheSiebel
+processingsystems,pages1019–1027.
+scholarship.
+Edouard Grave, Armand Joulin, Moustapha Cissé,
+DavidGrangier, andHervé Jégou.2016a. Efficient
+References softmax approximation for gpus. arXiv preprint
+arXiv:1609.04309.
+RamiAl-Rfou, DokookChoe, NoahConstant, Mandy
+Guo, and Llion Jones. 2018. Character-level lan- Edouard Grave, Armand Joulin, and Nicolas
+guage modeling with deeper self-attention. arXiv Usunier. 2016b. Improving neural language
+preprintarXiv:1808.04444. models with a continuous cache. arXiv preprint
+arXiv:1612.04426.
+Alexei Baevski and Michael Auli. 2018. Adaptive in-
+put representations for neural language modeling. Alex Graves. 2013. Generating sequences with
+arXivpreprintarXiv:1809.10853. recurrent neural networks. arXiv preprint
+arXiv:1308.0850.
+DzmitryBahdanau,KyunghyunCho,andYoshuaBen-
+gio. 2014. Neural machine translation by jointly
+Alex Graves, Greg Wayne, and Ivo Danihelka.
+learning to align and translate. arXiv preprint
+2014. Neural turing machines. arXiv preprint
+arXiv:1409.0473.
+arXiv:1410.5401.
+Shaojie Bai, J Zico Kolter, and Vladlen Koltun.
+DavidHa,AndrewDai,andQuocVLe.2016. Hyper-
+2018. An empirical evaluation of generic convolu-
+networks. arXivpreprintarXiv:1609.09106.
+tional and recurrent networks for sequence model-
+ing. arXivpreprintarXiv:1803.01271.
+SeppHochreiter, YoshuaBengio, PaoloFrasconi, Jür-
+gen Schmidhuber, et al. 2001. Gradient flow in re-
+YoshuaBengio,RéjeanDucharme,PascalVincent,and
+currentnets: thedifficultyoflearninglong-termde-
+Christian Jauvin. 2003. A neural probabilistic lan-
+pendencies.
+guagemodel. Journalofmachinelearningresearch,
+3(Feb):1137–1155.
+Sepp Hochreiter and Jürgen Schmidhuber. 1997.
+Long short-term memory. Neural computation,
+CiprianChelba,TomasMikolov,MikeSchuster,QiGe,
+9(8):1735–1780.
+Thorsten Brants, Phillipp Koehn, and Tony Robin-
+son.2013. Onebillionwordbenchmarkformeasur-
+Cheng-Zhi Anna Huang, Ashish Vaswani, Jakob
+ingprogressinstatisticallanguagemodeling. arXiv
+Uszkoreit, Noam Shazeer, Curtis Hawthorne, An-
+preprintarXiv:1312.3005.
+drewMDai,MatthewDHoffman,andDouglasEck.
+Junyoung Chung, Sungjin Ahn, and Yoshua Bengio. 2018. An improved relative self-attention mecha-
+2016. Hierarchical multiscale recurrent neural net- nismfortransformerwithapplicationtomusicgen-
+works. arXivpreprintarXiv:1609.01704. eration. arXivpreprintarXiv:1809.04281.
+TimCooijmans,NicolasBallas,CésarLaurent,Çag˘lar HakanInan,KhashayarKhosravi,andRichardSocher.
+Gülçehre, and Aaron Courville. 2016. Re- 2016. Tying word vectors and word classifiers:
+current batch normalization. arXiv preprint A loss framework for language modeling. arXiv
+arXiv:1603.09025. preprintarXiv:1611.01462.
+
+YangfengJi,TrevorCohn,LingpengKong,ChrisDyer, Gábor Melis, Charles Blundell, Tomáš Kocˇisky`,
+andJacobEisenstein.2015. Documentcontextlan- Karl Moritz Hermann, Chris Dyer, and Phil Blun-
+guagemodels. arXivpreprintarXiv:1511.03962. som. 2018. Pushing the bounds of dropout. arXiv
+preprintarXiv:1805.09208.
+RafalJozefowicz,OriolVinyals,MikeSchuster,Noam
+Shazeer, and Yonghui Wu. 2016. Exploring Stephen Merity, Nitish Shirish Keskar, and Richard
+the limits of language modeling. arXiv preprint Socher.2017. Regularizingandoptimizinglstmlan-
+arXiv:1602.02410. guagemodels. arXivpreprintarXiv:1708.02182.
+Stephen Merity, Nitish Shirish Keskar, and Richard
+Nal Kalchbrenner, Lasse Espeholt, Karen Simonyan,
+Socher. 2018. An analysis of neural language
+Aaron van den Oord, Alex Graves, and Koray
+modeling at multiple scales. arXiv preprint
+Kavukcuoglu. 2016. Neural machine translation in
+arXiv:1803.08240.
+lineartime. arXivpreprintarXiv:1610.10099.
+StephenMerity,CaimingXiong,JamesBradbury,and
+Sekitoshi Kanai, Yasuhiro Fujiwara, Yuki Yamanaka,
+Richard Socher. 2016. Pointer sentinel mixture
+and Shuichi Adachi. 2018. Sigsoftmax: Reanal-
+models. arXivpreprintarXiv:1609.07843.
+ysis of the softmax bottleneck. arXiv preprint
+arXiv:1805.10829.
+Tomas Mikolov, Armand Joulin, Sumit Chopra,
+MichaelMathieu,andMarc’AurelioRanzato.2014.
+Nan Rosemary Ke, Anirudh Goyal ALIAS PARTH
+Learning longer memory in recurrent neural net-
+GOYAL, Olexa Bilaniuk, Jonathan Binas,
+works. arXivpreprintarXiv:1412.7753.
+Michael C Mozer, Chris Pal, and Yoshua Ben-
+gio.2018. Sparseattentivebacktracking: Temporal Tomáš Mikolov, Martin Karafiát, Lukáš Burget, Jan
+credit assignment through reminding. In Advances Cˇernocky`, and Sanjeev Khudanpur. 2010. Recur-
+in Neural Information Processing Systems, pages
+rent neural network based language model. In
+7650–7661. Eleventh Annual Conference of the International
+SpeechCommunicationAssociation.
+Urvashi Khandelwal, He He, Peng Qi, and Dan Ju-
+rafsky. 2018. Sharp nearby, fuzzy far away: How Tomas Mikolov and Geoffrey Zweig. 2012. Context
+neurallanguagemodelsusecontext. arXivpreprint dependentrecurrentneuralnetworklanguagemodel.
+arXiv:1805.04623. SLT,12(234-239):8.
+Bryon Knol. 2017. cmix v13. http://www. Frederic Morin and Yoshua Bengio. 2005. Hierarchi-
+byronknoll.com/cmix.html. calprobabilisticneuralnetworklanguagemodel. In
+Aistats,volume5,pages246–252.Citeseer.
+Jan Koutnik, Klaus Greff, Faustino Gomez, and Juer-
+gen Schmidhuber. 2014. A clockwork rnn. arXiv Asier Mujika, Florian Meier, and Angelika Steger.
+preprintarXiv:1402.3511. 2017. Fast-slow recurrent neural networks. In Ad-
+vances in Neural Information Processing Systems,
+BenKrause,LiangLu,IainMurray,andSteveRenals. pages5915–5924.
+2016. Multiplicative lstm for sequence modelling.
+RazvanPascanu,TomasMikolov,andYoshuaBengio.
+arXivpreprintarXiv:1609.07959.
+2012. Understanding the exploding gradient prob-
+lem. CoRR,abs/1211.5063.
+Oleksii Kuchaiev and Boris Ginsburg. 2017. Factor-
+ization tricks for lstm networks. arXiv preprint
+MatthewEPeters, MarkNeumann, MohitIyyer, Matt
+arXiv:1703.10722.
+Gardner, Christopher Clark, Kenton Lee, and Luke
+Zettlemoyer. 2018. Deep contextualized word rep-
+Quoc V Le, Navdeep Jaitly, and Geoffrey E Hin-
+resentations. arXivpreprintarXiv:1802.05365.
+ton. 2015. A simple way to initialize recurrent
+networks of rectified linear units. arXiv preprint
+Hieu Pham, Melody Y Guan, Barret Zoph, Quoc V
+arXiv:1504.00941.
+Le, and Jeff Dean. 2018. Efficient neural architec-
+ture search via parameter sharing. arXiv preprint
+ShuaiLi,WanqingLi,ChrisCook,CeZhu,andYanbo
+arXiv:1802.03268.
+Gao.2018. Independentlyrecurrentneuralnetwork
+(indrnn): Buildingalongeranddeeperrnn. InPro- Ofir Press and Lior Wolf. 2016. Using the output
+ceedings of the IEEE Conference on Computer Vi- embedding to improve language models. arXiv
+sionandPatternRecognition,pages5457–5466. preprintarXiv:1608.05859.
+Hanxiao Liu, Karen Simonyan, and Yiming Yang. AlecRadford,KarthikNarasimhan,TimSalimans,and
+2018. Darts: Differentiable architecture search. Ilya Sutskever. 2018. Improving language under-
+arXivpreprintarXiv:1806.09055. standingbygenerativepre-training. URLhttps://s3-
+us-west-2.amazonaws.com/openai-assets/research-
+MultiMedia LLC. 2009. Large text compression covers/languageunsupervised/language under-
+benchmark. standingpaper.pdf.
+
+Jack W Rae, Chris Dyer, Peter Dayan, and Tim- Julian Georg Zilly, Rupesh Kumar Srivastava,
+othy P Lillicrap. 2018. Fast parametric learn- Jan Koutník, and Jürgen Schmidhuber. 2016.
+ing with activation memorization. arXiv preprint Recurrent highway networks. arXiv preprint
+arXiv:1803.10049. arXiv:1607.03474.
+Peter Shaw, Jakob Uszkoreit, and Ashish Vaswani. BarretZophandQuocVLe.2016. Neuralarchitecture
+2018. Self-attentionwithrelativepositionrepresen- search with reinforcement learning. arXiv preprint
+tations. arXivpreprintarXiv:1803.02155. arXiv:1611.01578.
+Noam Shazeer, Youlong Cheng, Niki Parmar, Dustin
+Tran,AshishVaswani,PenpornKoanantakool,Peter
+Hawkins,HyoukJoongLee,MingshengHong,Cliff
+Young,etal.2018. Mesh-tensorflow:Deeplearning
+for supercomputers. In Advances in Neural Infor-
+mationProcessingSystems,pages10434–10443.
+NoamShazeer,AzaliaMirhoseini,KrzysztofMaziarz,
+Andy Davis, Quoc Le, Geoffrey Hinton, and Jeff
+Dean. 2017. Outrageously large neural networks:
+The sparsely-gated mixture-of-experts layer. arXiv
+preprintarXiv:1701.06538.
+Noam Shazeer, Joris Pelemans, and Ciprian Chelba.
+2014. Skip-gram language modeling using sparse
+non-negative matrix probability estimation. arXiv
+preprintarXiv:1412.1454.
+Trieu H Trinh, Andrew M Dai, Thang Luong, and
+QuocVLe.2018. Learninglonger-termdependen-
+cies in rnns with auxiliary losses. arXiv preprint
+arXiv:1803.00144.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz
+Kaiser, and Illia Polosukhin. 2017. Attention is all
+you need. In Advances in Neural Information Pro-
+cessingSystems,pages5998–6008.
+Tian Wang and Kyunghyun Cho. 2015. Larger-
+context language modelling. arXiv preprint
+arXiv:1511.03729.
+Wenlin Wang, Zhe Gan, Wenqi Wang, Dinghan Shen,
+Jiaji Huang, Wei Ping, Sanjeev Satheesh, and
+Lawrence Carin. 2017. Topic compositional neural
+languagemodel. arXivpreprintarXiv:1712.09783.
+Jason Weston, Sumit Chopra, and Antoine Bor-
+des. 2014. Memory networks. arXiv preprint
+arXiv:1410.3916.
+Yuhuai Wu, Saizheng Zhang, Ying Zhang, Yoshua
+Bengio, and Ruslan R Salakhutdinov. 2016. On
+multiplicative integration with recurrent neural net-
+works. InAdvancesinneuralinformationprocess-
+ingsystems,pages2856–2864.
+Zhilin Yang, Zihang Dai, Ruslan Salakhutdinov, and
+WilliamWCohen.2017. Breakingthesoftmaxbot-
+tleneck: A high-rank rnn language model. arXiv
+preprintarXiv:1711.03953.
+Wojciech Zaremba, Ilya Sutskever, and Oriol Vinyals.
+2014. Recurrent neural network regularization.
+arXivpreprintarXiv:1409.2329.
+
+A AblationStudywithMemoryConstraints
+BackpropLen Recurrence Encoding Loss pplxbest pplxinit AttnLen
+128 (cid:51) Ours Full 26.77 27.02 500
+128 (cid:51) Ours Partial 28.33 28.69 460
+176 (cid:55) Ours Full 27.98 28.43 400
+172 (cid:55) Ours Partial 28.83 28.83 120
+Table10: AblationstudyonWikiText-103withthesameGPUmemoryconstraints.
+Table 10 compares Transformer-XL with baseline under the same memory budget. Transformer-XL
+stilloutperformsthebaselineevenwithashorterbackproplength.
+B EfficientComputationoftheAttentionwithRelativePositionalEmbedding
+Aswediscussedinsection3.3,thenaivewayofcomputingtheW R forallpairs(i,j)issubject
+k,R i−j
+to a quadratic cost. Here, we present a simple method with only a linear cost. Firstly, notice that the
+relativedistancei−j canonlybeintegerfrom0toM +L−1,whereM andLarethememorylength
+andsegmentlengthrespectively. Hence,therowsofthematrix
+ R(cid:62)
+M+L−1
+ [W
+k,R
+R
+M+L−1
+](cid:62)
+R(cid:62) [W R ](cid:62)
+ M+L−2  k,R M+L−2 
+Q :=  . . W (cid:62) =  . .  ∈ R(M+L)×d
+ .  k,R  . 
+ R(cid:62)   [W R ](cid:62) 
+1 k,R 1
+R(cid:62) [W R ](cid:62)
+0 k,R 0
+consist of all possible vector outputs of W R for any (i,j). Note that we have defined Q in a
+k,R i−j
+reversedorder,i.e.,Q = W R ,tomakefurtherdiscussioneasier.
+k k,R M+L−1−k
+Next,wecollecttheterm(b)forallpossiblei,j intothefollowingL×(M +L)matrix,
+ q(cid:62)W R ··· q(cid:62)W R 0 ··· 0 
+0 k,R M 0 k,R 0
+B =     q 1 (cid:62)W k,R . . . R M+1 ·· . . . · q 1 (cid:62)W . . . k,R R 1 q 1 (cid:62)W . . . k,R R 0 · . · . · . 0 . . .    
+q(cid:62) W R ··· q(cid:62) W R q(cid:62) W R ··· q(cid:62) W R
+L−1 k,R M+L−1 L−1 k,R M+L−1 L−1 k,R L−1 L−1 k,R 0
+ q(cid:62)Q ··· q(cid:62)Q 0 ··· 0 
+0 L−1 0 M+L−1
+=     q 1 (cid:62)Q . . . L−2 ·· . . . · q 1 (cid:62)Q M ... +L−2 q 1 (cid:62)Q M . . . +L−1 · . · . · . 0 . . .    
+q(cid:62) Q ··· q(cid:62) Q q(cid:62) Q ··· q(cid:62) Q
+L−1 0 L−1 M L−1 M+1 L−1 M+L−1
+Then,wefurtherdefine
+ q(cid:62)Q ··· q(cid:62)Q q(cid:62)Q ··· q(cid:62)Q 
+0 0 0 M 0 M+1 0 M+L−1
+B(cid:101) = qQ(cid:62) =     q 1 (cid:62) . . . Q 0 ·· . . . · q 1 (cid:62) . Q .. M q 1 (cid:62)Q . . . M+1 · . · . · . q 1 (cid:62)Q M . . . +L−1     .
+q(cid:62) Q ··· q(cid:62) Q q(cid:62) Q ··· q(cid:62) Q
+L−1 0 L−1 M L−1 M+1 L−1 M+L−1
+Now, itiseasytoseeanimmediaterelationshipbetweenBandB(cid:101), wherethei-throwofBissimplya
+left-shiftedversionofi-throwofB(cid:101). Hence,thecomputationofBonlyrequiresamatrixmultiplication
+qQ(cid:62) tocomputeB(cid:101) andthenasetofleft-shifts.
+Similarly,wecancollectallterm(d)forallpossiblei,j intoanotherL×(M +L)matrixD,
+ v(cid:62)Q ··· v(cid:62)Q 0 ··· 0 
+L−1 M+L−1
+v(cid:62)Q L−2 ··· v(cid:62)Q M+L−2 v(cid:62)Q M+L−1 ··· 0 
+D =  
+
+. .
+.
+. .
+.
+... . .
+.
+... . .
+.
+ 
+
+.
+v(cid:62)Q ··· v(cid:62)Q v(cid:62)Q ··· v(cid:62)Q
+0 M M+1 M+L−1
+
+Then,wecanfollowthesameproceduretodefine
+d(cid:101) = [Qv](cid:62) = (cid:2) v(cid:62)Q
+0
+··· v(cid:62)Q
+M
+v(cid:62)Q
+M+1
+··· v(cid:62)Q
+M+L−1
+(cid:3) .
+Again,eachrowofDissimplyaleft-shiftversionofd(cid:101). Hence,themaincomputationcostcomesfrom
+thematrix-vectormultiplicationd(cid:101) = [Qv](cid:62),whichisnotexpensiveanymore.
+C DetailsAboutRECL
+(a)Transformer-XLvsRNNs (b)Transformer-XLvsBaseline
+Figure3: Visualizingunnormalizedrelativeperplexitygainswithr =0.1.
+(a)Transformer-XLvsRNNs (b)Transformer-XLvsBaseline
+Figure4: Perplexityvscontextlength.
+Inthissection,wedescribethedetailsofthemetricRECL.LetM = {m ,m ,··· ,m }beamodel
+1 2 N
+group consisting of N models. Let l (c,t) denote the loss of model m on the t-th token in the corpus
+i i
+withacontextlengthc. Concretely,thelosscanbewrittenas
+l (c,t) = −logP (x |x ,··· ,x )
+i mi t t−1 t−c
+whereP istheprobabilitydistributiongivenbymodelm ,andx isthet-thtokeninthecorpus. Given
+mi i t
+ashortcontextlengthcandalongcontextlengthc(cid:48) suchthatc(cid:48) ≥ c,wecanfurtherdefineabaselinefor
+eachpositiont,
+N
+b(c,t) = minl (c,t)
+i
+i=1
+Therelativelossofm w.r.t. themodelgroupMiswrittenas
+i
+f (c,c(cid:48)) = 1 (cid:88) min (cid:0) b(c,t),l (c(cid:48),t) (cid:1)
+i i
+|T|
+t∈T
+The above equation uses the minimum loss of all models on the short length c as a baseline, and only
+losses smaller than the baseline will be effectively counted towards the relative loss. This enables fair
+
+comparison between multiple models because all models with a long context length c(cid:48) need to improve
+over the same baseline. Sometimes we only care about those positions where the baseline performs
+poorly (which means short-term dependency with context length c is not sufficient), so given a ratio
+parameterr,wedefinethesetT istheaboveequationas
+T = top-r positionstwithlargestb(c,t)
+Therelativegainissubsequentlydefinedastherelativeperplexityreduction:
+expf (c,c)−expf (c,c(cid:48))
+g (c,c(cid:48)) = i i
+i
+expf (c,c)
+i
+Givenastepsize∆,wethenuseanalgorithmtofindtheRECLbythresholdingtherelativegain:
+1. Setinitialshortcontextlengthc,andlongcontextlengthc(cid:48) = c+∆
+2. Computeg (c,c(cid:48)). Ifg (c,c(cid:48)) < 0.01,returnRECL = c. Ifg (c,c(cid:48)) ≥ 0.01,setc = c(cid:48),c(cid:48) = c+∆
+i i i
+andgotostep1.
+InFigure3,wevisualizetheunnormalizedrelativeperplexitygains(expf (c,c)−expf (c,c(cid:48)))with
+i i
+various pairs of (c,c(cid:48)) when r = 0.1. It is clear that Transformer-XL has a longer RECL compared to
+RNNsandotherbaselinesbecausetherelativegainsaresubstantiallylarger.
+For reference, we plot the perplexities with varying context lengths in Figure 4. The y-axis denotes
+the“normal”perplexity(notcalibratedbybaselines).
+D AttentionVisualization
+In this section, we provide some visualization of the attention learned by the SoTA model on the
+WikiText-103 validation set. Recall that, this model has 16 10-head transformer layers and relies on
+amemoryoflength640.
+Figure5:Averageattentionovertheprevious640tokens,whereeachrowcorrespondstoaattentionheadandeach
+columncorrespondstoarelativelocation. Therearetotally160attentionheads,andevery10headscomefroma
+singlelayer. Darkercolorsindicatehighervalues.
+Thefirstvisualizationaimsatrevealingtheoveralltrendofwherethemodelisattending. Specifically,
+foreachattentionheadofeachlayer,weaveragetheattentiondistributionsofalltokensinthevalidation
+set. This is shown in Fig. 5. As we can see, the overall trend is to focus more on the nearby tokens
+than the faraway ones. However, it is also very clear that some attention heads have a wider attention
+distributionovertheentirememoryspan,notablythehead8fromlayer1,head78fromlayer8,andthe
+head158fromlayer16.
+Since we are focused on learning long-range dependency, we are especially interested in these heads
+with a wider attention span. Thus, in the second set of visualization, we pick the three notable heads
+mentionedabove,andvisualizetheirattentionbehaviorforarandomlychosenposition,asshowninFig.
+6. Here,weseethreedifferentpatternsofwiderattention:
+• Forthehead8inthe1stlayer,weseeanalmostuniformattentionovertheentirememoryspan. This
+isquiteintuitive,aslower-levellayersneedstoscreentheentirememoryspantodecidewheretofocus
+forhigher-levellayers
+
+(a)Head8fromlayer1.
+(b)Head78fromlayer8.
+(c)Head158fromlayer16.
+Figure 6: Visualization of the three heads with a wide attention range. Each row corresponds to a target loca-
+tion/token and each column corresponds to a context location/token. Tokens in the memory that have top 20%
+attentionvaluesarehighlightedinred.
+• Forthehead78inthe8thlayer(amiddle-levellayer),weseeaverysparseattentionpatternscattered
+in all ranges of the memory. Again, this well fits our intuition that as information accumulates, the
+networkmayfocusonsomeparticularpositionwithspecialinterests.
+• Forthehead158inthe16thlayer(i.e. thelastlayer),eachtargetlocation(correspondingtoeachrow)
+hasitsowndistinctsparsefocus,differingfromhead78wheretargetlocationslargelysharethesame
+attentivelocationinmemory. Meanwhile, thepatternisalsodifferentfromthecaseofhead8, where
+afewlocationsareclearlyattendedmorethanothers.
+Finally,aswehavediscussedinsection3.3,theattentionscorecanbedecomposedintofourintuitive
+terms. Here,wewanttofurtherinvestigatehowthesefourtermscontributetotheoverallattentiontrend
+in Fig. 5. Since the term (c) represents the global content bias, i.e., the prior importance of each word
+regardlessofthecontext,wewillleaveitoutandfocusontheterms(a),(b)and(d). So,foreachterm,
+we take the Softmax w.r.t. the memory span and average the resulted distribution of all tokens in the
+validationset. TheresultsarevisualizedinFig. 7:
+• Since term (a) is fully content-based addressing, when averaging over all target words, the result is
+essentially uniform over the entire context, except for a few very close words, which are likely to be
+semanticallysimilartothetargetword.
+• The overall trend of term (b) highly resembles that of the entire attention distribution in Fig. 5. It
+suggeststhattheglobaltrendoffocusingonthenearbycontextislargelycontributedbythiscontent-
+dependentpositionalbias.
+• Theoveralltrendofterm(d)isalsofocusingmoreonnearbywords. However,comparedtothetrend
+ofterm(b),itisclearlyflatterandbiasestowardsalongercontext.
+
+(a)Term(a).
+(b)Term(b).
+(c)Term(d).
+Figure7: Visualizationofthethreetermsincomputingtheattentionscore. Eachrowcorrespondstoaattention
+headandeachcolumncorrespondstoarelativelocation.
+E GeneratedText
+In this section, we present some generated text from our best model trained the Wikitext-103 dataset.
+We seed the our Transformer-XL with a context of at most 512 consecutive tokens randomly sampled
+from the test set of Wikitext-103. Then, we run Transformer-XL to generate a pre-defined number of
+tokens (500 or 1,000 in our case). For each generation step, we first find the top-40 probabilities of the
+next-step distribution and sample from top-40 tokens based on the re-normalized distribution. To help
+reading,wedetokenizethecontext,thegeneratedtextandthereferencetext. Threegeneratedexamples
+are shown in Tables 11, 12, and 13. Note that we do not perform any cherry picking and present the
+firstthreeexampleswegenerateinthepaper. Inthetext, “=text=”, “==text==”and“===text==
+=”denotetheWikipediapagetile,sectiontitleandsubsectiontitle,respectively,duetotheoriginaldata
+preprocessingprocedureofWikitext-103(Merityetal.,2016).
+Aswecansee,thoughonlytrainedon100Mtokens,Transformer-XLisastrongmodelatgenerating
+longtextarticles,particularlyinthefollowingaspects:
+• Transformer-XLisabletostructurallymaintainthesectionalarrangementofWikipedia.
+• Transformer-XL manages to semantically stay on the same topic throughout the course of genera-
+tion.
+• Long-rangereferencesarecommoninthegeneratedtext.
+• Transformer-XLoftengeneratesnovelcontentthatisnotpresentinthetrainingdata.
+Formoredetailedexplanationoftheinterestingobservationsineachexample,pleaserefertothecorre-
+spondingcaption.
+
+Despitetheoverallexcellenceofthegenerationquality,themodelcanonlyperceivetheseedcontext
+and hallucinate what to generate based on the limited knowledge (100M tokens only) it is trained on.
+As a result, the generated text sometimes looks clearly relevant but not close enough or to the point
+comparedtowhathumanwriterwoulddo. Thatsaid,webelievethisissueismostlyaproblemoflimited
+trainingdatasizeandcouldbealleviatedbyusingalargertrainingset.
+Context:
+Kershawstartedthe2010seasonbypostinga3.07ERAinApril,butdidsobywalking22battersin29innings. OnMay4,hehadhisworststartofhiscareer
+againsttheMilwaukeeBrewersatDodgerStadium,throwingjust57pitchesin11/3innings,whileretiringonlyfourofthe13battershefaced—includingthe
+pitcher. Hewasbooedloudlyuponbeingpulledfromthegame. Kershawsaidafterthegame,"Ididn’tgiveourteamanykindofchance. It’sjustnotagood
+feelingtoletyourteammatesdown,leteverybodydown.Itstings,ithurts.I’vegottofigurethingsout."Kershawreboundedhisnextstartbypitchingan8inning
+two-hitterandout-duelingthethenundefeatedUbaldoJiménez.Hecreditedhiscontrolofthesliderbeingthemajorturningpointforhim.Laterintheseason,he
+wassuspendedforfivegamesafterhittingAaronRowandoftheGiantswithapitchinagameonJuly20. Theincidentoccurredafterbothteamsweregivena
+warningfollowingGiantsaceTimLincecumhittingMattKempearlierinthegame.HethrewhisfirstcareercompletegameshutoutonSeptember14,2010also
+againstSanFranciscoandfinishedtheseasonwitharecordof13–10anda2.91ERAin32starts,pitching2041/3inningsandrecording212strikeouts.
+====2011season:1stCyYoungAward====
+Afterfinishingthe2010seasonstrong,theDodgersnamedKershawastheOpeningDayStarterforthe2011season.OnMay29,hepitchedthesecondcomplete-
+gameshutoutofhiscareer,strikingout10whilewinningatwo-hitteragainsttheFloridaMarlins,8–0;healsohadtwosinglesandanRBI,scoringtwiceinthe
+game.HeproducedhisthirdcareershutoutonJune20,atwo-hit,11-strikeouteffortagainsttheDetroitTigers.KershawbecamethefirstDodgersstartertostrike
+outthesideinthe9thinningsinceSandyKoufax’sperfectgame.Inhisnextstart,onJune26,Kershawpitchedanothercompletegame(againsttheLosAngeles
+AngelsofAnaheim).HebecamethefirstDodgerstartertohaveback-to-backcompletegamevictoriessinceJeffWeaverinthe2005seasonandthefirstDodger
+tohavedouble-digitstrikeoutsinconsecutivestartssinceChan-HoParkinthe2000season.HewasawardedtheNationalLeaguePlayeroftheWeekawardforthe
+weekofJune20–26asaresultofthosetwostarts.MidwaythroughJune,Kershawhadamassed32careervictories
+XLGeneration: Reference:
+,tyinghimwithLuisCastilloforthethirdbeststarttotalintheleagueandtrail- ,a3.15ERAand593careerstrikeoutsin568.2innings.AccordingtotheElias
+ingonlyJohnnyBenchandEddieMathews(37).TheDodgerssignedKershaw SportsBureau, Kershawwasthefirst23-year-oldpitchertohavethatmany
+toaone-yeardealonJuly14,2011,withaplayeroptionfor2012,inadeal victories,anERAthatlowandanaverageofmorethanonestrikeoutperinning
+worthjustunder$300,000.TheDodgersenteredthe2011seasonasthemajor sinceERAbecameanofficialstatisticin1910. Kershawwasselectedtothe
+leagueleaders,andKershawhadthebestrecordintheNationalLeagueinsaves NationalLeagueteamforthe2011MajorLeagueBaseballAll-StarGame,his
+(39),gamesstarted(78)andwalks(120);healsohadthelowestwin/lossratio firstAll-Starselection. InthemonthofJuly,Kershawwas4–1witha2.02
+intheleague(1.87),andhehadtheworston-basepercentage(.349). Hehad ERAandNL-leading45strikeouts,earninghimtheNationalLeaguePitcherof
+thebestERA(2.00),mostwins(16),ormostshutouts(29)inhiscareer(25), theMonthAward.OnAugust23,hestruckoutMattHollidayoftheSt.Louis
+whileleadingtheleagueinlossespernineinningspitched(4.01).Followingthe Cardinalsforhis200thstrikeoutoftheseasonandbecamethe10thDodger
+2011season,theDodgerstradedKershawtotheKansasCityRoyalsonJuly29 pitchertorecordback-to-back200strikeoutseasonsandthefirstsinceChan-
+forpitcherJavierTorres. HoParkdiditinthe2001season.Kershawfinishedthe2011seasonbyleading
+===KansasCityRoyals=== theNLwith21wins,248strikeoutsanda2.28ERA,winningtheNLpitching
+====2012season==== TripleCrown,thefirstTripleCrownwinnersinceJakePeavyofthe2007San
+Duringspringtraining,Kershawplayedverywell. Hewasselectedtospring DiegoPadresandthefirstDodgersinceSandyKoufaxwonitinthe1966season.
+trainingasareliefpitcherfortheRoyalsforthe2012season. Afteraninjury JustinVerlanderoftheDetroitTigerswontheAmericanLeagueTripleCrown
+tocloserJavierVázquez,hewasactivatedonApril29toreplaceMattHolliday thesameseason,markingthefirstmajor-leagueseasonsince1924tofeature
+intheRoyals’startingrotation.InhisonlystartwiththeRoyals,onAugust6, TripleCrown-winningpitchersinbothleagues. Kershaw’s21winswerethe
+2012,KershawstruckoutfivebattersinseveninningspitchedtohelptheRoyals mostbyaDodgerpitchersinceOrelHershiserwon23duringthe1988season.
+totheirfirstvictoryinfranchisehistory. OnSeptember27,2012,itappeared HisERAwasthelowestbyaDodgersinceHershiser’s2.03inthe1985season,
+KershawwasgoingtopitchacompletegameshutoutagainsttheDetroitTigers, hisstrikeoutswerethemostbyaDodgersinceKoufax’s317in1966andhis233
+butdidnotmanagetodososincetheTigerswon3–1. Attheconclusion 1/3inningspitchedwerethemostsinceChanHoParkpitched234in2001.
+oftheseason,KershawwasnamedMajorLeagueBaseball’sMostValuable Since1965whenKoufaxdidit,PeavyandKershawareonlytwopitchersinthe
+Player,waschosentotheAll-StarGameatBuschStadiumandwasnamedto NationalLeaguehaveledtheleagueinwins,strikeouts,ERA,andWHIP(walks
+theAll-StarGameasthestartingpitcheratshortstop.TheRoyalsannouncedon plushitsperinningpitched). Kershawalsobecamejustthesecond<unk>to
+February4,2013thatKershawwouldspend2013asstartingpitcher,thoughhe havea240-plusstrikeoutsinaseasonbeforetheageof24,joiningVidaBlue.
+wasexpectedtomisstheseasonasaresultofashoulderinjury. Aftertheseason,KershawwasawardedtheWarrenSpahnAwardasthebest
+====2013season==== left-handedpitcherin2011,thePlayersChoiceAwardforMostOutstanding
+OnMay17,2013,Kershawsustainedanotherbackinjuryanddidnotstartin NationalLeaguepitcher,theGoldGloveAwardasthetopfieldingpitcherin
+AugustandOctober2013. Heappearedin22starts,allstarts,finishingwith theNLandtheSportingNews(TSN)NationalLeaguePitcheroftheYear.He
+astrikeout-to-walkratioof1.50anda2.91ERA.Healsohadthethirdmost wasadditionallyselectedasthestartingpitcherfortheTSNNLAll-StarTeam.
+strikeoutsintheleague:10.OnMay20,2013,he OnNovember17,hewashonoredwiththeNationalLeagueCyYoungAward,
+makinghimtheyoungestCyYoungwinnersinceDwightGooden
+Table 11: Example 1 – 500 tokens generated by XL using a snippet from the Wikitext-103 test set as initial context. The
+sampleisrandomlygeneratedwithoutanycherrypicking.
+OriginalWikipediapage:https://en.wikipedia.org/wiki/Clayton_Kershaw
+Therearemanyinterestingobservationsfromthisexample:
+• Firstly,KershawneverwenttoRoyalsinreallife.Despitethat,Transformer-XLstaysonthefullyimaginedtopicandkeeps
+hallucinatingtheexperienceofKershawinRoyalsacrossthegeneratedtext.
+• Secondly,noticethatXLcorrectlytracksthechronologicalorderfrom2011to2012andtothefinally2013seasoninthe
+sectiontitles.
+• Inaddition,noticethatTransformer-XLaccuratelyusesthethephrase“anotherbackinjury”inthe2013seasonparagraph,
+since it has talked about one earlier injure in the 2012 season. This shows again Transformer-XL’s ability of capturing
+long-termdependency.
+
+Context:
+==Distribution==
+SpeciesrangeacrosstheNeotropicsfromMexicointhenorthtoBolivia,Paraguay,andsouthernBrazilinthesouth. Accordingto<unk>andcoauthors,three
+speciesarefoundinMexico,fourinCentralAmerica,and62inSouthAmerica.ThreespeciesarepresentintheCaribbean—twoinTrinidadandTobago,along
+thesouthernedgeoftheregion,andoneinHaiti.
+==Habitatandecology==
+<unk>includesbothlargetreesandsmallacaulescentpalmswhichoccupyanumberofdifferentecologicalniches.Densestandsofsomeofthelargerspeciesare
+conspicuouselementsonthelandscape,whilesmallerspeciesarefoundinbothintheforestunderstoreyandinsavannas.Disturbancehasbeenimplicatedinthe
+formationofvegetationdominatedbylarge<unk>species. InseasonallydryAmazonianforeststhedensityoflargeadultA.<unk>palmswascorrelatedwith
+canopyopenness;thespeciesalsodominatessavannasformedbyrepeatedforestfiresinTrinidadandTobago.<unk>speciosaformspurestandsinmanypartsof
+Brazilwherenaturalforestvegetationhasbeencleared.Similarly,standsofA.<unk>inBahia,Brazil(whicharecultivatedfor<unk>fibre)aremanagedusing
+fire—theseedlingssurvivecuttingandburning,andareabletodominateburnedforestpatches.Thefruitaredispersedbyanimals;fruitwhicharenotdispersed
+frequentlysufferseedpredationby<unk>beetles. Certainspeciesof<unk>havebeenmentionedasexamplesof"anachronistic"specieswhichareadapted
+fordispersalbynow-extinctPleistocenemegafauna. On<unk>Island,<unk>,intheBrazilianAmazon,<unk><unk>fruitwereconsumedbytapirs,collared
+peccaries,deerandprimates.Rodents,includingagoutis,feduponthefruitand,asthefruitavailabilitydeclined,theyfedontheseeds.Otherdispersersof<unk>
+fruitincludeCrested<unk>whichconsumethefruitanddispersetheseedsofA.<unk>intheBrazilianPantanal.
+==Uses==
+<unk>specieshavealonghistoryofhumanutilisation.<unk><unk><unk>seedshavebeenfoundinarchaeologicalsitesinColombiadatingbackto9000BP.
+Avarietyofspeciesremainimportantsourcesofedibleoil,thatch,edibleseedsandfibre. Theleavesof<unk><unk>andA.<unk>areusedextensivelyfor
+thatching.Severalspeciesareoilpalms,withA.speciosaamongthemostimportanteconomically.ProductsextractedfromA.speciosawerereportedtosupport
+over300,000householdsintheBrazilianstateofMaranhãoin2005,andin1985itwasestimatedtosupportover450,000householdsthroughouttheBrazil.<unk>
+fibres,extractedfromtheleafbasesofA.<unk>,arecommerciallyimportant,andgeneratedaboutUS$
+XLGeneration: Reference:
+700,000in2013ontheblackmarket. In2004theplantwasreportedtobe 20millioninannualincometoBrazilianfarmersin1996.
+responsibleforanetprofitofaroundUS$3millioninBrazil. A2012study =TheHeartofEzraGreer=
+foundA.speciosatocauseagriculturalproductionatleast2–3timesgreater TheHeartofEzraGreerisa1917Americansilentdramafilmproducedbythe
+thanthoseachievedwithoutpriorknowledgeoflandmanagement. ThanhouserCompanyanddirectedbyEmile<unk>.ThefilmfocusesonEzra
+=TheTaleofMrs.Tittlemouse= Greer,asuccessfulmiddle-agedmanwhosearchesforhiscollegeagedaughter,
+TheTaleofMrs.Tittlemouseisachildren’sbookwrittenandillustratedbyH. Mary.ThewaywardMarywasromancedandabandonedbyJack<unk>,later
+M.Potter. ItwasfirstpublishedinFebruary1910byFrederickWarne&Co. bearinghischild. OnceEzrabecomesbrokehefindsemploymentasthevalet
+andincludedillustrationsbyFrederickWarne.Mrs.Tittlemousewasintended forJack<unk>.AfterJack’sengagementtoacabaretgirl,Marybecomesupset
+tobeachildren’sbook,ratherthanamusical,andthetaledescribesherattempts andleavesherchildatJack’shome.ContrarytoJack’swishes,Ezrakeepsthe
+tofindherownhome.Mrs.Tittlemouseisanaveragekittenandthetalefollows childandJackultimatelyrevealsthatthechildishisown.EzraconvincesJack
+amischievousrabbitnamedMr.Tittlemousewhotriestokillherinanattempt tomakethingsrightandEzraconvincesthecabaretgirltoleaveJack. Aftera
+togetarideonahorse. Potterlaterwroteoftherabbitandherattemptsto carriageaccidentinwhichthebabyisinjured,EzraandJackrushtothehospital
+killher,"If[she]wereafox,Ishouldliketohavebeenabletoshowherthe andfindMaryasanursecryingoverthechild.Thefilmendswiththemarriage
+way. "Potter’sworkwasinspiredbyTheTaleofLittleBlackSamboandher ofJackandMary.ThefilmwasreleasedbyPathéonOctober7,1917.Thefilm
+twonieces,PetuniaandPetunia.ItwasthefirstbookinthePotterfamilytobe wasthefinalreleasefromThanhouserandwasdeemedtobeanaveragefilm
+publishedinahardbackformat,andwasalsothefirstbookinthePeterRabbit bymostreviewers.Criticismforthefilmhingedonfar-fetchedcoincidencesto
+series. Thetalewasreleasedon13November1910andwasaccompaniedby drivetheplot.Thefilmispresumedlost.
+agreetingcardbyPotter’sbrother-in-law,FrederickWarne. Thetalewaswell ==Plot==
+receivedbycriticsandchildren,andsoldover600,000copiesinitsfirstfew ThefilmfollowsEzraGreer,amiddle-agedmanwhohasworkedhardsince
+years.Inthefirstyearofitspublication,Potter’sTheTaleofMrs.Tittlemouse hisyouth. Hecaresdeeplyforhismotherlessdaughter,Mary,butwasunable
+wonchildren’sbookawardsinEngland,AmericaandAustralia.Itwasselected toattendtheannualcommencementatherco-educationalcollege. Heawaits
+asa"recommendedreading"bychildrenintheUSandCanada. forhertoreturnfromcollege,butMaryleaveswithherromanticinterest,Jack
+==Plotsummary== <unk>.Onpromiseofmarriageandwealth,Maryisromancedandgivesbirth
+ThetaleopenswiththepetrabbitMrs.Tittlemousewanderingthroughaforest toafatherlesschild. Withoutwordfromhisdaughter,Ezraresignsfromhis
+inasmalllitteroffour.Heisshotandbadlyinjuredbyadeeraftersheattempts jobandattemptstoseekheroutandfindsapoormotherlesschild,Marie.With
+toescape. Mrs. Tittlemousedecidesthatshewantstofindherownhome,be- Ezra’smoneyexhaustedheseeksemploymentandfindsitasthevaletofJack.
+causesheiseagertogoonherown.Shegoesalonetothefarmwhereshemakes Oneday,MaryseeksanannouncementofJack’sengagementtoacabaretgirl
+alittlemoneybysellingafewseedsandbuildingasmallcabininthewoods. knownas"TheBabyVamp". Bitterovertheprospectofherchild’sfuture,
+SheisapproachedbyawealthyhunternamedMr.Tittlemouse,whotriestokill sheleavesthechildatJack’shomeduringhisabsencewithanote.Jackorders
+herbutMrs. Tittlemousekillshimbystuffingaropeintohisnoseandkilling Ezratotakethebabytoanorphanage,butMariebegsEzratokeephim.After
+him.SheisrescuedbyMr.Tittlemouse’swifeRuth,butMrs.Tittlemousethen continuallyseeingthechild,JackisovercomewithremorseandexplainstoEzra
+leavesthewoodlandwiththebaby.Whensheisspottedby andseekshisadvice.Notknowinghewasmakingthecaseforhisowndaughter,
+EzraconvincesJacktoseekoutMaryandforgettheBabyVamp.TheBaby
+Table 12: Example 2 – 500 tokens generated by XL using a snippet from the Wikitext-103 test set as initial context. The
+sampleisrandomlygeneratedwithoutanycherrypicking.
+OriginalWikipediapage:https://en.wikipedia.org/wiki/The_Tale_of_Mrs._Tittlemouse.
+ThisexampleexhibitsomeadditionalinterestingpropertiesofTransformer-XL:
+• Afterfinishingthelastparagraphoftheseedcontext,boththereferenceandgeneratedtextstartanewtopic(i.e.,Wikipedia
+page),asmarkedbythesingle“=title=”line.Thissuggeststhemodelhastheabilityofidentifyingtheendofatopic/page,
+andrandomlystartingwithanewtopic.
+• Evenmoreinterestingly,anewly-startedpageisonabookcalled“TheTaleofMrs.Tittlemouse”.Transformer-XLmanages
+tocopythesamebooktitleandsomerelatedinformationfromthetrainingset,buthallucinatesnovelcontentofthebook.
+This demonstrates a degree of generalization instead of memorization. Please refer to the original book content at the
+Wikipediapage.
+
+Context:
+=BattleofDürenstein=
+TheBattleofDürenstein(alsoknownastheBattleof<unk>,Battleof<unk>andBattleof<unk>;German: <unk>bei<unk>),on11November1805was
+anengagementintheNapoleonicWarsduringtheWaroftheThirdCoalition. Dürenstein(modern<unk>)islocatedinthe<unk>Valley,ontheRiverDanube,
+73kilometers(45mi)upstreamfromVienna,Austria. Therivermakesacrescent-shapedcurvebetween<unk>andnearbyKremsanderDonauandthebattle
+wasfoughtinthefloodplainbetweentheriverandthemountains. AtDürensteinacombinedforceofRussianandAustriantroopstrappedaFrenchdivision
+commandedbyThéodoreMaximeGazan.TheFrenchdivisionwaspartofthenewlycreatedVIIICorps,theso-calledCorpsMortier,undercommandofÉdouard
+Mortier.InpursuingtheAustrianretreatfromBavaria,Mortierhadover-extendedhisthreedivisionsalongthenorthbankoftheDanube.Mikhail<unk>Kutuzov,
+commanderoftheCoalitionforce,enticedMortiertosendGazan’sdivisionintoatrapandFrenchtroopswerecaughtinavalleybetweentwoRussiancolumns.
+Theywererescuedbythetimelyarrivalofaseconddivision,undercommandofPierreDupontdel’Étang. Thebattleextendedwellintothenight. Bothsides
+claimedvictory. TheFrenchlostmorethanathirdoftheirparticipants,andGazan’sdivisionexperiencedover40percentlosses. TheAustriansandRussians
+alsohadheavy<unk>to16<unk>perhapsthemostsignificantwasthedeathinactionofJohannHeinrichvonSchmitt,oneofAustria’smostcapablechiefsof
+staff.ThebattlewasfoughtthreeweeksaftertheAustriancapitulationatUlmandthreeweeksbeforetheRusso-AustriandefeatattheBattleofAusterlitz.After
+AusterlitzAustriawithdrewfromthewar.TheFrenchdemandedahighindemnityandFrancisIIabdicatedasHolyRomanEmperor,releasingtheGermanstates
+fromtheirallegiancetotheHolyRomanEmpire.
+==Background==
+Inaseriesofconflictsfrom1803-15knownastheNapoleonicWars,variousEuropeanpowersformedfivecoalitionsagainsttheFirstFrenchEmpire.Likethewars
+sparkedbytheFrenchRevolution(1789),thesefurtherrevolutionizedtheformation,organizationandtrainingofEuropeanarmiesandledtoanunprecedented
+militarization,mainlyduetomassconscription. UndertheleadershipofNapoleon,FrenchpowerrosequicklyastheGrandeArméeconqueredmostofEurope,
+andcollapsedrapidly
+XLGeneration: Reference:
+aftertheFrenchconquestofItaly. Thisvictorymarkedthebeginningofthe afterthedisastrousinvasionofRussiain1812. Napoleon’sempireultimately
+SecondCoalition. Napoleon’srapidadvancecausedAustria–Russia,Britain sufferedcompletemilitarydefeatinthe1813–14campaigns,resultinginthe
+andRussiatomakepeacenegotiations.TheRussianarmyunderPrinceMikhail restorationoftheBourbonmonarchyinFrance. AlthoughNapoleonmadea
+MikhailovichMikhailovichChaffee,commanderoftheImperialRussianArmy spectacularreturnin1815,knownastheHundredDays,hisdefeatattheBattle
+inSwitzerland,wasabletodriveofftheAustriansintheBattleofStockach ofWaterloo,thepursuitofhisarmyandhimself,hisabdicationandbanishment
+(1805)andtotakePressburg(modernÖ3Austria)fromtheAustrians. Atan totheIslandofSaintHelenaconcludedtheNapoleonicWars.
+earlystagetheAustro-HungarianfleethadbeendamagedinastormoffCape ==Danubecampaign==
+Matapan;thisallowedtheAlliestolaunchafull-scaleinvasionofItalyinFebru- From1803-06theThirdCoalitionfoughttheFirstFrenchEmpireanditsclient
+ary1805. TheBattleofAusterlitzwasthedecisiveFrenchvictoryagainst states(seetableatright).Althoughseveralnavalbattlesdeterminedcontrolof
+Napoleonandthelargestnavalbattleinhistory,involvingmoremodern-day theseas,theoutcomeofthewarwasdecidedonthecontinent,predominantly
+Europeannavies. TheFrenchmilitarysituationworsenedasNapoleonfaced intwomajorlandoperationsintheDanubevalley: theUlmcampaigninthe
+severalthreatsrelatedtohisnewlyformedArmyofEurope,particularlyRussia upperDanubeandtheViennacampaign,inthemiddleDanubevalley.Political
+itself,whichwasnowonthevergeofcollapse.TheRussiangeneralandfriend conflictsinViennadelayedAustria’sentryintotheThirdCoalitionuntil1805.
+ofNapoleon,Alexander,hadbeendissatisfiedwiththeconductoftheAustri- AfterhostilitiesoftheWaroftheSecondCoalitionendedin1801,Archduke
+ans;hewasstillinconflictwithEmperorNapoleon,theFrenchRepublic’sking, <unk>emperor’s<unk>advantageofthesubsequentyearsofpeacetodevelop
+whohaddeclaredwaronAustriaduringthesummerof1804.Withthewarover, amilitaryrestructuringplan.Hecarefullyputthisplanintoeffectbeginningin
+NapoleondecidedtolaunchasecondinvasionofItalyinOctober1805. 1803–04,butimplementationwasincompletein1805whenKarlMack,Lieu-
+==Prelude== tenantFieldMarshalandQuartermaster-GeneraloftheArmy,implementedhis
+InJuly1805,theFrench1stArmyenteredsouthernItaly.Thearmy,underthe ownrestructuring. MackbypassedCharles’methodicalapproach. Occurring
+commandofMarshalMarmont,werereinforcedbyafewbattalionsofinfantry inthefield,Mack’splanalsounderminedtheoverallcommandandorganiza-
+underClaudeGeneralAugustedeMarmontatthetownofPhilippsburgand tionalstructure.Regardless,MacksentanenthusiasticreporttoViennaonthe
+anotherbattalionatBelluno. On17September1805,thearmymarchedfrom military’sreadiness. Furthermore,aftermisreadingNapoleon’smaneuversin
+BellunotowardsKrems.By29September,theyhadreachedBellunoandcon- Württemberg,MackalsoreportedtoViennaontheweaknessofFrenchdispo-
+ducteditsadvanceagainstasmallAustrianforce.By31September,thewhole sitions. Hisreportsconvincedthewarpartyadvisingtheemperor,FrancisII,
+forcehadbeenreinforcedbyabrigadefromtheArmyofTyrolunderthecom- toentertheconflictagainstFrance,despiteCharles’ownadvicetothecon-
+mandofPierreAugereau.TheAustrianswerenowunderthecommandofMar- trary.Respondingtothereportandrampantanti-FrenchfeverinVienna,Fran-
+shalJeanVictorMarieMoreau,amemberoftheDirectory.Moreauhadtaken cisdismissedCharlesfromhispostasgeneralissimoandappointedhis<unk>
+commandoftheAustrianinvasionforceinthespringof1805. Hiscommand brother-in-law,ArchdukeFerdinand,ascommander. TheinexperiencedFerdi-
+includedtheVICorpscommandedbyJeanBaptisteDrouetdeNeyandtheVI nandwasapoorchoiceofreplacementforthecapableCharles,havingneither
+CorpscommandedbyGeneralsJeanVictorMarieMoreauandJosephSouham. maturitynoraptitudefortheassignment. AlthoughFerdinandretainednomi-
+Ney’scorpsconsistedoftheIII.CorpsandVI.Corps,whichconsistedofthe nalcommand,day-to-daydecisionswereplacedinthehandsofMack,equally
+IIICorpsandVI.Corps,locatedintheAustrianNetherlands,wascommanded ill-suitedforsuchanimportantassignment. WhenMackwaswoundedearly
+byFriedrichJoseph,CountBailletdeLatour. Moreau’sarmyconsistedofsix inthecampaign,hewasunabletotakefullchargeofthearmy. Consequently,
+divisionsandseveralassociatedbrigades. commandfurtherdevolvedtoLieutenantFieldMarshalKarlPhilipp,Princeof
+==Aftermath== Schwarzenberg,anablecavalryofficerbutinexperiencedinthecommandof
+===FirstCoalitionforces=== suchalargearmy.
+On9October1805theFrenchArmyoftheDanubewasattackedbyanAus- ===RoadtoUlm===
+trianarmyunderArchdukeCharlesattheBattleofAusterlitz.AlthoughCharles ThecampaignintheupperDanubevalleybeganinOctober,withseveralclashes
+andCharleshadnothadmuchtimetoregroup,on10October,helaunchedhis inSwabia.NeartheBavariantownofWertingen,40kilometers(25mi)north-
+attackonthePolishforcesunderFriedrichJoseph,CountofLauenburg. Af- westofAugsburg,on8Octoberthe1stRegimentofdragoons,partofMurat’s
+terthreedays,Charles’armycapturedLauenburg. TheFrenchforcespursued ReserveCavalryCorps,andgrenadiersofLannes’VCorpssurprisedanAus-
+theAustrianstotheSilesianborder,wheretheyencounteredstrongAustrian trianforcehalfitssize.TheAustrianswerearrayedinalineandunabletoform
+resistance. TheseconflictsforcedtheAustrianstoretreatintoTyrolandAus- theirdefensivesquaresquicklyenoughtoprotectthemselvesfromthe4,000
+triaagreedtoatruce.TheAustrianarmy,commandedbyWenzelAntonKarl, dragoonsand8,000grenadiers.Nearly3,000Austrianswerecapturedandover
+CountofMerveldt,wasreducedtoaround10,000men.Itwasinitiallyplanned 400werekilledorwounded. Adaylater,atanothersmalltown,<unk>south
+thatArchdukeCharleswouldlaunchacounter-attackagainsttheFrencharmy oftheDanube<unk>French59thRegimentoftheLinestormedabridgeover
+onthesameday,asNapoleonhadhoped,butthiswasnotcarriedout. On25 theDanubeand,humiliatingly,chasedtwolargeAustriancolumnstowardUlm.
+October,MerveldtleftStyriaforTyrol. Onthesameday,Austrialaunchedits ThecampaignwasnotentirelybadnewsforVienna. AtHaslach,Johannvon
+newoffensiveagainsttheFrenchatUlm. Charleswithdrewhisarmyfromthe Klenauarrangedhis25,000infantryandcavalryinaprimedefensiveposition
+regionforathirdtimeattheBattleofElchingen,undertheoverallcommandof and,on11October,theoverlyconfidentGeneralofDivisionPierreDupontde
+theAustriangenerals,FerdinandandFriedrichWilhelmofJülich-Cleves-Berg. l’ÉtangattackedKlenau’sforcewithfewerthan8,000men. TheFrenchlost
+TopreventArchdukeCharlesfromescapingfromthebattlefield,thecomman- 1,500menkilledandwounded. AsidefromtakingtheImperialEaglesand
+deroftheHabsburgarmy,ArchdukeCharles,plannedtooccupythefortress <unk>ofthe15thand17thDragoons,Klenau’sforcealsocaptured900men,
+Linz;instead,hedecidedtoforceFranzvonHippertosurrenderthecity.How- 11gunsand18ammunitionwagons. Klenau’svictorywasasingularsuccess.
+ever,asCharlesmovedtothesouth,Moreauarrivedonthescenewithadditional On14OctoberMacksenttwocolumnsoutofUlminpreparationforabreakout
+soldiers–includingtheentireImperialGuard–anddefeatedtheAustriansat tothenorth:oneunderJohannSigismundRieschheadedtowardElchingento
+theBattleofHohenlindenon28October.ThelossofLinzresultedinAustria’s securethebridgethere,andtheotherunderFranzvonWerneckwentnorthwith
+completedefeatatHohenlinden.Inthemeantime,theFrenchArmyofObser- mostoftheheavyartillery. Recognizingtheopportunity,MarshalMichelNey
+vationandPreparednesswasreorganizedintotheArmyoftheDanubeunder hurriedtherestofhisVICorpsforwardtore-establishcontactwithDupont,who
+Feldzeugmeister(Colonel-General)FriedrichFreiherrvonHotze. Thearmy wasstillnorthoftheDanube.Inatwo-prongedattackNeysentonedivisionto
+wascomposedoftheI,IV,VI,VI,VII,VIIIandIXCorps.Withreinforcements thesouthofElchingenontherightbankoftheDanube.Thisdivisionbeganthe
+fromItalyandFrance,itformednewbattalions,companies,andsquadronsin assaultatElchingen.Atthesametimeanotherdivisioncrossedtherivertothe
+theAustrianarmy. On17November1804,attheBattleofJena-Auerstadtthe eastandmovedwestagainstRiesch’sposition.AfterclearingAustrianpickets
+ArmyofSilesiaandtheArmyofSilesiajoinedforces,butbythetimethatthe fromabridge,theFrenchattackedandcapturedastrategicallylocatedabbeyat
+
+FrenchapproachedVienna,thePrussianshadalreadysurrendered.AstheAus- thetopofthehillatbayonetpoint.TheAustriancavalryunsuccessfullytriedto
+triansdidnotwanttoallowthewartocontinue,theydecidedtoabandontheir fendofftheFrench,buttheAustrianinfantrybrokeandran.Inthisengagement
+territoriesinthenorthandmovetheirarmytothenorthandwest,cuttingoff alone,theAustrianslostmorethanhalftheirreserveartillerypark,6,000(out
+CharlesfromVienna.TheBattleofWarsawwasfoughton23November1805 of8,000totalparticipants)dead,woundedorcapturedandfourcolors.Reisch’s
+betweentheFrenchArmyoftheDanubeandtheAustrianArmyofStyriain columnalsofailedtodestroythebridgesacrosstheDanube.Napoleon’slight-
+thevicinityofWarsawandPressburg(modernTrnava,Slovakia). Atthattime ningcampaignexposedtheAustrianindecisivecommandstructureandpoor
+Habsburgforces supplyapparatus.Mack
+Table 13: Example3–1,000tokensgeneratedbyXLusingasnippetfromtheWikitext-103testsetasinitialcontext. The
+sampleisrandomlygeneratedwithoutanycherrypicking.
+OriginalWikipediapage:https://en.wikipedia.org/wiki/Battle_of_D%C3%BCrenstein.
+• Althoughthisexampleissignificantlylonger, wecanseethatTransformer-XLisstillabletostayonthesametopicand
+makesupnon-existingstoriesabouttheNapoleonwars.
+• Notably,fromthesecondsectionon,thegeneratedtextcorrectlyfollowsafine-grainedchronologicalorderonthelevelof
+monthanddaytonarrateeventsin1805,exceptamistake(1804insteadof1805)neartheendoftheparagraph. Toease
+readingwhichwehavehighlightedallthedaterelatedphrasesbymagentainthegeneration.

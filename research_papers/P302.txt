@@ -1,0 +1,6 @@
+Title: Maximal Flow Through a Network
+Authors: Ford & Fulkerson
+Year: 1956
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Maximal Flow Through a Network' by Ford & Fulkerson (1956). Classic foundational literature published in original journal/conference proceedings.

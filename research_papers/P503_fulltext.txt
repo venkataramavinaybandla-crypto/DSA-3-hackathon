@@ -1,0 +1,553 @@
+Efficient Estimation of Word Representations in
+Vector Space
+TomasMikolov KaiChen
+GoogleInc.,MountainView,CA GoogleInc.,MountainView,CA
+tmikolov@google.com kaichen@google.com
+GregCorrado JeffreyDean
+GoogleInc.,MountainView,CA GoogleInc.,MountainView,CA
+gcorrado@google.com jeff@google.com
+Abstract
+Weproposetwonovelmodelarchitecturesforcomputingcontinuousvectorrepre-
+sentationsofwordsfromverylargedatasets. Thequalityoftheserepresentations
+is measured in a word similarity task, and the results are compared to the previ-
+ouslybestperformingtechniquesbasedondifferenttypesofneuralnetworks. We
+observelargeimprovementsinaccuracyatmuchlowercomputationalcost,i.e. it
+takeslessthanadaytolearnhighqualitywordvectorsfroma1.6billionwords
+dataset. Furthermore,weshowthatthesevectorsprovidestate-of-the-artperfor-
+manceonourtestsetformeasuringsyntacticandsemanticwordsimilarities.
+1 Introduction
+ManycurrentNLPsystemsandtechniquestreatwordsasatomicunits-thereisnonotionofsimilar-
+itybetweenwords,asthesearerepresentedasindicesinavocabulary. Thischoicehasseveralgood
+reasons-simplicity,robustnessandtheobservationthatsimplemodelstrainedonhugeamountsof
+data outperform complex systems trained on less data. An example is the popular N-gram model
+usedforstatisticallanguagemodeling-today,itispossibletotrainN-gramsonvirtuallyallavailable
+data(trillionsofwords[3]).
+However, the simple techniques are at their limits in many tasks. For example, the amount of
+relevant in-domain data for automatic speech recognition is limited - the performance is usually
+dominated by the size of high quality transcribed speech data (often just millions of words). In
+machinetranslation, theexistingcorporaformanylanguagescontainonlyafewbillionsofwords
+orless. Thus,therearesituationswheresimplescalingupofthebasictechniqueswillnotresultin
+anysignificantprogress,andwehavetofocusonmoreadvancedtechniques.
+Withprogressofmachinelearningtechniquesinrecentyears,ithasbecomepossibletotrainmore
+complexmodelsonmuchlargerdataset,andtheytypicallyoutperformthesimplemodels.Probably
+themostsuccessfulconceptistousedistributedrepresentationsofwords[10]. Forexample,neural
+networkbasedlanguagemodelssignificantlyoutperformN-grammodels[1,27,17].
+1.1 GoalsofthePaper
+Themaingoalofthispaperistointroducetechniquesthatcanbeusedforlearninghigh-qualityword
+vectorsfromhugedatasetswithbillionsofwords,andwithmillionsofwordsinthevocabulary. As
+farasweknow,noneofthepreviouslyproposedarchitectureshasbeensuccessfullytrainedonmore
+1
+3102
+peS
+7
+]LC.sc[
+3v1873.1031:viXra
+
+thanafewhundredofmillionsofwords,withamodestdimensionalityofthewordvectorsbetween
+50-100.
+We use recently proposed techniques for measuring the quality of the resulting vector representa-
+tions, with the expectation that not only will similar words tend to be close to each other, but that
+wordscanhavemultipledegreesofsimilarity[20]. Thishasbeenobservedearlierinthecontext
+ofinflectionallanguages-forexample,nounscanhavemultiplewordendings,andifwesearchfor
+similarwordsinasubspaceoftheoriginalvectorspace,itispossibletofindwordsthathavesimilar
+endings[13,14].
+Somewhat surprisingly, it was found that similarity of word representations goes beyond simple
+syntactic regularities. Using a word offset technique where simple algebraic operations are per-
+formedonthewordvectors,itwasshownforexamplethatvector(”King”)-vector(”Man”)+vec-
+tor(”Woman”)resultsinavectorthatisclosesttothevectorrepresentationofthewordQueen[20].
+In this paper, we try to maximize accuracy of these vector operations by developing new model
+architecturesthatpreservethelinearregularitiesamongwords.Wedesignanewcomprehensivetest
+set for measuring both syntactic and semantic regularities1, and show that many such regularities
+canbelearnedwithhighaccuracy. Moreover,wediscusshowtrainingtimeandaccuracydepends
+onthedimensionalityofthewordvectorsandontheamountofthetrainingdata.
+1.2 PreviousWork
+Representationofwordsascontinuousvectorshasalonghistory[10,26,8]. Averypopularmodel
+architectureforestimatingneuralnetworklanguagemodel(NNLM)wasproposedin[1], wherea
+feedforwardneuralnetworkwithalinearprojectionlayerandanon-linearhiddenlayerwasusedto
+learn jointly the word vector representation and a statistical language model. This work has been
+followedbymanyothers.
+Another interesting architecture of NNLM was presented in [13, 14], where the word vectors are
+firstlearnedusingneuralnetworkwithasinglehiddenlayer. Thewordvectorsarethenusedtotrain
+the NNLM. Thus, the word vectors are learned even without constructing the full NNLM. In this
+work,wedirectlyextendthisarchitecture,andfocusjustonthefirststepwherethewordvectorsare
+learnedusingasimplemodel.
+It was later shown that the word vectors can be used to significantly improve and simplify many
+NLP applications [4, 5, 29]. Estimation of the word vectors itself was performed using different
+modelarchitecturesandtrainedonvariouscorpora[4,29,23,19,9],andsomeoftheresultingword
+vectorsweremadeavailableforfutureresearchandcomparison2.However,asfarasweknow,these
+architecturesweresignificantlymorecomputationallyexpensivefortrainingthantheoneproposed
+in[13],withtheexceptionofcertainversionoflog-bilinearmodelwherediagonalweightmatrices
+areused[23].
+2 ModelArchitectures
+Manydifferenttypesofmodelswereproposedforestimatingcontinuousrepresentationsofwords,
+includingthewell-knownLatentSemanticAnalysis(LSA)andLatentDirichletAllocation(LDA).
+Inthispaper,wefocusondistributedrepresentationsofwordslearnedbyneuralnetworks,asitwas
+previouslyshownthattheyperformsignificantlybetterthanLSAforpreservinglinearregularities
+amongwords[20,31];LDAmoreoverbecomescomputationallyveryexpensiveonlargedatasets.
+Similarto[18],tocomparedifferentmodelarchitectureswedefinefirstthecomputationalcomplex-
+ityofamodelasthenumberofparametersthatneedtobeaccessedtofullytrainthemodel. Next,
+wewilltrytomaximizetheaccuracy,whileminimizingthecomputationalcomplexity.
+1Thetestsetisavailableatwww.fit.vutbr.cz/˜imikolov/rnnlm/word-test.v1.txt
+2http://ronan.collobert.com/senna/
+http://metaoptimize.com/projects/wordreprs/
+http://www.fit.vutbr.cz/˜imikolov/rnnlm/
+http://ai.stanford.edu/˜ehhuang/
+2
+
+Forallthefollowingmodels,thetrainingcomplexityisproportionalto
+O =E×T ×Q, (1)
+whereE isnumberofthetrainingepochs,T isthenumberofthewordsinthetrainingsetandQis
+definedfurtherforeachmodelarchitecture. CommonchoiceisE =3−50andT uptoonebillion.
+Allmodelsaretrainedusingstochasticgradientdescentandbackpropagation[26].
+2.1 FeedforwardNeuralNetLanguageModel(NNLM)
+Theprobabilisticfeedforwardneuralnetworklanguagemodelhasbeenproposedin[1]. Itconsists
+of input, projection, hidden and output layers. At the input layer, N previous words are encoded
+using 1-of-V coding, where V is size of the vocabulary. The input layer is then projected to a
+projection layer P that has dimensionality N ×D, using a shared projection matrix. As only N
+inputsareactiveatanygiventime,compositionoftheprojectionlayerisarelativelycheapoperation.
+TheNNLMarchitecturebecomescomplexforcomputationbetweentheprojectionandthehidden
+layer,asvaluesintheprojectionlayeraredense. ForacommonchoiceofN = 10,thesizeofthe
+projectionlayer(P)mightbe500to2000, whilethehiddenlayersizeH istypically500to1000
+units.Moreover,thehiddenlayerisusedtocomputeprobabilitydistributionoverallthewordsinthe
+vocabulary,resultinginanoutputlayerwithdimensionalityV. Thus,thecomputationalcomplexity
+pereachtrainingexampleis
+Q=N ×D+N ×D×H +H ×V, (2)
+where the dominating term is H × V. However, several practical solutions were proposed for
+avoiding it; either using hierarchical versions of the softmax [25, 23, 18], or avoiding normalized
+modelscompletelybyusingmodelsthatarenotnormalizedduringtraining[4,9]. Withbinarytree
+representationsofthevocabulary,thenumberofoutputunitsthatneedtobeevaluatedcangodown
+toaroundlog (V). Thus,mostofthecomplexityiscausedbythetermN ×D×H.
+2
+Inourmodels,weusehierarchicalsoftmaxwherethevocabularyisrepresentedasaHuffmanbinary
+tree.Thisfollowspreviousobservationsthatthefrequencyofwordsworkswellforobtainingclasses
+inneuralnetlanguagemodels[16]. Huffmantreesassignshortbinarycodestofrequentwords,and
+thisfurtherreducesthenumberofoutputunitsthatneedtobeevaluated: whilebalancedbinarytree
+wouldrequirelog (V)outputstobeevaluated,theHuffmantreebasedhierarchicalsoftmaxrequires
+2
+onlyaboutlog (Unigram perplexity(V)). Forexamplewhenthevocabularysizeisonemillion
+2
+words, thisresultsinabouttwotimesspeedupinevaluation. Whilethisisnotcrucialspeedupfor
+neuralnetworkLMsasthecomputationalbottleneckisintheN×D×Hterm,wewilllaterpropose
+architecturesthatdonothavehiddenlayersandthusdependheavilyontheefficiencyofthesoftmax
+normalization.
+2.2 RecurrentNeuralNetLanguageModel(RNNLM)
+Recurrentneuralnetworkbasedlanguagemodelhasbeenproposedtoovercomecertainlimitations
+ofthefeedforwardNNLM,suchastheneedtospecifythecontextlength(theorderofthemodelN),
+and because theoretically RNNs can efficiently represent more complex patterns than the shallow
+neuralnetworks[15,2]. TheRNNmodeldoesnothaveaprojectionlayer; onlyinput,hiddenand
+output layer. What is special for this type of model is the recurrent matrix that connects hidden
+layertoitself,usingtime-delayedconnections. Thisallowstherecurrentmodeltoformsomekind
+ofshorttermmemory,asinformationfromthepastcanberepresentedbythehiddenlayerstatethat
+getsupdatedbasedonthecurrentinputandthestateofthehiddenlayerintheprevioustimestep.
+ThecomplexitypertrainingexampleoftheRNNmodelis
+Q=H ×H +H ×V, (3)
+wherethewordrepresentationsDhavethesamedimensionalityasthehiddenlayerH. Again,the
+termH ×V canbeefficientlyreducedtoH ×log (V)byusinghierarchicalsoftmax. Mostofthe
+2
+complexitythencomesfromH ×H.
+3
+
+2.3 ParallelTrainingofNeuralNetworks
+To train models on huge data sets, we have implemented several models on top of a large-scale
+distributedframeworkcalledDistBelief[6],includingthefeedforwardNNLMandthenewmodels
+proposed in this paper. The framework allows us to run multiple replicas of the same model in
+parallel, andeachreplicasynchronizesitsgradientupdatesthroughacentralizedserverthatkeeps
+alltheparameters. Forthisparalleltraining,weusemini-batchasynchronousgradientdescentwith
+anadaptivelearningrateprocedurecalledAdagrad[7]. Underthisframework,itiscommontouse
+one hundred or more model replicas, each using many CPU cores at different machines in a data
+center.
+3 NewLog-linearModels
+In this section, we propose two new model architectures for learning distributed representations
+of words that try to minimize computational complexity. The main observation from the previous
+sectionwasthatmostofthecomplexityiscausedbythenon-linearhiddenlayerinthemodel.While
+thisiswhatmakesneuralnetworkssoattractive, wedecidedtoexploresimplermodelsthatmight
+notbeabletorepresentthedataaspreciselyasneuralnetworks,butcanpossiblybetrainedonmuch
+moredataefficiently.
+The new architectures directly follow those proposed in our earlier work [13, 14], where it was
+foundthatneuralnetworklanguagemodelcanbesuccessfullytrainedintwosteps:first,continuous
+wordvectorsarelearnedusingsimplemodel,andthentheN-gramNNLMistrainedontopofthese
+distributed representations of words. While there has been later substantial amount of work that
+focusesonlearningwordvectors,weconsidertheapproachproposedin[13]tobethesimplestone.
+Notethatrelatedmodelshavebeenproposedalsomuchearlier[26,8].
+3.1 ContinuousBag-of-WordsModel
+The first proposed architecture is similar to the feedforward NNLM, where the non-linear hidden
+layer is removed and the projection layer is shared for all words (not just the projection matrix);
+thus,allwordsgetprojectedintothesameposition(theirvectorsareaveraged). Wecallthisarchi-
+tectureabag-of-wordsmodelastheorderofwordsinthehistorydoesnotinfluencetheprojection.
+Furthermore,wealsousewordsfromthefuture;wehaveobtainedthebestperformanceonthetask
+introduced in the next section by building a log-linear classifier with four future and four history
+words at the input, where the training criterion is to correctly classify the current (middle) word.
+Trainingcomplexityisthen
+Q=N ×D+D×log (V). (4)
+2
+WedenotethismodelfurtherasCBOW,asunlikestandardbag-of-wordsmodel,itusescontinuous
+distributedrepresentationofthecontext. ThemodelarchitectureisshownatFigure1. Notethatthe
+weightmatrixbetweentheinputandtheprojectionlayerissharedforallwordpositionsinthesame
+wayasintheNNLM.
+3.2 ContinuousSkip-gramModel
+ThesecondarchitectureissimilartoCBOW,butinsteadofpredictingthecurrentwordbasedonthe
+context, it tries to maximize classification of a word based on another word in the same sentence.
+More precisely, we use each current word as an input to a log-linear classifier with continuous
+projection layer, and predict words within a certain range before and after the current word. We
+foundthatincreasingtherangeimprovesqualityoftheresultingwordvectors,butitalsoincreases
+thecomputationalcomplexity. Sincethemoredistantwordsareusuallylessrelatedtothecurrent
+word than those close to it, we give less weight to the distant words by sampling less from those
+wordsinourtrainingexamples.
+Thetrainingcomplexityofthisarchitectureisproportionalto
+Q=C×(D+D×log (V)), (5)
+2
+whereC isthemaximumdistanceofthewords. Thus,ifwechooseC = 5,foreachtrainingword
+we will select randomly a number R in range < 1;C >, and then use R words from history and
+4
+
+INPUT PROJECTION OUTPUT INPUT PROJECTION OUTPUT
+w(t-2) w(t-2)
+w(t-1) w(t-1)
+SUM
+w(t) w(t)
+w(t+1) w(t+1)
+w(t+2) w(t+2)
+CBOW Skip-gram
+Figure1: Newmodelarchitectures. TheCBOWarchitecturepredictsthecurrentwordbasedonthe
+context,andtheSkip-grampredictssurroundingwordsgiventhecurrentword.
+R words from the future of the current word as correct labels. This will require us to do R×2
+wordclassifications,withthecurrentwordasinput,andeachoftheR+Rwordsasoutput. Inthe
+followingexperiments,weuseC =10.
+4 Results
+Tocomparethequalityofdifferentversionsofwordvectors, previouspaperstypicallyuseatable
+showing example words and their most similar words, and understand them intuitively. Although
+itiseasytoshowthatwordFranceissimilartoItalyandperhapssomeothercountries,itismuch
+morechallengingwhensubjectingthosevectorsinamorecomplexsimilaritytask,asfollows. We
+followpreviousobservationthattherecanbemanydifferenttypesofsimilaritiesbetweenwords,for
+example,wordbigissimilartobiggerinthesamesensethatsmallissimilartosmaller. Example
+ofanothertypeofrelationshipcanbewordpairsbig-biggestandsmall-smallest[20]. Wefurther
+denote two pairs of words with the same relationship as a question, as we can ask: ”What is the
+wordthatissimilartosmallinthesamesenseasbiggestissimilartobig?”
+Somewhatsurprisingly,thesequestionscanbeansweredbyperformingsimplealgebraicoperations
+withthevectorrepresentationofwords. Tofindawordthatissimilartosmallinthesamesenseas
+biggestissimilartobig,wecansimplycomputevectorX =vector(”biggest”)−vector(”big”)+
+vector(”small”).Then,wesearchinthevectorspaceforthewordclosesttoXmeasuredbycosine
+distance, anduseitastheanswertothequestion(wediscardtheinputquestionwordsduringthis
+search). When the word vectors are well trained, it is possible to find the correct answer (word
+smallest)usingthismethod.
+Finally,wefoundthatwhenwetrainhighdimensionalwordvectorsonalargeamountofdata,the
+resultingvectorscanbeusedtoanswerverysubtlesemanticrelationshipsbetweenwords, suchas
+acityandthecountryitbelongsto, e.g. FranceistoParisasGermanyistoBerlin. Wordvectors
+with such semantic relationships could be used to improve many existing NLP applications, such
+asmachinetranslation,informationretrievalandquestionansweringsystems,andmayenableother
+futureapplicationsyettobeinvented.
+5
+
+Table1: ExamplesoffivetypesofsemanticandninetypesofsyntacticquestionsintheSemantic-
+SyntacticWordRelationshiptestset.
+Typeofrelationship WordPair1 WordPair2
+Commoncapitalcity Athens Greece Oslo Norway
+Allcapitalcities Astana Kazakhstan Harare Zimbabwe
+Currency Angola kwanza Iran rial
+City-in-state Chicago Illinois Stockton California
+Man-Woman brother sister grandson granddaughter
+Adjectivetoadverb apparent apparently rapid rapidly
+Opposite possibly impossibly ethical unethical
+Comparative great greater tough tougher
+Superlative easy easiest lucky luckiest
+PresentParticiple think thinking read reading
+Nationalityadjective Switzerland Swiss Cambodia Cambodian
+Pasttense walking walked swimming swam
+Pluralnouns mouse mice dollar dollars
+Pluralverbs work works speak speaks
+4.1 TaskDescription
+Tomeasurequalityofthewordvectors,wedefineacomprehensivetestsetthatcontainsfivetypes
+ofsemanticquestions,andninetypesofsyntacticquestions. Twoexamplesfromeachcategoryare
+shown in Table 1. Overall, there are 8869 semantic and 10675 syntactic questions. The questions
+ineachcategorywerecreatedintwosteps: first,alistofsimilarwordpairswascreatedmanually.
+Then, a large list of questions is formed by connecting two word pairs. For example, we made a
+listof68largeAmericancitiesandthestatestheybelongto, andformedabout2.5Kquestionsby
+pickingtwo wordpairsatrandom. Wehave includedinourtest setonlysingletoken words, thus
+multi-wordentitiesarenotpresent(suchasNewYork).
+We evaluate the overall accuracy for all question types, and for each question type separately (se-
+mantic, syntactic). Question is assumed to be correctly answered only if the closest word to the
+vector computed using the above method is exactly the same as the correct word in the question;
+synonyms are thus counted as mistakes. This also means that reaching 100% accuracy is likely
+tobeimpossible,asthecurrentmodelsdonothaveanyinputinformationaboutwordmorphology.
+However,webelievethatusefulnessofthewordvectorsforcertainapplicationsshouldbepositively
+correlatedwiththisaccuracymetric. Furtherprogresscanbeachievedbyincorporatinginformation
+aboutstructureofwords,especiallyforthesyntacticquestions.
+4.2 MaximizationofAccuracy
+We have used a Google News corpus for training the word vectors. This corpus contains about
+6B tokens. We have restricted the vocabulary size to 1 million most frequent words. Clearly, we
+are facing time constrained optimization problem, as it can be expected that both using more data
+and higher dimensional word vectors will improve the accuracy. To estimate the best choice of
+modelarchitectureforobtainingasgoodaspossibleresultsquickly,wehavefirstevaluatedmodels
+trained on subsets of the training data, with vocabulary restricted to the most frequent 30k words.
+The results using the CBOW architecture with different choice of word vector dimensionality and
+increasingamountofthetrainingdataareshowninTable2.
+Itcanbeseenthataftersomepoint,addingmoredimensionsoraddingmoretrainingdataprovides
+diminishing improvements. So, we have to increase both vector dimensionality and the amount
+of the training data together. While this observation might seem trivial, it must be noted that it is
+currentlypopulartotrainwordvectorsonrelativelylargeamountsofdata,butwithinsufficientsize
+6
+
+Table 2: Accuracy on subset of the Semantic-Syntactic Word Relationship test set, using word
+vectorsfromtheCBOWarchitecturewithlimitedvocabulary. Onlyquestionscontainingwordsfrom
+themostfrequent30kwordsareused.
+Dimensionality/Trainingwords 24M 49M 98M 196M 391M 783M
+50 13.4 15.7 18.6 19.1 22.5 23.2
+100 19.4 23.1 27.8 28.7 33.4 32.2
+300 23.2 29.2 35.3 38.6 43.7 45.9
+600 24.0 30.1 36.5 40.8 46.6 50.4
+Table3: Comparisonofarchitecturesusingmodelstrainedonthesamedata,with640-dimensional
+word vectors. The accuracies are reported on our Semantic-Syntactic Word Relationship test set,
+andonthesyntacticrelationshiptestsetof[20]
+Model Semantic-SyntacticWordRelationshiptestset MSRWordRelatedness
+Architecture SemanticAccuracy[%] SyntacticAccuracy[%] TestSet[20]
+RNNLM 9 36 35
+NNLM 23 53 47
+CBOW 24 64 61
+Skip-gram 55 59 56
+(suchas50-100). GivenEquation4,increasingamountoftrainingdatatwiceresultsinaboutthe
+sameincreaseofcomputationalcomplexityasincreasingvectorsizetwice.
+FortheexperimentsreportedinTables2and4,weusedthreetrainingepochswithstochasticgradi-
+entdescentandbackpropagation. Wechosestartinglearningrate0.025anddecreaseditlinearly,so
+thatitapproacheszeroattheendofthelasttrainingepoch.
+4.3 ComparisonofModelArchitectures
+Firstwecomparedifferentmodelarchitecturesforderivingthewordvectorsusingthesametraining
+dataandusingthesamedimensionalityof640ofthewordvectors. Inthefurtherexperiments,we
+usefullsetofquestionsinthenewSemantic-SyntacticWordRelationshiptestset,i.e.unrestrictedto
+the30kvocabulary. Wealsoincluderesultsonatestsetintroducedin[20]thatfocusesonsyntactic
+similaritybetweenwords3.
+ThetrainingdataconsistsofseveralLDCcorporaandisdescribedindetailin[18](320Mwords,
+82K vocabulary). We used these data to provide a comparison to a previously trained recurrent
+neuralnetworklanguagemodelthattookabout8weekstotrainonasingleCPU.Wetrainedafeed-
+forwardNNLMwiththesamenumberof640hiddenunitsusingtheDistBeliefparalleltraining[6],
+usingahistoryof8previouswords(thus,theNNLMhasmoreparametersthantheRNNLM,asthe
+projectionlayerhassize640×8).
+InTable3,itcanbeseenthatthewordvectorsfromtheRNN(asusedin[20])performwellmostly
+onthesyntacticquestions. TheNNLMvectorsperformsignificantlybetterthantheRNN-thisis
+not surprising, as the word vectors in the RNNLM are directly connected to a non-linear hidden
+layer. The CBOW architecture works better than the NNLM on the syntactic tasks, and about the
+sameonthesemanticone. Finally,theSkip-gramarchitectureworksslightlyworseonthesyntactic
+taskthantheCBOWmodel(butstillbetterthantheNNLM),andmuchbetteronthesemanticpart
+ofthetestthanalltheothermodels.
+Next,weevaluatedourmodelstrainedusingoneCPUonlyandcomparedtheresultsagainstpublicly
+availablewordvectors.ThecomparisonisgiveninTable4.TheCBOWmodelwastrainedonsubset
+3WethankGeoffZweigforprovidingusthetestset.
+7
+
+Table4: ComparisonofpubliclyavailablewordvectorsontheSemantic-SyntacticWordRelation-
+shiptestset,andwordvectorsfromourmodels. Fullvocabulariesareused.
+Model Vector Training Accuracy[%]
+Dimensionality words
+Semantic Syntactic Total
+Collobert-WestonNNLM 50 660M 9.3 12.3 11.0
+TurianNNLM 50 37M 1.4 2.6 2.1
+TurianNNLM 200 37M 1.4 2.2 1.8
+MnihNNLM 50 37M 1.8 9.1 5.8
+MnihNNLM 100 37M 3.3 13.2 8.8
+MikolovRNNLM 80 320M 4.9 18.4 12.7
+MikolovRNNLM 640 320M 8.6 36.5 24.6
+HuangNNLM 50 990M 13.3 11.6 12.3
+OurNNLM 20 6B 12.9 26.4 20.3
+OurNNLM 50 6B 27.9 55.8 43.2
+OurNNLM 100 6B 34.2 64.5 50.8
+CBOW 300 783M 15.5 53.1 36.1
+Skip-gram 300 783M 50.0 55.9 53.3
+Table5: Comparisonofmodelstrainedforthreeepochsonthesamedataandmodelstrainedfor
+oneepoch. AccuracyisreportedonthefullSemantic-Syntacticdataset.
+Model Vector Training Accuracy[%] Trainingtime
+Dimensionality words [days]
+Semantic Syntactic Total
+3epochCBOW 300 783M 15.5 53.1 36.1 1
+3epochSkip-gram 300 783M 50.0 55.9 53.3 3
+1epochCBOW 300 783M 13.8 49.9 33.6 0.3
+1epochCBOW 300 1.6B 16.1 52.6 36.1 0.6
+1epochCBOW 600 783M 15.4 53.3 36.2 0.7
+1epochSkip-gram 300 783M 45.6 52.2 49.2 1
+1epochSkip-gram 300 1.6B 52.2 55.1 53.8 2
+1epochSkip-gram 600 783M 56.7 54.5 55.5 2.5
+oftheGoogleNewsdatainaboutaday,whiletrainingtimefortheSkip-grammodelwasaboutthree
+days.
+Forexperimentsreportedfurther,weusedjustonetrainingepoch(again,wedecreasethelearning
+ratelinearlysothatitapproacheszeroattheendoftraining). Trainingamodelontwiceasmuch
+datausingoneepochgivescomparableorbetterresultsthaniteratingoverthesamedataforthree
+epochs,asisshowninTable5,andprovidesadditionalsmallspeedup.
+4.4 LargeScaleParallelTrainingofModels
+Asmentionedearlier,wehaveimplementedvariousmodelsinadistributedframeworkcalledDis-
+tBelief. Below we report the results of several models trained on the Google News 6B data set,
+withmini-batchasynchronousgradientdescentandtheadaptivelearningrateprocedurecalledAda-
+grad [7]. We used 50 to 100 model replicas during the training. The number of CPU cores is an
+8
+
+Table 6: Comparison of models trained using the DistBelief distributed framework. Note that
+trainingofNNLMwith1000-dimensionalvectorswouldtaketoolongtocomplete.
+Model Vector Training Accuracy[%] Trainingtime
+Dimensionality words [daysxCPUcores]
+Semantic Syntactic Total
+NNLM 100 6B 34.2 64.5 50.8 14x180
+CBOW 1000 6B 57.3 68.9 63.7 2x140
+Skip-gram 1000 6B 66.1 65.1 65.6 2.5x125
+Table7: ComparisonandcombinationofmodelsontheMicrosoftSentenceCompletionChallenge.
+Architecture Accuracy[%]
+4-gram[32] 39
+AverageLSAsimilarity[32] 49
+Log-bilinearmodel[24] 54.8
+RNNLMs[19] 55.4
+Skip-gram 48.0
+Skip-gram+RNNLMs 58.9
+estimate since the data center machines are shared with other production tasks, and the usage can
+fluctuatequiteabit. Notethatduetotheoverheadofthedistributedframework,theCPUusageof
+theCBOWmodelandtheSkip-grammodelaremuchclosertoeachotherthantheirsingle-machine
+implementations. TheresultarereportedinTable6.
+4.5 MicrosoftResearchSentenceCompletionChallenge
+TheMicrosoftSentenceCompletionChallengehasbeenrecentlyintroducedasataskforadvancing
+languagemodelingandotherNLPtechniques[32]. Thistaskconsistsof1040sentences,whereone
+word is missing in each sentence and the goal is to select word that is the most coherent with the
+restofthesentence, givenalistoffivereasonablechoices. Performanceofseveraltechniqueshas
+been already reported on this set, including N-gram models, LSA-based model [32], log-bilinear
+model[24]andacombinationofrecurrentneuralnetworksthatcurrentlyholdsthestateoftheart
+performanceof55.4%accuracyonthisbenchmark[19].
+WehaveexploredtheperformanceofSkip-gramarchitectureonthistask. First, wetrainthe640-
+dimensional model on 50M words provided in [32]. Then, we compute score of each sentence in
+thetestsetbyusingtheunknownwordattheinput,andpredictallsurroundingwordsinasentence.
+Thefinalsentencescoreisthenthesumoftheseindividualpredictions. Usingthesentencescores,
+wechoosethemostlikelysentence.
+A short summary of some previous results together with the new results is presented in Table 7.
+WhiletheSkip-grammodelitselfdoesnotperformonthistaskbetterthanLSAsimilarity,thescores
+fromthismodelarecomplementarytoscoresobtainedwithRNNLMs,andaweightedcombination
+leadstoanewstateoftheartresult58.9%accuracy(59.2%onthedevelopmentpartofthesetand
+58.7%onthetestpartoftheset).
+5 ExamplesoftheLearnedRelationships
+Table8showswordsthatfollowvariousrelationships.Wefollowtheapproachdescribedabove:the
+relationshipisdefinedbysubtractingtwowordvectors,andtheresultisaddedtoanotherword.Thus
+for example, Paris - France + Italy = Rome. As it can be seen, accuracy is quite good, although
+there is clearly a lot of room for further improvements (note that using our accuracy metric that
+9
+
+Table8: Examplesofthewordpairrelationships,usingthebestwordvectorsfromTable4(Skip-
+grammodeltrainedon783Mwordswith300dimensionality).
+Relationship Example1 Example2 Example3
+France-Paris Italy: Rome Japan: Tokyo Florida: Tallahassee
+big-bigger small: larger cold: colder quick: quicker
+Miami-Florida Baltimore: Maryland Dallas: Texas Kona: Hawaii
+Einstein-scientist Messi: midfielder Mozart: violinist Picasso: painter
+Sarkozy-France Berlusconi: Italy Merkel: Germany Koizumi: Japan
+copper-Cu zinc: Zn gold: Au uranium: plutonium
+Berlusconi-Silvio Sarkozy: Nicolas Putin: Medvedev Obama: Barack
+Microsoft-Windows Google: Android IBM:Linux Apple: iPhone
+Microsoft-Ballmer Google: Yahoo IBM:McNealy Apple: Jobs
+Japan-sushi Germany: bratwurst France: tapas USA:pizza
+assumes exact match, the results in Table 8 would score only about 60%). We believe that word
+vectorstrainedonevenlargerdatasetswithlargerdimensionalitywillperformsignificantlybetter,
+andwillenablethedevelopmentofnewinnovativeapplications.Anotherwaytoimproveaccuracyis
+toprovidemorethanoneexampleoftherelationship. Byusingtenexamplesinsteadofonetoform
+therelationshipvector(weaveragetheindividualvectorstogether),wehaveobservedimprovement
+ofaccuracyofourbestmodelsbyabout10%absolutelyonthesemantic-syntactictest.
+It is also possible to apply the vector operations to solve different tasks. For example, we have
+observedgoodaccuracyforselectingout-of-the-listwords,bycomputingaveragevectorforalistof
+words,andfindingthemostdistantwordvector.Thisisapopulartypeofproblemsincertainhuman
+intelligencetests. Clearly,thereisstillalotofdiscoveriestobemadeusingthesetechniques.
+6 Conclusion
+Inthispaperwestudiedthequalityofvectorrepresentationsofwordsderivedbyvariousmodelson
+acollectionofsyntacticandsemanticlanguagetasks. Weobservedthatitispossibletotrainhigh
+qualitywordvectorsusingverysimplemodelarchitectures,comparedtothepopularneuralnetwork
+models(bothfeedforwardandrecurrent). Becauseofthemuchlowercomputationalcomplexity,it
+is possible to compute very accurate high dimensional word vectors from a much larger data set.
+UsingtheDistBeliefdistributedframework,itshouldbepossibletotraintheCBOWandSkip-gram
+modelsevenoncorporawithonetrillionwords,forbasicallyunlimitedsizeofthevocabulary. That
+isseveralordersofmagnitudelargerthanthebestpreviouslypublishedresultsforsimilarmodels.
+Aninterestingtaskwherethewordvectorshaverecentlybeenshowntosignificantlyoutperformthe
+previousstateoftheartistheSemEval-2012Task2[11]. ThepubliclyavailableRNNvectorswere
+used together with other techniques to achieve over 50% increase in Spearman’s rank correlation
+overthepreviousbestresult[31]. Theneuralnetworkbasedwordvectorswerepreviouslyapplied
+tomanyotherNLPtasks,forexamplesentimentanalysis[12]andparaphrasedetection[28]. Itcan
+beexpectedthattheseapplicationscanbenefitfromthemodelarchitecturesdescribedinthispaper.
+Ourongoingworkshowsthatthewordvectorscanbesuccessfullyappliedtoautomaticextension
+of facts in Knowledge Bases, and also for verification of correctness of existing facts. Results
+from machine translation experiments also look very promising. In the future, it would be also
+interestingtocompareourtechniquestoLatentRelationalAnalysis[30]andothers. Webelievethat
+ourcomprehensivetestsetwillhelptheresearchcommunitytoimprovetheexistingtechniquesfor
+estimatingthewordvectors.Wealsoexpectthathighqualitywordvectorswillbecomeanimportant
+buildingblockforfutureNLPapplications.
+10
+
+7 Follow-UpWork
+Aftertheinitialversionofthispaperwaswritten,wepublishedsingle-machinemulti-threadedC++
+codeforcomputingthewordvectors,usingboththecontinuousbag-of-wordsandskip-gramarchi-
+tectures4. Thetrainingspeedissignificantlyhigherthanreportedearlierinthispaper,i.e. itisinthe
+orderofbillionsofwordsperhourfortypicalhyperparameterchoices.Wealsopublishedmorethan
+1.4millionvectorsthatrepresentnamedentities,trainedonmorethan100billionwords. Someof
+ourfollow-upworkwillbepublishedinanupcomingNIPS2013paper[21].
+References
+[1] Y. Bengio, R. Ducharme, P. Vincent. A neural probabilistic language model. Journal of Ma-
+chineLearningResearch,3:1137-1155,2003.
+[2] Y. Bengio, Y. LeCun. Scaling learning algorithms towards AI. In: Large-Scale Kernel Ma-
+chines,MITPress,2007.
+[3] T. Brants, A. C. Popat, P. Xu, F. J. Och, and J. Dean. Large language models in machine
+translation.InProceedingsoftheJointConferenceonEmpiricalMethodsinNaturalLanguage
+ProcessingandComputationalLanguageLearning,2007.
+[4] R. Collobert and J. Weston. A Unified Architecture for Natural Language Processing: Deep
+NeuralNetworkswithMultitaskLearning.InInternationalConferenceonMachineLearning,
+ICML,2008.
+[5] R. Collobert, J. Weston, L. Bottou, M. Karlen, K. Kavukcuoglu and P. Kuksa. Natural Lan-
+guage Processing (Almost) from Scratch. Journal of Machine Learning Research, 12:2493-
+2537,2011.
+[6] J.Dean,G.S.Corrado,R.Monga,K.Chen,M.Devin,Q.V.Le,M.Z.Mao,M.A.Ranzato,A.
+Senior,P.Tucker,K.Yang,A.Y.Ng.,LargeScaleDistributedDeepNetworks,NIPS,2012.
+[7] J.C. Duchi, E. Hazan, and Y. Singer. Adaptive subgradient methods for online learning and
+stochasticoptimization.JournalofMachineLearningResearch,2011.
+[8] J.Elman.FindingStructureinTime.CognitiveScience,14,179-211,1990.
+[9] EricH.Huang,R.Socher,C.D.ManningandAndrewY.Ng.ImprovingWordRepresentations
+via Global Context and Multiple Word Prototypes. In: Proc. Association for Computational
+Linguistics,2012.
+[10] G.E. Hinton, J.L. McClelland, D.E. Rumelhart. Distributed representations. In: Parallel dis-
+tributedprocessing: Explorationsinthemicrostructureofcognition.Volume1: Foundations,
+MITPress,1986.
+[11] D.A.Jurgens,S.M.Mohammad,P.D.Turney,K.J.Holyoak.Semeval-2012task2: Measuring
+degreesofrelationalsimilarity.In:Proceedingsofthe6thInternationalWorkshoponSemantic
+Evaluation(SemEval2012),2012.
+[12] A.L.Maas,R.E.Daly,P.T.Pham,D.Huang,A.Y.Ng,andC.Potts.Learningwordvectorsfor
+sentimentanalysis.InProceedingsofACL,2011.
+[13] T.Mikolov.LanguageModelingforSpeechRecognitioninCzech,Mastersthesis,BrnoUni-
+versityofTechnology,2007.
+[14] T.Mikolov, J.Kopecky´, L.Burget, O.GlembekandJ.Cˇernocky´.Neuralnetworkbasedlan-
+guagemodelsforhiglyinflectivelanguages,In: Proc.ICASSP2009.
+[15] T. Mikolov, M. Karafia´t, L. Burget, J. Cˇernocky´, S. Khudanpur. Recurrent neural network
+basedlanguagemodel,In: ProceedingsofInterspeech,2010.
+[16] T.Mikolov,S.Kombrink,L.Burget,J.Cˇernocky´,S.Khudanpur.Extensionsofrecurrentneural
+networklanguagemodel,In: ProceedingsofICASSP2011.
+[17] T.Mikolov,A.Deoras,S.Kombrink,L.Burget,J.Cˇernocky´.EmpiricalEvaluationandCom-
+binationofAdvancedLanguageModelingTechniques,In: ProceedingsofInterspeech,2011.
+4Thecodeisavailableathttps://code.google.com/p/word2vec/
+11
+
+[18] T.Mikolov,A.Deoras,D.Povey,L.Burget,J.Cˇernocky´.StrategiesforTrainingLargeScale
+NeuralNetworkLanguageModels,In: Proc.AutomaticSpeechRecognitionandUnderstand-
+ing,2011.
+[19] T.Mikolov.StatisticalLanguageModelsbasedonNeuralNetworks.PhDthesis,BrnoUniver-
+sityofTechnology,2012.
+[20] T.Mikolov,W.T.Yih,G.Zweig.LinguisticRegularitiesinContinuousSpaceWordRepresen-
+tations.NAACLHLT2013.
+[21] T. Mikolov, I. Sutskever, K. Chen, G. Corrado, and J. Dean. Distributed Representations of
+WordsandPhrasesandtheirCompositionality.AcceptedtoNIPS2013.
+[22] A. Mnih, G. Hinton. Three new graphical models for statistical language modelling. ICML,
+2007.
+[23] A.Mnih,G.Hinton.AScalableHierarchicalDistributedLanguageModel.AdvancesinNeural
+InformationProcessingSystems21,MITPress,2009.
+[24] A. Mnih, Y.W. Teh. A fast and simple algorithm for training neural probabilistic language
+models.ICML,2012.
+[25] F.Morin, Y.Bengio.HierarchicalProbabilisticNeuralNetworkLanguageModel.AISTATS,
+2005.
+[26] D. E. Rumelhart, G. E. Hinton, R. J. Williams. Learning internal representations by back-
+propagatingerrors.Nature,323:533.536,1986.
+[27] H. Schwenk. Continuous space language models. Computer Speech and Language, vol. 21,
+2007.
+[28] R. Socher, E.H. Huang, J. Pennington, A.Y. Ng, and C.D. Manning. Dynamic Pooling and
+UnfoldingRecursiveAutoencodersforParaphraseDetection.InNIPS,2011.
+[29] J. Turian, L. Ratinov, Y. Bengio. Word Representations: A Simple and General Method for
+Semi-SupervisedLearning.In: Proc.AssociationforComputationalLinguistics,2010.
+[30] P.D.Turney.MeasuringSemanticSimilaritybyLatentRelationalAnalysis.In: Proc.Interna-
+tionalJointConferenceonArtificialIntelligence,2005.
+[31] A. Zhila, W.T. Yih, C. Meek, G. Zweig, T. Mikolov. Combining Heterogeneous Models for
+MeasuringRelationalSimilarity.NAACLHLT2013.
+[32] G.Zweig,C.J.C.Burges.TheMicrosoftResearchSentenceCompletionChallenge,Microsoft
+ResearchTechnicalReportMSR-TR-2011-129,2011.
+12

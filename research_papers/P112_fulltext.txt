@@ -1,0 +1,641 @@
+PublishedasaconferencepaperatICLR2018
+GRAPH ATTENTION NETWORKS
+PetarVelicˇkovic´∗ GuillemCucurull∗
+DepartmentofComputerScienceandTechnology CentredeVisio´ perComputador,UAB
+UniversityofCambridge gcucurull@gmail.com
+petar.velickovic@cst.cam.ac.uk
+ArantxaCasanova∗ AdrianaRomero
+CentredeVisio´ perComputador,UAB Montre´alInstituteforLearningAlgorithms
+ar.casanova.8@gmail.com adriana.romero.soriano@umontreal.ca
+PietroLio` YoshuaBengio
+DepartmentofComputerScienceandTechnology Montre´alInstituteforLearningAlgorithms
+UniversityofCambridge yoshua.umontreal@gmail.com
+pietro.lio@cst.cam.ac.uk
+ABSTRACT
+Wepresentgraphattentionnetworks(GATs),novelneuralnetworkarchitectures
+thatoperateongraph-structureddata,leveragingmaskedself-attentionallayersto
+address the shortcomings of prior methods based on graph convolutions or their
+approximations. By stacking layers in which nodes are able to attend over their
+neighborhoods’ features, we enable (implicitly) specifying different weights to
+differentnodesinaneighborhood,withoutrequiringanykindofcostlymatrixop-
+eration(suchasinversion)ordependingonknowingthegraphstructureupfront.
+Inthisway,weaddressseveralkeychallengesofspectral-basedgraphneuralnet-
+workssimultaneously,andmakeourmodelreadilyapplicabletoinductiveaswell
+astransductiveproblems.OurGATmodelshaveachievedormatchedstate-of-the-
+art results across four established transductive and inductive graph benchmarks:
+the Cora, Citeseer and Pubmed citation network datasets, as well as a protein-
+proteininteractiondataset(whereintestgraphsremainunseenduringtraining).
+1 INTRODUCTION
+Convolutional Neural Networks (CNNs) have been successfully applied to tackle problems such
+as image classification (He et al., 2016), semantic segmentation (Je´gou et al., 2017) or machine
+translation(Gehringetal.,2016),wheretheunderlyingdatarepresentationhasagrid-likestructure.
+Thesearchitecturesefficientlyreusetheirlocalfilters,withlearnableparameters,byapplyingthem
+toalltheinputpositions.
+However,manyinterestingtasksinvolvedatathatcannotberepresentedinagrid-likestructureand
+thatinsteadliesinanirregulardomain. Thisisthecaseof3Dmeshes,socialnetworks,telecommu-
+nicationnetworks,biologicalnetworksorbrainconnectomes. Suchdatacanusuallyberepresented
+intheformofgraphs.
+Therehavebeenseveralattemptsintheliteraturetoextendneuralnetworkstodealwitharbitrarily
+structuredgraphs. Earlyworkusedrecursiveneuralnetworkstoprocessdatarepresentedingraph
+domainsasdirectedacyclicgraphs(Frasconietal.,1998;Sperduti&Starita,1997). GraphNeural
+Networks(GNNs)wereintroducedinGorietal.(2005)andScarsellietal.(2009)asageneralization
+ofrecursiveneuralnetworksthatcandirectlydealwithamoregeneralclassofgraphs,e.g. cyclic,
+directed and undirected graphs. GNNs consist of an iterative process, which propagates the node
+states until equilibrium; followed by a neural network, which produces an output for each node
+∗WorkperformedwhiletheauthorwasattheMontre´alInstituteofLearningAlgorithms.
+1
+8102
+beF
+4
+]LM.tats[
+3v30901.0171:viXra
+
+PublishedasaconferencepaperatICLR2018
+based on its state. This idea was adopted and improved by Li et al. (2016), which propose to use
+gatedrecurrentunits(Choetal.,2014)inthepropagationstep.
+Nevertheless,thereisanincreasinginterestingeneralizingconvolutionstothegraphdomain. Ad-
+vancesinthisdirectionareoftencategorizedasspectralapproachesandnon-spectralapproaches.
+Ononehand,spectralapproachesworkwithaspectralrepresentationofthegraphsandhavebeen
+successfully applied in the context of node classification. In Bruna et al. (2014), the convolution
+operationisdefinedintheFourierdomainbycomputingtheeigendecompositionofthegraphLapla-
+cian, resultinginpotentiallyintensecomputationsandnon-spatiallylocalizedfilters. Theseissues
+were addressed by subsequent works. Henaff et al. (2015) introduced a parameterization of the
+spectralfilterswithsmoothcoefficientsinordertomakethemspatiallylocalized. Later,Defferrard
+etal. (2016)proposed toapproximatethe filtersby meansof aChebyshevexpansion ofthe graph
+Laplacian, removing the need to compute the eigenvectors of the Laplacian and yielding spatially
+localized filters. Finally, Kipf & Welling (2017) simplified the previous method by restricting the
+filterstooperateina1-stepneighborhoodaroundeachnode. However,inalloftheaforementioned
+spectral approaches, the learned filters depend on the Laplacian eigenbasis, which depends on the
+graphstructure. Thus,amodeltrainedonaspecificstructurecannotbedirectlyappliedtoagraph
+withadifferentstructure.
+On the other hand, we have non-spectral approaches (Duvenaud et al., 2015; Atwood & Towsley,
+2016;Hamiltonetal.,2017),whichdefineconvolutionsdirectlyonthegraph,operatingongroups
+ofspatiallycloseneighbors.Oneofthechallengesoftheseapproachesistodefineanoperatorwhich
+works with different sized neighborhoods and maintains the weight sharing property of CNNs. In
+some cases, this requires learninga specific weight matrixfor each nodedegree (Duvenaud et al.,
+2015),usingthepowersofatransitionmatrixtodefinetheneighborhoodwhilelearningweightsfor
+eachinputchannelandneighborhooddegree(Atwood&Towsley,2016),orextractingandnormal-
+izingneighborhoodscontainingafixednumberofnodes(Niepertetal.,2016). Montietal.(2016)
+presented mixture model CNNs (MoNet), a spatial approach which provides a unified generaliza-
+tionofCNNarchitecturestographs. Morerecently,Hamiltonetal.(2017)introducedGraphSAGE,
+a method for computing node representations in an inductive manner. This technique operates by
+sampling a fixed-size neighborhood of each node, and then performing a specific aggregator over
+it (such as the mean over all the sampled neighbors’ feature vectors, or the result of feeding them
+througharecurrentneuralnetwork). Thisapproachhasyieldedimpressiveperformanceacrosssev-
+erallarge-scaleinductivebenchmarks.
+Attentionmechanismshavebecomealmostadefactostandardinmanysequence-basedtasks(Bah-
+danau et al., 2015; Gehring et al., 2016). One of the benefits of attention mechanisms is that they
+allowfordealingwithvariablesizedinputs,focusingonthemostrelevantpartsoftheinputtomake
+decisions. Whenanattentionmechanismisusedtocomputearepresentationofasinglesequence,
+itiscommonlyreferredtoasself-attentionorintra-attention. TogetherwithRecurrentNeuralNet-
+works (RNNs) or convolutions, self-attention has proven to be useful for tasks such as machine
+reading (Cheng et al., 2016) and learning sentence representations (Lin et al., 2017). However,
+Vaswanietal.(2017)showedthatnotonlyself-attentioncanimproveamethodbasedonRNNsor
+convolutions,butalsothatitissufficientforconstructingapowerfulmodelobtainingstate-of-the-art
+performanceonthemachinetranslationtask.
+Inspiredbythisrecentwork,weintroduceanattention-basedarchitecturetoperformnodeclassifica-
+tionofgraph-structureddata. Theideaistocomputethehiddenrepresentationsofeachnodeinthe
+graph,byattendingoveritsneighbors,followingaself-attentionstrategy. Theattentionarchitecture
+hasseveralinterestingproperties: (1)theoperationisefficient,sinceitisparallelizableacrossnode-
+neighborpairs;(2)itcanbeappliedtographnodeshavingdifferentdegreesbyspecifyingarbitrary
+weights to the neighbors; and (3) the model is directly applicable to inductive learning problems,
+including tasks where the model has to generalize to completely unseen graphs. We validate the
+proposedapproachonfourchallengingbenchmarks: Cora,CiteseerandPubmedcitationnetworks
+aswellasaninductiveprotein-proteininteractiondataset,achievingormatchingstate-of-the-artre-
+sultsthathighlightthepotentialofattention-basedmodelswhendealingwitharbitrarilystructured
+graphs.
+Itisworthnotingthat,asKipf&Welling(2017)andAtwood&Towsley(2016),ourworkcanalso
+bereformulatedasaparticularinstanceofMoNet(Montietal.,2016). Moreover,ourapproachof
+2
+
+PublishedasaconferencepaperatICLR2018
+sharing a neural network computation across edges is reminiscent of the formulation of relational
+networks (Santoro et al., 2017) and VAIN (Hoshen, 2017), wherein relations between objects or
+agents are aggregated pair-wise, by employing a shared mechanism. Similarly, our proposed at-
+tentionmodelcanbeconnectedtotheworksbyDuanetal.(2017)andDeniletal.(2017), which
+useaneighborhoodattentionoperationtocomputeattentioncoefficientsbetweendifferentobjects
+in an environment. Other related approaches include locally linear embedding (LLE) (Roweis &
+Saul,2000)andmemorynetworks(Westonetal.,2014). LLEselectsafixednumberofneighbors
+aroundeachdatapoint,andlearnsaweightcoefficientforeachneighbortoreconstructeachpoint
+asaweightedsumofitsneighbors. Asecondoptimizationstepextractsthepoint’sfeatureembed-
+ding. Memory networks also share some connections with our work, in particular, if we interpret
+theneighborhoodofanodeasthememory,whichisusedtocomputethenodefeaturesbyattending
+overitsvalues,andthenisupdatedbystoringthenewfeaturesinthesameposition.
+2 GAT ARCHITECTURE
+Inthissection, wewillpresentthebuildingblocklayerusedtoconstructarbitrarygraphattention
+networks(throughstackingthislayer),anddirectlyoutlineitstheoreticalandpracticalbenefitsand
+limitationscomparedtopriorworkinthedomainofneuralgraphprocessing.
+2.1 GRAPHATTENTIONALLAYER
+We will start by describing a single graph attentional layer, as the sole layer utilized throughout
+alloftheGATarchitecturesusedinourexperiments. Theparticularattentionalsetuputilizedbyus
+closelyfollowstheworkofBahdanauetal.(2015)—buttheframeworkisagnostictotheparticular
+choiceofattentionmechanism.
+The input to our layer is a set of node features, h = {(cid:126)h ,(cid:126)h ,...,(cid:126)h },(cid:126)h ∈ RF, where N is the
+1 2 N i
+numberofnodes,andF isthenumberoffeaturesineachnode.Thelayerproducesanewsetofnode
+features(ofpotentiallydifferentcardinalityF(cid:48)),h(cid:48) ={(cid:126)h(cid:48),(cid:126)h(cid:48),...,(cid:126)h(cid:48) },(cid:126)h(cid:48) ∈RF(cid:48),asitsoutput.
+1 2 N i
+Inordertoobtainsufficientexpressivepowertotransformtheinputfeaturesintohigher-levelfea-
+tures,atleastonelearnablelineartransformationisrequired. Tothatend,asaninitialstep,ashared
+lineartransformation,parametrizedbyaweightmatrix,W ∈RF(cid:48)×F,isappliedtoeverynode. We
+then perform self-attention on the nodes—a shared attentional mechanism a : RF(cid:48) ×RF(cid:48) → R
+computesattentioncoefficients
+e =a(W(cid:126)h ,W(cid:126)h ) (1)
+ij i j
+thatindicatetheimportanceofnodej’sfeaturestonodei.Initsmostgeneralformulation,themodel
+allowseverynodetoattendoneveryothernode,droppingallstructuralinformation. Weinjectthe
+graphstructureintothemechanismbyperformingmaskedattention—weonlycomputee fornodes
+ij
+j ∈ N ,whereN issomeneighborhood ofnodeiinthegraph. Inallourexperiments,thesewill
+i i
+beexactlythefirst-orderneighborsofi(includingi). Tomakecoefficientseasilycomparableacross
+differentnodes,wenormalizethemacrossallchoicesofj usingthesoftmaxfunction:
+exp(e )
+α =softmax (e )= ij . (2)
+ij j ij (cid:80) exp(e )
+k∈Ni ik
+In our experiments, the attention mechanism a is a single-layer feedforward neural network,
+parametrizedbyaweightvector(cid:126)a∈R2F(cid:48),andapplyingtheLeakyReLUnonlinearity(withnegative
+input slope α = 0.2). Fully expanded out, the coefficients computed by the attention mechanism
+(illustratedbyFigure1(left))maythenbeexpressedas:
+(cid:16) (cid:16) (cid:17)(cid:17)
+exp LeakyReLU (cid:126)aT[W(cid:126)h (cid:107)W(cid:126)h ]
+i j
+α = (3)
+ij (cid:16) (cid:16) (cid:17)(cid:17)
+(cid:80) exp LeakyReLU (cid:126)aT[W(cid:126)h (cid:107)W(cid:126)h ]
+k∈Ni i k
+where·T representstranspositionand(cid:107)istheconcatenationoperation.
+Onceobtained,thenormalizedattentioncoefficientsareusedtocomputealinearcombinationofthe
+featurescorrespondingtothem,toserveasthefinaloutputfeaturesforeverynode(afterpotentially
+3
+
+PublishedasaconferencepaperatICLR2018
+α
+ij
+(cid:126)a
+xamtfos
+j
+(cid:126)h
+2 α(cid:126)
+11
+α(cid:126)
+12
+(cid:126)h (cid:126)h
+3 1
+α(cid:126) α(cid:126)
+13
+16
+4
+α(cid:126)1
+(cid:126)h (cid:126)h
+4 6
+W(cid:126)h
+i
+W(cid:126)h
+j
+(cid:126)h
+5
+α(cid:126)
+51
+concat/avg
+(cid:126)h(cid:48)
+1
+Figure 1: Left: The attention mechanism a(W(cid:126)h ,W(cid:126)h ) employed by our model, parametrized
+i j
+by a weight vector(cid:126)a ∈ R2F(cid:48), applying a LeakyReLU activation. Right: An illustration of multi-
+head attention (with K = 3 heads) by node 1 on its neighborhood. Different arrow styles and
+colors denote independent attention computations. The aggregated features from each head are
+concatenatedoraveragedtoobtain(cid:126)h(cid:48).
+1
+applyinganonlinearity,σ):
+ 
+(cid:126)h(cid:48)
+i
+=σ (cid:88) α
+ij
+W(cid:126)h j. (4)
+j∈Ni
+Tostabilizethelearningprocessofself-attention,wehavefoundextendingourmechanismtoem-
+ploymulti-headattentiontobebeneficial,similarlytoVaswanietal.(2017). Specifically,K inde-
+pendentattentionmechanismsexecutethetransformationofEquation4,andthentheirfeaturesare
+concatenated,resultinginthefollowingoutputfeaturerepresentation:
+ 
+K
+(cid:126)h(cid:48) i = (cid:107) σ (cid:88) α i k j Wk(cid:126)h j (5)
+k=1 j∈Ni
+where (cid:107) represents concatenation, αk are normalized attention coefficients computed by the k-th
+ij
+attentionmechanism(ak),andWkisthecorrespondinginputlineartransformation’sweightmatrix.
+Notethat,inthissetting,thefinalreturnedoutput,h(cid:48),willconsistofKF(cid:48) features(ratherthanF(cid:48))
+foreachnode.
+Specially,ifweperformmulti-headattentiononthefinal(prediction)layerofthenetwork,concate-
+nationisnolongersensible—instead,weemployaveraging,anddelayapplyingthefinalnonlinear-
+ity(usuallyasoftmaxorlogisticsigmoidforclassificationproblems)untilthen:
+ 
+K
+(cid:126)h(cid:48) i =σ K 1 (cid:88) (cid:88) α i k j Wk(cid:126)h j (6)
+k=1j∈Ni
+Theaggregationprocessofamulti-headgraphattentionallayerisillustratedbyFigure1(right).
+2.2 COMPARISONSTORELATEDWORK
+The graph attentional layer described in subsection 2.1 directly addresses several issues that were
+presentinpriorapproachestomodellinggraph-structureddatawithneuralnetworks:
+• Computationally,itishighlyefficient:theoperationoftheself-attentionallayercanbepar-
+allelizedacrossalledges,andthecomputationofoutputfeaturescanbeparallelizedacross
+4
+
+PublishedasaconferencepaperatICLR2018
+all nodes. No eigendecompositions or similar costly matrix operations are required. The
+timecomplexityofasingleGATattentionheadcomputingF(cid:48) featuresmaybeexpressed
+asO(|V|FF(cid:48)+|E|F(cid:48)),whereF isthenumberofinputfeatures,and|V|and|E|arethe
+numbers of nodes and edges in the graph, respectively. This complexity is on par with
+the baseline methods such as Graph Convolutional Networks (GCNs) (Kipf & Welling,
+2017). Applying multi-head attention multiplies the storage and parameter requirements
+byafactorofK,whiletheindividualheads’computationsarefullyindependentandcan
+beparallelized.
+• AsopposedtoGCNs,ourmodelallowsfor(implicitly)assigningdifferentimportancesto
+nodesofasameneighborhood,enablingaleapinmodelcapacity. Furthermore,analyzing
+the learned attentional weights may lead to benefits in interpretability, as was the case in
+themachinetranslationdomain(e.g. thequalitativeanalysisofBahdanauetal.(2015)).
+• Theattentionmechanismisappliedinasharedmannertoalledgesinthegraph,andthere-
+foreitdoesnotdependonupfrontaccesstotheglobalgraphstructureor(featuresof)allof
+itsnodes(alimitationofmanypriortechniques). Thishasseveraldesirableimplications:
+– Thegraphisnotrequiredtobeundirected(wemaysimplyleaveoutcomputingα if
+ij
+edgej →iisnotpresent).
+– It makes our technique directly applicable to inductive learning—including tasks
+wherethemodelisevaluatedongraphsthatarecompletelyunseenduringtraining.
+• The recently published inductive method of Hamilton et al. (2017) samples a fixed-size
+neighborhood of each node, in order to keep its computational footprint consistent; this
+does not allow it access to the entirety of the neighborhood while performing inference.
+Moreover,thistechniqueachievedsomeofitsstrongestresultswhenanLSTM(Hochreiter
+&Schmidhuber,1997)-basedneighborhoodaggregatorisused.Thisassumestheexistence
+of a consistent sequential node ordering across neighborhoods, and the authors have rec-
+tifieditbyconsistentlyfeedingrandomly-orderedsequencestotheLSTM.Ourtechnique
+doesnotsufferfromeitheroftheseissues—itworkswiththeentiretyoftheneighborhood
+(at the expense of a variable computational footprint, which is still on-par with methods
+liketheGCN),anddoesnotassumeanyorderingwithinit.
+• As mentioned in Section 1, GAT can be reformulated as a particular instance of MoNet
+(Monti et al., 2016). More specifically, setting the pseudo-coordinate function to be
+u(x,y) = f(x)(cid:107)f(y), where f(x) represent (potentially MLP-transformed) features of
+nodexand(cid:107)isconcatenation;andtheweightfunctiontobew (u)=softmax(MLP(u))
+j
+(withthesoftmaxperformedovertheentireneighborhoodofanode)wouldmakeMoNet’s
+patchoperatorsimilartoours. Nevertheless,oneshouldnotethat,incomparisontoprevi-
+ously considered MoNet instances, our model uses node features for similarity computa-
+tions,ratherthanthenode’sstructuralproperties(whichwouldassumeknowingthegraph
+structureupfront).
+WewereabletoproduceaversionoftheGATlayerthatleveragessparsematrixoperations,reducing
+the storage complexity to linear in the number of nodes and edges and enabling the execution of
+GATmodelsonlargergraphdatasets. However, thetensormanipulationframeworkweusedonly
+supports sparse matrix multiplication for rank-2 tensors, which limits the batching capabilities of
+thelayerasitiscurrentlyimplemented(especiallyfordatasetswithmultiplegraphs). Appropriately
+addressingthisconstraintisanimportantdirectionforfuturework. Dependingontheregularityof
+thegraphstructureinplace, GPUsmaynotbeabletooffermajorperformancebenefitscompared
+to CPUs in these sparse scenarios. It should also be noted that the size of the “receptive field” of
+ourmodelisupper-boundedbythedepthofthenetwork(similarlyasforGCNandsimilarmodels).
+Techniques such as skip connections (He et al., 2016) could be readily applied for appropriately
+extending the depth, however. Lastly, parallelization across all the graph edges, especially in a
+distributed manner, may involve a lot of redundant computation, as the neighborhoods will often
+highlyoverlapingraphsofinterest.
+3 EVALUATION
+We have performed comparative evaluation of GAT models against a wide variety of strong base-
+lines and previous approaches, on four established graph-based benchmark tasks (transductive as
+5
+
+PublishedasaconferencepaperatICLR2018
+Table1: Summaryofthedatasetsusedinourexperiments.
+Cora Citeseer Pubmed PPI
+Task Transductive Transductive Transductive Inductive
+#Nodes 2708(1graph) 3327(1graph) 19717(1graph) 56944(24graphs)
+#Edges 5429 4732 44338 818716
+#Features/Node 1433 3703 500 50
+#Classes 7 6 3 121(multilabel)
+#TrainingNodes 140 120 60 44906(20graphs)
+#ValidationNodes 500 500 500 6514(2graphs)
+#TestNodes 1000 1000 1000 5524(2graphs)
+wellasinductive),achievingormatchingstate-of-the-artperformanceacrossallofthem. Thissec-
+tionsummarizesourexperimentalsetup,results,andabriefqualitativeanalysisofaGATmodel’s
+extractedfeaturerepresentations.
+3.1 DATASETS
+Transductive learning We utilize three standard citation network benchmark datasets—Cora,
+CiteseerandPubmed(Senetal.,2008)—andcloselyfollowthetransductiveexperimentalsetupof
+Yangetal.(2016). Inallofthesedatasets,nodescorrespondtodocumentsandedgesto(undirected)
+citations. Node features correspond to elements of a bag-of-words representation of a document.
+Eachnodehasaclasslabel. Weallowforonly20nodesperclasstobeusedfortraining—however,
+honoring the transductive setup, the training algorithm has access to all of the nodes’ feature vec-
+tors. The predictive power of the trained models is evaluated on 1000 test nodes, and we use 500
+additional nodes for validation purposes (the same ones as used by Kipf & Welling (2017)). The
+Coradatasetcontains2708nodes,5429edges,7classesand1433featurespernode. TheCiteseer
+datasetcontains3327nodes,4732edges,6classesand3703featurespernode. ThePubmeddataset
+contains19717nodes,44338edges,3classesand500featurespernode.
+Inductive learning We make use of a protein-protein interaction (PPI) dataset that consists of
+graphs corresponding to different human tissues (Zitnik & Leskovec, 2017). The dataset contains
+20 graphs for training, 2 for validation and 2 for testing. Critically, testing graphs remain com-
+pletelyunobservedduringtraining.Toconstructthegraphs,weusedthepreprocesseddataprovided
+by Hamilton et al. (2017). The average number of nodes per graph is 2372. Each node has 50
+features that are composed of positional gene sets, motif gene sets and immunological signatures.
+Thereare121labelsforeachnodesetfromgeneontology,collectedfromtheMolecularSignatures
+Database(Subramanianetal.,2005),andanodecanpossessseverallabelssimultaneously.
+AnoverviewoftheinterestingcharacteristicsofthedatasetsisgiveninTable1.
+3.2 STATE-OF-THE-ARTMETHODS
+Transductivelearning Fortransductivelearningtasks,wecompareagainstthesamestrongbase-
+lines and state-of-the-art approaches as specified in Kipf & Welling (2017). This includes label
+propagation(LP)(Zhuetal.,2003),semi-supervisedembedding(SemiEmb)(Westonetal.,2012),
+manifoldregularization(ManiReg)(Belkinetal.,2006),skip-grambasedgraphembeddings(Deep-
+Walk) (Perozzi et al., 2014), the iterative classification algorithm (ICA) (Lu & Getoor, 2003) and
+Planetoid(Yangetal.,2016). WealsodirectlycompareourmodelagainstGCNs(Kipf&Welling,
+2017), as well as graph convolutional models utilising higher-order Chebyshev filters (Defferrard
+etal.,2016),andtheMoNetmodelpresentedinMontietal.(2016).
+Inductivelearning Fortheinductivelearningtask, wecompareagainstthefourdifferentsuper-
+visedGraphSAGEinductivemethodspresentedinHamiltonetal.(2017). Theseprovideavariety
+of approaches to aggregating features within a sampled neighborhood: GraphSAGE-GCN (which
+extends a graph convolution-style operation to the inductive setting), GraphSAGE-mean (taking
+6
+
+PublishedasaconferencepaperatICLR2018
+the elementwise mean value of feature vectors), GraphSAGE-LSTM (aggregating by feeding the
+neighborhoodfeaturesintoanLSTM)andGraphSAGE-pool(takingtheelementwisemaximization
+operation of feature vectors transformed by a shared nonlinear multilayer perceptron). The other
+transductive approaches are either completely inappropriate in an inductive setting or assume that
+nodes are incrementally added to a single graph, making them unusable for the setup where test
+graphsarecompletelyunseenduringtraining(suchasthePPIdataset).
+Additionally,forbothtasksweprovidetheperformanceofaper-nodesharedmultilayerperceptron
+(MLP)classifier(thatdoesnotincorporategraphstructureatall).
+3.3 EXPERIMENTALSETUP
+Transductivelearning Forthetransductivelearningtasks,weapplyatwo-layerGATmodel. Its
+architecturalhyperparametershavebeenoptimizedontheCoradatasetandarethenreusedforCite-
+seer. ThefirstlayerconsistsofK = 8attentionheadscomputingF(cid:48) = 8featureseach(foratotal
+of64features),followedbyanexponentiallinearunit(ELU)(Clevertetal.,2016)nonlinearity. The
+second layer is used for classification: a single attention head that computes C features (where C
+isthenumberofclasses),followedbyasoftmaxactivation. Forcopingwiththesmalltrainingset
+sizes,regularizationisliberallyappliedwithinthemodel. Duringtraining,weapplyL regulariza-
+2
+tion with λ = 0.0005. Furthermore, dropout (Srivastava et al., 2014) with p = 0.6 is applied to
+bothlayers’inputs,aswellastothenormalizedattentioncoefficients(critically,thismeansthatat
+eachtrainingiteration, eachnodeisexposedtoastochasticallysampledneighborhood). Similarly
+asobservedbyMontietal.(2016),wefoundthatPubmed’strainingsetsize(60examples)required
+slightchangestotheGATarchitecture: wehaveappliedK = 8outputattentionheads(insteadof
+one),andstrengthenedtheL regularizationtoλ=0.001. Otherwise,thearchitecturematchesthe
+2
+oneusedforCoraandCiteseer.
+Inductivelearning Fortheinductivelearningtask,weapplyathree-layerGATmodel.Bothofthe
+firsttwolayersconsistofK = 4attentionheadscomputingF(cid:48) = 256features(foratotalof1024
+features), followedbyanELUnonlinearity. Thefinallayerisusedfor(multi-label)classification:
+K = 6 attention heads computing 121 features each, that are averaged and followed by a logistic
+sigmoidactivation.Thetrainingsetsforthistaskaresufficientlylargeandwefoundnoneedtoapply
+L regularizationordropout—wehave,however,successfullyemployedskipconnections(Heetal.,
+2
+2016)acrosstheintermediateattentionallayer.Weutilizeabatchsizeof2graphsduringtraining.To
+strictlyevaluatethebenefitsofapplyinganattentionmechanisminthissetting(i.e. comparingwith
+a near GCN-equivalent model), we also provide the results when a constant attention mechanism,
+a(x,y)=1,isused,withthesamearchitecture—thiswillassignthesameweighttoeveryneighbor.
+BothmodelsareinitializedusingGlorotinitialization(Glorot&Bengio,2010)andtrainedtomini-
+mizecross-entropyonthetrainingnodesusingtheAdamSGDoptimizer(Kingma&Ba,2014)with
+an initial learning rate of 0.01 for Pubmed, and 0.005 for all other datasets. In both cases we use
+an early stopping strategy on both the cross-entropy loss and accuracy (transductive) or micro-F
+1
+(inductive)scoreonthevalidationnodes,withapatienceof100epochs1.
+3.4 RESULTS
+TheresultsofourcomparativeevaluationexperimentsaresummarizedinTables2and3.
+Forthetransductivetasks, wereportthemeanclassificationaccuracy(withstandarddeviation)on
+thetestnodesofourmethodafter100runs,andreusethemetricsalreadyreportedinKipf&Welling
+(2017)andMontietal.(2016)forstate-of-the-arttechniques. Specifically,fortheChebyshevfilter-
+basedapproach(Defferrardetal.,2016),weprovidethemaximumreportedperformanceforfilters
+of orders K = 2 and K = 3. In order to fairly assess the benefits of the attention mechanism,
+wefurtherevaluateaGCNmodelthatcomputes64hiddenfeatures,attemptingboththeReLUand
+ELUactivation, andreporting(asGCN-64∗)thebetterresultafter100runs(whichwastheReLU
+inallthreecases).
+For the inductive task, we report the micro-averaged F score on the nodes of the two unseen test
+1
+graphs,averagedafter10runs,andreusethemetricsalreadyreportedinHamiltonetal.(2017)for
+1OurimplementationoftheGATlayermaybefoundat:https://github.com/PetarV-/GAT.
+7
+
+PublishedasaconferencepaperatICLR2018
+Table 2: Summary of results in termsof classification accuracies, forCora, Citeseer and Pubmed.
+GCN-64∗correspondstothebestGCNresultcomputing64hiddenfeatures(usingReLUorELU).
+Transductive
+Method Cora Citeseer Pubmed
+MLP 55.1% 46.5% 71.4%
+ManiReg(Belkinetal.,2006) 59.5% 60.1% 70.7%
+SemiEmb(Westonetal.,2012) 59.0% 59.6% 71.7%
+LP(Zhuetal.,2003) 68.0% 45.3% 63.0%
+DeepWalk(Perozzietal.,2014) 67.2% 43.2% 65.3%
+ICA(Lu&Getoor,2003) 75.1% 69.1% 73.9%
+Planetoid(Yangetal.,2016) 75.7% 64.7% 77.2%
+Chebyshev(Defferrardetal.,2016) 81.2% 69.8% 74.4%
+GCN(Kipf&Welling,2017) 81.5% 70.3% 79.0%
+MoNet(Montietal.,2016) 81.7±0.5% — 78.8±0.3%
+GCN-64∗ 81.4±0.5% 70.9±0.5% 79.0±0.3%
+GAT(ours) 83.0±0.7% 72.5±0.7% 79.0±0.3%
+Table3:Summaryofresultsintermsofmicro-averagedF scores,forthePPIdataset.GraphSAGE∗
+1
+correspondstothebestGraphSAGEresultwewereabletoobtainbyjustmodifyingitsarchitecture.
+Const-GATcorrespondstoamodelwiththesamearchitectureasGAT,butwithaconstantattention
+mechanism(assigningsameimportancetoeachneighbor;GCN-likeinductiveoperator).
+Inductive
+Method PPI
+Random 0.396
+MLP 0.422
+GraphSAGE-GCN(Hamiltonetal.,2017) 0.500
+GraphSAGE-mean(Hamiltonetal.,2017) 0.598
+GraphSAGE-LSTM(Hamiltonetal.,2017) 0.612
+GraphSAGE-pool(Hamiltonetal.,2017) 0.600
+GraphSAGE∗ 0.768
+Const-GAT(ours) 0.934±0.006
+GAT(ours) 0.973±0.002
+the other techniques. Specifically, as our setup is supervised, we compare against the supervised
+GraphSAGE approaches. To evaluate the benefits of aggregating across the entire neighborhood,
+wefurtherprovide(asGraphSAGE∗)thebestresultwewereabletoachievewithGraphSAGEby
+justmodifyingitsarchitecture(thiswaswithathree-layerGraphSAGE-LSTMwith[512,512,726]
+features computed in each layer and 128 features used for aggregating neighborhoods). Finally,
+wereportthe10-runresultofourconstantattentionGATmodel(asConst-GAT),tofairlyevaluate
+the benefits of the attention mechanism against a GCN-like aggregation scheme (with the same
+architecture).
+Ourresultssuccessfullydemonstratestate-of-the-artperformancebeingachievedormatchedacross
+allfourdatasets—inconcordancewithourexpectations,asperthediscussioninSection2.2. More
+specifically, weareabletoimproveuponGCNsbyamarginof1.5%and1.6%onCoraandCite-
+seer,respectively,suggestingthatassigningdifferentweightstonodesofasameneighborhoodmay
+be beneficial. It is worth noting the improvements achieved on the PPI dataset: Our GAT model
+improvesby20.5%w.r.t. thebestGraphSAGEresultwewereabletoobtain,demonstratingthatour
+modelhasthepotentialtobeappliedininductivesettings, andthatlargerpredictivepowercanbe
+leveragedbyobservingtheentireneighborhood.Furthermore,itimprovesby3.9%w.r.t.Const-GAT
+(theidenticalarchitecturewithconstantattentionmechanism),onceagaindirectlydemonstratingthe
+significanceofbeingabletoassigndifferentweightstodifferentneighbors.
+8
+
+PublishedasaconferencepaperatICLR2018
+Theeffectivenessofthelearnedfeaturerepresentationsmayalsobeinvestigatedqualitatively—and
+for this purpose we provide a visualization of the t-SNE (Maaten & Hinton, 2008)-transformed
+featurerepresentationsextractedbythefirstlayerofaGATmodelpre-trainedontheCoradataset
+(Figure2). Therepresentationexhibitsdiscernibleclusteringintheprojected2Dspace. Notethat
+these clusters correspond to the seven labels of the dataset, verifying the model’s discriminative
+power across the seven topic classes of Cora. Additionally, we visualize the relative strengths of
+thenormalizedattentioncoefficients(averagedacrossalleightattentionheads). Properlyinterpret-
+ing these coefficients (as performed by e.g. Bahdanau et al. (2015)) will require further domain
+knowledgeaboutthedatasetunderstudy,andisleftforfuturework.
+4 CONCLUSIONS
+Wehavepresentedgraphattentionnetworks(GATs), novelconvolution-styleneuralnetworksthat
+operate on graph-structured data, leveraging masked self-attentional layers. The graph attentional
+layer utilized throughout these networks is computationally efficient (does not require costly ma-
+trix operations, and is parallelizable across all nodes in the graph), allows for (implicitly) assign-
+ing different importances to different nodes within a neighborhood while dealing with different
+sized neighborhoods, and does not depend on knowing the entire graph structure upfront—thus
+addressing many of the theoretical issues with previous spectral-based approaches. Our models
+leveragingattentionhavesuccessfullyachievedormatchedstate-of-the-artperformanceacrossfour
+well-established node classification benchmarks, both transductive and inductive (especially, with
+completelyunseengraphsusedfortesting).
+Thereareseveralpotentialimprovementsandextensionstographattentionnetworksthatcouldbe
+addressedasfuturework,suchasovercomingthepracticalproblemsdescribedinsubsection2.2to
+be able to handle larger batch sizes. A particularly interesting research direction would be taking
+advantageoftheattentionmechanismtoperformathoroughanalysisonthemodelinterpretability.
+Moreover,extendingthemethodtoperformgraphclassificationinsteadofnodeclassificationwould
+alsoberelevantfromtheapplicationperspective. Finally,extendingthemodeltoincorporateedge
+features(possiblyindicatingrelationshipamongnodes)wouldallowustotacklealargervarietyof
+problems.
+Figure 2: A t-SNE plot of the computed feature representations of a pre-trained GAT model’s
+first hidden layer on the Cora dataset. Node colors denote classes. Edge thickness indicates ag-
+gregated normalized attention coefficients between nodes i and j, across all eight attention heads
+( (cid:80)K αk +αk).
+k=1 ij ji
+9
+
+PublishedasaconferencepaperatICLR2018
+ACKNOWLEDGEMENTS
+TheauthorswouldliketothankthedevelopersofTensorFlow(Abadietal.,2015). PVandPLhave
+received funding from the European Union’s Horizon 2020 research and innovation programme
+PROPAG-AGEINGundergrantagreementNo634821. Wefurtheracknowledgethesupportofthe
+followingagenciesforresearchfundingandcomputingsupport: CIFAR,CanadaResearchChairs,
+Compute Canada and Calcul Que´bec, as well as NVIDIA for the generous GPU support. Special
+thanksto: BenjaminDayandFabianJansenforkindlypointingoutissuesinapreviousiterationof
+thepaper; MichałDroz˙dz˙alforusefuldiscussions, feedbackandsupport; andGae´tanMarceaufor
+reviewingthepaperpriortosubmission.
+REFERENCES
+Mart´ınAbadi,AshishAgarwal,PaulBarham,EugeneBrevdo,ZhifengChen,CraigCitro,GregS.
+Corrado,AndyDavis,JeffreyDean,MatthieuDevin,SanjayGhemawat,IanGoodfellow,Andrew
+Harp,GeoffreyIrving,MichaelIsard,YangqingJia,RafalJozefowicz,LukaszKaiser,Manjunath
+Kudlur, Josh Levenberg, Dan Mane´, Rajat Monga, Sherry Moore, Derek Murray, Chris Olah,
+MikeSchuster,JonathonShlens,BenoitSteiner,IlyaSutskever,KunalTalwar,PaulTucker,Vin-
+centVanhoucke,VijayVasudevan,FernandaVie´gas,OriolVinyals,PeteWarden,MartinWatten-
+berg,MartinWicke,YuanYu,andXiaoqiangZheng. TensorFlow: Large-scalemachinelearning
+onheterogeneoussystems,2015. URLhttps://www.tensorflow.org/. Softwareavail-
+ablefromtensorflow.org.
+JamesAtwoodandDonTowsley. Diffusion-convolutionalneuralnetworks. InAdvancesinNeural
+InformationProcessingSystems,pp.1993–2001,2016.
+Dzmitry Bahdanau, Kyunghyun Cho, and Yoshua Bengio. Neural machine translation by jointly
+learning to align and translate. International Conference on Learning Representations (ICLR),
+2015.
+MikhailBelkin,ParthaNiyogi,andVikasSindhwani. Manifoldregularization: Ageometricframe-
+workforlearningfromlabeledandunlabeledexamples. Journalofmachinelearningresearch,7
+(Nov):2399–2434,2006.
+Joan Bruna, Wojciech Zaremba, Arthur Szlam, and Yann LeCun. Spectral networks and locally
+connected networks on graphs. International Conference on Learning Representations (ICLR),
+2014.
+Jianpeng Cheng, Li Dong, and Mirella Lapata. Long short-term memory-networks for machine
+reading. arXivpreprintarXiv:1601.06733,2016.
+KyunghyunCho,BartVanMerrie¨nboer,CaglarGulcehre,DzmitryBahdanau,FethiBougares,Hol-
+ger Schwenk, and Yoshua Bengio. Learning phrase representations using rnn encoder-decoder
+forstatisticalmachinetranslation. arXivpreprintarXiv:1406.1078,2014.
+Djork-Arne´ Clevert, Thomas Unterthiner, and Sepp Hochreiter. Fast and accurate deep network
+learningbyexponentiallinearunits(elus).InternationalConferenceonLearningRepresentations
+(ICLR),2016.
+Michae¨l Defferrard, Xavier Bresson, and Pierre Vandergheynst. Convolutional neural networks
+on graphs with fast localized spectral filtering. In Advances in Neural Information Processing
+Systems,pp.3844–3852,2016.
+MishaDenil,SergioGo´mezColmenarejo,SerkanCabi,DavidSaxton,andNandodeFreitas. Pro-
+grammableagents. arXivpreprintarXiv:1706.06383,2017.
+Yan Duan, Marcin Andrychowicz, Bradly Stadie, Jonathan Ho, Jonas Schneider, Ilya Sutskever,
+Pieter Abbeel, and Wojciech Zaremba. One-shot imitation learning. arXiv preprint
+arXiv:1703.07326,2017.
+DavidKDuvenaud,DougalMaclaurin,JorgeIparraguirre,RafaelBombarell,TimothyHirzel,Ala´n
+Aspuru-Guzik, and Ryan P Adams. Convolutional networks on graphs for learning molecular
+fingerprints. InAdvancesinneuralinformationprocessingsystems,pp.2224–2232,2015.
+10
+
+PublishedasaconferencepaperatICLR2018
+PaoloFrasconi,MarcoGori,andAlessandroSperduti.Ageneralframeworkforadaptiveprocessing
+ofdatastructures. IEEEtransactionsonNeuralNetworks,9(5):768–786,1998.
+Jonas Gehring, Michael Auli, David Grangier, and Yann N. Dauphin. A convolutional encoder
+model for neural machine translation. CoRR, abs/1611.02344, 2016. URL http://arxiv.
+org/abs/1611.02344.
+XavierGlorotandYoshuaBengio. Understandingthedifficultyoftrainingdeepfeedforwardneural
+networks. In Proceedings of the Thirteenth International Conference on Artificial Intelligence
+andStatistics,pp.249–256,2010.
+MarcoGori,GabrieleMonfardini,andFrancoScarselli.Anewmodelforlearningingraphdomains.
+InIEEEInternationalJointConferenceonNeuralNetworks,pp.729734,2005.
+William L Hamilton, Rex Ying, and Jure Leskovec. Inductive representation learning on large
+graphs. NeuralInformationProcessingSystems(NIPS),2017.
+KaimingHe,XiangyuZhang,ShaoqingRen,andJianSun. Deepresiduallearningforimagerecog-
+nition. In Proceedings of the IEEE conference on computer vision and pattern recognition, pp.
+770–778,2016.
+Mikael Henaff, Joan Bruna, and Yann LeCun. Deep convolutional networks on graph-structured
+data. arXivpreprintarXiv:1506.05163,2015.
+Sepp Hochreiter and Ju¨rgen Schmidhuber. Long short-term memory. Neural computation, 9(8):
+1735–1780,1997.
+Yedid Hoshen. Vain: Attentional multi-agent predictive modeling. In I. Guyon,
+U. V. Luxburg, S. Bengio, H. Wallach, R. Fergus, S. Vishwanathan, and R. Gar-
+nett (eds.), Advances in Neural Information Processing Systems 30, pp. 2698–
+2708. Curran Associates, Inc., 2017. URL http://papers.nips.cc/paper/
+6863-vain-attentional-multi-agent-predictive-modeling.pdf.
+Simon Je´gou, Michal Drozdzal, David Va´zquez, Adriana Romero, and Yoshua Bengio. The one
+hundredlayerstiramisu: Fullyconvolutionaldensenetsforsemanticsegmentation. InWorkshop
+onComputerVisioninVehicleTechnologyCVPRW,2017.
+Diederik Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint
+arXiv:1412.6980,2014.
+Thomas N Kipf and Max Welling. Semi-supervised classification with graph convolutional net-
+works. InternationalConferenceonLearningRepresentations(ICLR),2017.
+Yujia Li, Daniel Tarlow, Marc Brockschmidt, and Richard Zemel. Gated graph sequence neural
+networks. InternationalConferenceonLearningRepresentations(ICLR),2016.
+Zhouhan Lin, Minwei Feng, Cicero Nogueira dos Santos, Mo Yu, Bing Xiang, Bowen Zhou,
+and Yoshua Bengio. A structured self-attentive sentence embedding. arXiv preprint
+arXiv:1703.03130,2017.
+Qing Lu and Lise Getoor. Link-based classification. In Proceedings of the 20th International
+ConferenceonMachineLearning(ICML-03),pp.496–503,2003.
+Laurens van der Maaten and Geoffrey Hinton. Visualizing data using t-sne. Journal of Machine
+LearningResearch,9(Nov):2579–2605,2008.
+FedericoMonti,DavideBoscaini,JonathanMasci,EmanueleRodola`,JanSvoboda,andMichaelM
+Bronstein. Geometricdeeplearningongraphsandmanifoldsusingmixturemodelcnns. arXiv
+preprintarXiv:1611.08402,2016.
+Mathias Niepert, Mohamed Ahmed, and Konstantin Kutzkov. Learning convolutional neural net-
+works for graphs. In Proceedings of The 33rd International Conference on Machine Learning,
+volume48,pp.2014–2023,2016.
+11
+
+PublishedasaconferencepaperatICLR2018
+Bryan Perozzi, Rami Al-Rfou, and Steven Skiena. Deepwalk: Online learning of social repre-
+sentations. In Proceedings of the 20th ACM SIGKDD international conference on Knowledge
+discoveryanddatamining,pp.701–710.ACM,2014.
+SamT.RoweisandLawrenceK.Saul. Nonlineardimensionalityreductionbylocallylinearembed-
+ding. Science,290:2323–2326,2000.
+Adam Santoro, David Raposo, David GT Barrett, Mateusz Malinowski, Razvan Pascanu, Peter
+Battaglia,andTimothyLillicrap. Asimpleneuralnetworkmoduleforrelationalreasoning. arXiv
+preprintarXiv:1706.01427,2017.
+Franco Scarselli, Marco Gori, Ah Chung Tsoi, Markus Hagenbuchner, and Gabriele Monfardini.
+Thegraphneuralnetworkmodel. IEEETransactionsonNeuralNetworks,20(1):61–80,2009.
+PrithvirajSen,GalileoNamata,MustafaBilgic,LiseGetoor,BrianGalligher,andTinaEliassi-Rad.
+Collectiveclassificationinnetworkdata. AImagazine,29(3):93,2008.
+A. Sperduti and A. Starita. Supervised neural networks for the classification of structures. Trans.
+Neur.Netw.,8(3):714–735,May1997. ISSN1045-9227. doi: 10.1109/72.572108.
+NitishSrivastava, GeoffreyEHinton, AlexKrizhevsky, IlyaSutskever, andRuslanSalakhutdinov.
+Dropout: asimplewaytopreventneuralnetworksfromoverfitting. Journalofmachinelearning
+research,15(1):1929–1958,2014.
+Aravind Subramanian, Pablo Tamayo, Vamsi K Mootha, Sayan Mukherjee, Benjamin L Ebert,
+Michael A Gillette, Amanda Paulovich, Scott L Pomeroy, Todd R Golub, Eric S Lander, et al.
+Genesetenrichmentanalysis:aknowledge-basedapproachforinterpretinggenome-wideexpres-
+sionprofiles. ProceedingsoftheNationalAcademyofSciences,102(43):15545–15550,2005.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
+LukaszKaiser,andIlliaPolosukhin. Attentionisallyouneed. arXivpreprintarXiv:1706.03762,
+2017.
+Jason Weston, Fre´de´ric Ratle, Hossein Mobahi, and Ronan Collobert. Deep learning via semi-
+supervisedembedding. InNeuralNetworks: TricksoftheTrade,pp.639–655.Springer,2012.
+JasonWeston,SumitChopra,andAntoineBordes.Memorynetworks.CoRR,abs/1410.3916,2014.
+URLhttp://arxiv.org/abs/1410.3916.
+Zhilin Yang, William Cohen, and Ruslan Salakhudinov. Revisiting semi-supervised learning with
+graphembeddings. InInternationalConferenceonMachineLearning,pp.40–48,2016.
+Xiaojin Zhu, Zoubin Ghahramani, and John D Lafferty. Semi-supervised learning using gaussian
+fieldsandharmonicfunctions. InProceedingsofthe20thInternationalconferenceonMachine
+learning(ICML-03),pp.912–919,2003.
+Marinka Zitnik and Jure Leskovec. Predicting multicellular function through multi-layer tissue
+networks. Bioinformatics,33(14):i190–i198,2017.
+12

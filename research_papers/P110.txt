@@ -1,0 +1,6 @@
+Title: Dropout: A Simple Way to Prevent Neural Networks from Overfitting
+Authors: Srivastava et al.
+Year: 2014
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Dropout: A Simple Way to Prevent Neural Networks from Overfitting' by Srivastava et al. (2014). Classic foundational literature published in original journal/conference proceedings.

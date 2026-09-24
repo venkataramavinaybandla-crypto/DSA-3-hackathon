@@ -1,0 +1,486 @@
+Generative Adversarial Nets
+IanJ.Goodfellow, JeanPouget-Abadie∗, MehdiMirza, BingXu, DavidWarde-Farley,
+SherjilOzair†, AaronCourville, YoshuaBengio‡
+De´partementd’informatiqueetderechercheope´rationnelle
+Universite´ deMontre´al
+Montre´al,QCH3C3J7
+Abstract
+We propose a new framework for estimating generative models via an adversar-
+ialprocess,inwhichwesimultaneouslytraintwomodels: agenerativemodelG
+that captures the data distribution, and a discriminative model D that estimates
+theprobabilitythatasamplecamefromthetrainingdataratherthanG. Thetrain-
+ingprocedureforGistomaximizetheprobabilityofD makingamistake. This
+frameworkcorrespondstoaminimaxtwo-playergame. Inthespaceofarbitrary
+functionsGandD,auniquesolutionexists,withGrecoveringthetrainingdata
+distributionandDequalto 1 everywhere. InthecasewhereGandDaredefined
+2
+bymultilayerperceptrons,theentiresystemcanbetrainedwithbackpropagation.
+There is no need for any Markov chains or unrolled approximate inference net-
+worksduringeithertrainingorgenerationofsamples. Experimentsdemonstrate
+the potential of the framework through qualitative and quantitative evaluation of
+thegeneratedsamples.
+1 Introduction
+Thepromiseofdeeplearningistodiscoverrich,hierarchicalmodels[2]thatrepresentprobability
+distributionsoverthekindsofdataencounteredinartificialintelligenceapplications,suchasnatural
+images, audiowaveformscontainingspeech, andsymbolsinnaturallanguagecorpora. Sofar, the
+most striking successes in deep learning have involved discriminative models, usually those that
+mapahigh-dimensional,richsensoryinputtoaclasslabel[14,22]. Thesestrikingsuccesseshave
+primarilybeenbasedonthebackpropagationanddropoutalgorithms, usingpiecewiselinearunits
+[19,9,10]whichhaveaparticularlywell-behavedgradient. Deepgenerativemodelshavehadless
+ofanimpact,duetothedifficultyofapproximatingmanyintractableprobabilisticcomputationsthat
+arise in maximum likelihood estimation and related strategies, and due to difficulty of leveraging
+thebenefitsofpiecewiselinearunitsinthegenerativecontext. Weproposeanewgenerativemodel
+estimationprocedurethatsidestepsthesedifficulties. 1
+Intheproposedadversarialnetsframework,thegenerativemodelispittedagainstanadversary: a
+discriminativemodelthatlearnstodeterminewhetherasampleisfromthemodeldistributionorthe
+datadistribution. Thegenerativemodelcanbethoughtofasanalogoustoateamofcounterfeiters,
+trying to produce fake currency and use it without detection, while the discriminative model is
+analogous to the police, trying to detect the counterfeit currency. Competition in this game drives
+both teams to improve their methods until the counterfeits are indistiguishable from the genuine
+articles.
+∗JeanPouget-AbadieisvisitingUniversite´deMontre´alfromEcolePolytechnique.
+†SherjilOzairisvisitingUniversite´deMontre´alfromIndianInstituteofTechnologyDelhi
+‡YoshuaBengioisaCIFARSeniorFellow.
+1Allcodeandhyperparametersavailableathttp://www.github.com/goodfeli/adversarial
+1
+4102
+nuJ
+01
+]LM.tats[
+1v1662.6041:viXra
+
+This framework can yield specific training algorithms for many kinds of model and optimization
+algorithm. Inthisarticle,weexplorethespecialcasewhenthegenerativemodelgeneratessamples
+by passing random noise through a multilayer perceptron, and the discriminative model is also a
+multilayer perceptron. We refer to this special case as adversarial nets. In this case, we can train
+both models using only the highly successful backpropagation and dropout algorithms [17] and
+sample from the generative model using only forward propagation. No approximate inference or
+Markovchainsarenecessary.
+2 Relatedwork
+An alternative to directed graphical models with latent variables are undirected graphical models
+with latent variables, such as restricted Boltzmann machines (RBMs) [27, 16], deep Boltzmann
+machines (DBMs) [26] and their numerous variants. The interactions within such models are
+represented as the product of unnormalized potential functions, normalized by a global summa-
+tion/integration over all states of the random variables. This quantity (the partition function) and
+its gradient areintractable for all but themost trivial instances, althoughthey can be estimated by
+Markov chain Monte Carlo (MCMC) methods. Mixing poses a significant problem for learning
+algorithmsthatrelyonMCMC[3,5].
+Deepbeliefnetworks(DBNs)[16]arehybridmodelscontainingasingleundirectedlayerandsev-
+eral directed layers. While a fast approximate layer-wise training criterion exists, DBNs incur the
+computationaldifficultiesassociatedwithbothundirectedanddirectedmodels.
+Alternative criteria that do not approximate or bound the log-likelihood have also been proposed,
+suchasscorematching[18]andnoise-contrastiveestimation(NCE)[13]. Bothoftheserequirethe
+learned probability density to be analytically specified up to a normalization constant. Note that
+in many interesting generative models with several layers of latent variables (such as DBNs and
+DBMs),itisnotevenpossibletoderiveatractableunnormalizedprobabilitydensity. Somemodels
+suchasdenoisingauto-encoders[30]andcontractiveautoencodershavelearningrulesverysimilar
+toscorematchingappliedtoRBMs. InNCE,asinthiswork, adiscriminativetrainingcriterionis
+employedtofitagenerativemodel. However,ratherthanfittingaseparatediscriminativemodel,the
+generativemodelitselfisusedtodiscriminategenerateddatafromsamplesafixednoisedistribution.
+BecauseNCEusesafixednoisedistribution,learningslowsdramaticallyafterthemodelhaslearned
+evenanapproximatelycorrectdistributionoverasmallsubsetoftheobservedvariables.
+Finally,sometechniquesdonotinvolvedefiningaprobabilitydistributionexplicitly,butrathertrain
+agenerativemachinetodrawsamplesfromthedesireddistribution.Thisapproachhastheadvantage
+thatsuchmachinescanbedesignedtobetrainedbyback-propagation.Prominentrecentworkinthis
+area includes the generative stochastic network (GSN) framework [5], which extends generalized
+denoisingauto-encoders[4]: bothcanbeseenasdefiningaparameterizedMarkovchain, i.e., one
+learnstheparametersofamachinethatperformsonestepofagenerativeMarkovchain. Compared
+to GSNs, the adversarial nets framework does not require a Markov chain for sampling. Because
+adversarial nets do not require feedback loops during generation, they are better able to leverage
+piecewise linear units [19, 9, 10], which improve the performance of backpropagation but have
+problemswithunboundedactivationwhenusedinafeedbackloop.Morerecentexamplesoftraining
+agenerativemachinebyback-propagatingintoitincluderecentworkonauto-encodingvariational
+Bayes[20]andstochasticbackpropagation[24].
+3 Adversarialnets
+The adversarial modeling framework is most straightforward to apply when the models are both
+multilayer perceptrons. To learn the generator’s distribution p over data x, we define a prior on
+g
+input noise variables p (z), then represent a mapping to data space as G(z;θ ), where G is a
+z g
+differentiablefunctionrepresentedbyamultilayerperceptronwithparametersθ . Wealsodefinea
+g
+secondmultilayerperceptronD(x;θ )thatoutputsasinglescalar. D(x)representstheprobability
+d
+thatxcamefromthedataratherthanp . WetrainD tomaximizetheprobabilityofassigningthe
+g
+correctlabeltobothtrainingexamplesandsamplesfromG.WesimultaneouslytrainGtominimize
+log(1−D(G(z))):
+2
+
+Inotherwords,DandGplaythefollowingtwo-playerminimaxgamewithvaluefunctionV(G,D):
+minmaxV(D,G)=E [logD(x)]+E [log(1−D(G(z)))]. (1)
+G D
+x∼pdata(x) z∼pz(z)
+In the next section, we present a theoretical analysis of adversarial nets, essentially showing that
+the training criterion allows one to recover the data generating distribution as G and D are given
+enoughcapacity,i.e.,inthenon-parametriclimit. SeeFigure1foralessformal,morepedagogical
+explanationoftheapproach. Inpractice,wemustimplementthegameusinganiterative,numerical
+approach. OptimizingDtocompletionintheinnerloopoftrainingiscomputationallyprohibitive,
+andonfinitedatasetswouldresultinoverfitting.Instead,wealternatebetweenkstepsofoptimizing
+D and one step of optimizing G. This results in D being maintained near its optimal solution, so
+long as G changes slowly enough. This strategy is analogous to the way that SML/PCD [31, 29]
+trainingmaintainssamplesfromaMarkovchainfromonelearningsteptothenextinordertoavoid
+burninginaMarkovchainaspartoftheinnerloopoflearning. Theprocedureisformallypresented
+inAlgorithm1.
+In practice, equation 1 may not provide sufficient gradient for G to learn well. Early in learning,
+whenGispoor,Dcanrejectsampleswithhighconfidencebecausetheyareclearlydifferentfrom
+the training data. In this case, log(1−D(G(z))) saturates. Rather than training G to minimize
+log(1−D(G(z)))wecantrainGtomaximizelogD(G(z)). Thisobjectivefunctionresultsinthe
+samefixedpointofthedynamicsofGandDbutprovidesmuchstrongergradientsearlyinlearning.
+...
+x
+XXX
+z
+ZZZ
+(a) (b) (c) (d)
+Figure 1: Generativeadversarialnetsaretrainedbysimultaneouslyupdatingthediscriminativedistribution
+(D, blue, dashedline)sothatitdiscriminatesbetweensamplesfromthedatageneratingdistribution(black,
+dottedline)p fromthoseofthegenerativedistributionp (G)(green,solidline).Thelowerhorizontallineis
+x g
+thedomainfromwhichz issampled,inthiscaseuniformly. Thehorizontallineaboveispartofthedomain
+of x. The upward arrows show how the mapping x = G(z) imposes the non-uniform distribution p on
+g
+transformedsamples. Gcontractsinregionsofhighdensityandexpandsinregionsoflowdensityofp . (a)
+g
+Consider an adversarial pair near convergence: p is similar to p and D is a partially accurate classifier.
+g data
+(b)IntheinnerloopofthealgorithmDistrainedtodiscriminatesamplesfromdata,convergingtoD∗(x)=
+pdata(x) .(c)AfteranupdatetoG,gradientofDhasguidedG(z)toflowtoregionsthataremorelikely
+pdata(x)+pg(x)
+tobeclassifiedasdata. (d)Afterseveralstepsoftraining,ifGandDhaveenoughcapacity,theywillreacha
+pointatwhichbothcannotimprovebecausep = p . Thediscriminatorisunabletodifferentiatebetween
+g data
+thetwodistributions,i.e.D(x)= 1.
+2
+4 TheoreticalResults
+The generator G implicitly defines a probability distribution p as the distribution of the samples
+g
+G(z)obtainedwhenz ∼p . Therefore,wewouldlikeAlgorithm1toconvergetoagoodestimator
+z
+of p , if given enough capacity and training time. The results of this section are done in a non-
+data
+parametricsetting,e.g. werepresentamodelwithinfinitecapacitybystudyingconvergenceinthe
+spaceofprobabilitydensityfunctions.
+Wewillshowinsection4.1thatthisminimaxgamehasaglobaloptimumforp = p . Wewill
+g data
+thenshowinsection4.2thatAlgorithm1optimizesEq1,thusobtainingthedesiredresult.
+3
+
+Algorithm 1 Minibatchstochasticgradientdescenttrainingofgenerativeadversarialnets. Thenumberof
+stepstoapplytothediscriminator,k,isahyperparameter. Weusedk = 1,theleastexpensiveoption,inour
+experiments.
+fornumberoftrainingiterationsdo
+forkstepsdo
+•Sampleminibatchofmnoisesamples{z(1),...,z(m)}fromnoisepriorp (z).
+g
+• Sample minibatch of m examples {x(1),...,x(m)} from data generating distribution
+p (x).
+data
+•Updatethediscriminatorbyascendingitsstochasticgradient:
+m
+1 (cid:88)(cid:104) (cid:16) (cid:17) (cid:16) (cid:16) (cid:16) (cid:17)(cid:17)(cid:17)(cid:105)
+∇ logD x(i) +log 1−D G z(i) .
+θdm
+i=1
+endfor
+•Sampleminibatchofmnoisesamples{z(1),...,z(m)}fromnoisepriorp (z).
+g
+•Updatethegeneratorbydescendingitsstochasticgradient:
+m
+1 (cid:88) (cid:16) (cid:16) (cid:16) (cid:17)(cid:17)(cid:17)
+∇ log 1−D G z(i) .
+θgm
+i=1
+endfor
+Thegradient-basedupdatescanuseanystandardgradient-basedlearningrule. Weusedmomen-
+tuminourexperiments.
+4.1 GlobalOptimalityofp =p
+g data
+WefirstconsidertheoptimaldiscriminatorDforanygivengeneratorG.
+Proposition1. ForGfixed,theoptimaldiscriminatorDis
+p (x)
+D∗(x)= data (2)
+G p (x)+p (x)
+data g
+Proof. The training criterion for the discriminator D, given any generator G, is to maximize the
+quantityV(G,D)
+(cid:90) (cid:90)
+V(G,D)= p (x)log(D(x))dx+ p (z)log(1−D(g(z)))dz
+data z
+x z
+(cid:90)
+= p (x)log(D(x))+p (x)log(1−D(x))dx (3)
+data g
+x
+For any (a,b) ∈ R2 \{0,0}, the function y → alog(y)+blog(1−y) achieves its maximum in
+[0,1] at a . The discriminator does not need to be defined outside of Supp(p )∪Supp(p ),
+a+b data g
+concludingtheproof.
+Note that the training objective for D can be interpreted as maximizing the log-likelihood for es-
+timating the conditional probability P(Y = y|x), where Y indicates whether x comes from p
+data
+(withy =1)orfromp (withy =0). TheminimaxgameinEq.1cannowbereformulatedas:
+g
+C(G)=maxV(G,D)
+D
+=E [logD∗(x)]+E [log(1−D∗(G(z)))] (4)
+x∼pdata G z∼pz G
+=E [logD∗(x)]+E [log(1−D∗(x))]
+x∼pdata G x∼pg G
+(cid:20) (cid:21) (cid:20) (cid:21)
+p (x) p (x)
+=E log data +E log g
+x∼pdata P (x)+p (x) x∼pg p (x)+p (x)
+data g data g
+4
+
+Theorem 1. The global minimum of the virtual training criterion C(G) is achieved if and only if
+p =p . Atthatpoint,C(G)achievesthevalue−log4.
+g data
+Proof. Forp =p ,D∗(x)= 1,(considerEq.2).Hence,byinspectingEq.4atD∗(x)= 1,we
+g data G 2 G 2
+findC(G) = log1 +log1 = −log4. ToseethatthisisthebestpossiblevalueofC(G),reached
+2 2
+onlyforp =p ,observethat
+g data
+E [−log2]+E [−log2]=−log4
+x∼pdata x∼pg
+andthatbysubtractingthisexpressionfromC(G)=V(D∗,G),weobtain:
+G
+(cid:18) (cid:13) (cid:19) (cid:18) (cid:13) (cid:19)
+C(G)=−log(4)+KL p data (cid:13) (cid:13) (cid:13) p data 2 +p g +KL p g (cid:13) (cid:13) (cid:13) p data 2 +p g (5)
+whereKListheKullback–Leiblerdivergence. WerecognizeinthepreviousexpressiontheJensen–
+Shannondivergencebetweenthemodel’sdistributionandthedatageneratingprocess:
+C(G)=−log(4)+2·JSD(p (cid:107)p ) (6)
+data g
+Since the Jensen–Shannon divergence between two distributions is always non-negative and zero
+onlywhentheyareequal,wehaveshownthatC∗ = −log(4)istheglobalminimumofC(G)and
+thattheonlysolutionisp =p ,i.e.,thegenerativemodelperfectlyreplicatingthedatagenerating
+g data
+process.
+4.2 ConvergenceofAlgorithm1
+Proposition2. IfGandDhaveenoughcapacity,andateachstepofAlgorithm1,thediscriminator
+isallowedtoreachitsoptimumgivenG,andp isupdatedsoastoimprovethecriterion
+g
+E [logD∗(x)]+E [log(1−D∗(x))]
+x∼pdata G x∼pg G
+thenp convergestop
+g data
+Proof. Consider V(G,D) = U(p ,D) as a function of p as done in the above criterion. Note
+g g
+thatU(p ,D)isconvexinp . Thesubderivativesofasupremumofconvexfunctionsincludethe
+g g
+derivative of the function at the point where the maximum is attained. In other words, if f(x) =
+sup f (x)andf (x)isconvexinxforeveryα,then∂f (x) ∈ ∂f ifβ = argsup f (x).
+α∈A α α β α∈A α
+This is equivalent to computing a gradient descent update for p at the optimal D given the cor-
+g
+responding G. sup U(p ,D) is convex in p with a unique global optima as proven in Thm 1,
+D g g
+thereforewithsufficientlysmallupdatesofp ,p convergestop ,concludingtheproof.
+g g x
+Inpractice,adversarialnetsrepresentalimitedfamilyofp distributionsviathefunctionG(z;θ ),
+g g
+and we optimize θ rather than p itself. Using a multilayer perceptron to define G introduces
+g g
+multiplecriticalpointsinparameterspace. However, theexcellentperformanceofmultilayerper-
+ceptronsinpracticesuggeststhattheyareareasonablemodeltousedespitetheirlackoftheoretical
+guarantees.
+5 Experiments
+WetrainedadversarialnetsanarangeofdatasetsincludingMNIST[23],theTorontoFaceDatabase
+(TFD)[28],andCIFAR-10[21].Thegeneratornetsusedamixtureofrectifierlinearactivations[19,
+9]andsigmoidactivations,whilethediscriminatornetusedmaxout[10]activations. Dropout[17]
+was applied in training the discriminator net. While our theoretical framework permits the use of
+dropoutandothernoiseatintermediatelayersofthegenerator, weusednoiseastheinputtoonly
+thebottommostlayerofthegeneratornetwork.
+We estimate probability of the test set data under p by fitting a Gaussian Parzen window to the
+g
+samplesgeneratedwithGandreportingthelog-likelihoodunderthisdistribution. Theσparameter
+5
+
+Model MNIST TFD
+DBN[3] 138±2 1909±66
+StackedCAE[3] 121±1.6 2110±50
+DeepGSN[6] 214±1.1 1890±29
+Adversarialnets 225±2 2057±26
+Table1: Parzenwindow-basedlog-likelihoodestimates. ThereportednumbersonMNISTarethemeanlog-
+likelihoodofsamplesontestset,withthestandarderrorofthemeancomputedacrossexamples. OnTFD,we
+computedthestandarderroracrossfoldsofthedataset, withadifferentσ chosenusingthevalidationsetof
+eachfold. OnTFD,σwascrossvalidatedoneachfoldandmeanlog-likelihoodoneachfoldwerecomputed.
+ForMNISTwecompareagainstothermodelsofthereal-valued(ratherthanbinary)versionofdataset.
+oftheGaussianswasobtainedbycrossvalidationonthevalidationset. Thisprocedurewasintro-
+ducedinBreuleuxetal.[8]andusedforvariousgenerativemodelsforwhichtheexactlikelihood
+isnottractable[25,3,5]. ResultsarereportedinTable1. Thismethodofestimatingthelikelihood
+hassomewhathighvarianceanddoesnotperformwellinhighdimensionalspacesbutitisthebest
+methodavailabletoourknowledge.Advancesingenerativemodelsthatcansamplebutnotestimate
+likelihooddirectlymotivatefurtherresearchintohowtoevaluatesuchmodels.
+InFigures2and3weshowsamplesdrawnfromthegeneratornetaftertraining. Whilewemakeno
+claimthatthesesamplesarebetterthansamplesgeneratedbyexistingmethods,webelievethatthese
+samplesareatleastcompetitivewiththebettergenerativemodelsintheliteratureandhighlightthe
+potentialoftheadversarialframework.
+a) b)
+c) d)
+Figure2: Visualizationofsamplesfromthemodel. Rightmostcolumnshowsthenearesttrainingexampleof
+theneighboringsample,inordertodemonstratethatthemodelhasnotmemorizedthetrainingset. Samples
+arefairrandomdraws,notcherry-picked. Unlikemostothervisualizationsofdeepgenerativemodels,these
+imagesshowactualsamplesfromthemodeldistributions,notconditionalmeansgivensamplesofhiddenunits.
+Moreover, these samples are uncorrelated because the sampling process does not depend on Markov chain
+mixing. a)MNISTb)TFDc)CIFAR-10(fullyconnectedmodel)d)CIFAR-10(convolutionaldiscriminator
+and“deconvolutional”generator)
+6
+
+Figure3: Digitsobtainedbylinearlyinterpolatingbetweencoordinatesinzspaceofthefullmodel.
+Deepdirected Deepundirected Generative
+Adversarialmodels
+graphicalmodels graphicalmodels autoencoders
+Inferenceneeded
+Enforcedtradeoff
+duringtraining. Synchronizingthe
+betweenmixing
+Inferenceneeded MCMCneededto discriminatorwith
+Training andpowerof
+duringtraining. approximate thegenerator.
+reconstruction
+partitionfunction Helvetica.
+generation
+gradient.
+Learned Learned
+Variational MCMC-based
+Inference approximate approximate
+inference inference
+inference inference
+RequiresMarkov RequiresMarkov
+Sampling Nodifficulties Nodifficulties
+chain chain
+Notexplicitly Notexplicitly
+Intractable,maybe Intractable,maybe represented,maybe represented,maybe
+Evaluatingp(x) approximatedwith approximatedwith approximatedwith approximatedwith
+AIS AIS Parzendensity Parzendensity
+estimation estimation
+Anydifferentiable Anydifferentiable
+Nearlyallmodels Carefuldesign
+functionis functionis
+Modeldesign incurextreme neededtoensure
+theoretically theoretically
+difficulty multipleproperties
+permitted permitted
+Table2:Challengesingenerativemodeling:asummaryofthedifficultiesencounteredbydifferentapproaches
+todeepgenerativemodelingforeachofthemajoroperationsinvolvingamodel.
+6 Advantagesanddisadvantages
+Thisnewframeworkcomeswithadvantagesanddisadvantagesrelativetopreviousmodelingframe-
+works. Thedisadvantagesareprimarilythatthereisnoexplicitrepresentationofp (x),andthatD
+g
+must be synchronized well with G during training (in particular, G must not be trained too much
+withoutupdatingD,inordertoavoid“theHelveticascenario”inwhichGcollapsestoomanyvalues
+ofztothesamevalueofxtohaveenoughdiversitytomodelp ),muchasthenegativechainsofa
+data
+Boltzmannmachinemustbekeptuptodatebetweenlearningsteps.TheadvantagesarethatMarkov
+chains are never needed, only backprop is used to obtain gradients, no inference is needed during
+learning, anda widevarietyof functionscanbeincorporated intothemodel. Table2 summarizes
+thecomparisonofgenerativeadversarialnetswithothergenerativemodelingapproaches.
+The aforementioned advantages are primarily computational. Adversarial models may also gain
+some statistical advantage from the generator network not being updated directly with data exam-
+ples,butonlywithgradientsflowingthroughthediscriminator. Thismeansthatcomponentsofthe
+inputarenotcopieddirectlyintothegenerator’sparameters. Anotheradvantageofadversarialnet-
+worksisthattheycanrepresentverysharp,evendegeneratedistributions,whilemethodsbasedon
+Markovchainsrequirethatthedistributionbesomewhatblurryinorderforthechainstobeableto
+mixbetweenmodes.
+7 Conclusionsandfuturework
+Thisframeworkadmitsmanystraightforwardextensions:
+1. Aconditionalgenerativemodelp(x|c)canbeobtainedbyaddingcasinputtobothGandD.
+2. Learned approximate inference can be performed by training an auxiliary network to predict z
+given x. This issimilarto theinference nettrainedby thewake-sleep algorithm [15] butwith
+the advantage that theinference net may be trained for afixed generator net after the generator
+nethasfinishedtraining.
+7
+
+3. One can approximately model all conditionals p(x | x ) where S is a subset of the indices
+S (cid:54)S
+of x by training a family of conditional models that share parameters. Essentially, one can use
+adversarialnetstoimplementastochasticextensionofthedeterministicMP-DBM[11].
+4. Semi-supervisedlearning: featuresfromthediscriminatororinferencenetcouldimproveperfor-
+manceofclassifierswhenlimitedlabeleddataisavailable.
+5. Efficiency improvements: training could be accelerated greatly by divising better methods for
+coordinatingGandDordeterminingbetterdistributionstosamplezfromduringtraining.
+This paper has demonstrated the viability of the adversarial modeling framework, suggesting that
+theseresearchdirectionscouldproveuseful.
+Acknowledgments
+We would like to acknowledge Patrice Marcotte, Olivier Delalleau, Kyunghyun Cho, Guillaume
+Alain and Jason Yosinski for helpful discussions. Yann Dauphin shared his Parzen window eval-
+uation code with us. We would like to thank the developers of Pylearn2 [12] and Theano [7, 1],
+particularly Fre´de´ric Bastien who rushed a Theano feature specifically to benefit this project. Ar-
+naudBergeronprovidedmuch-neededsupportwithLATEXtypesetting. Wewouldalsoliketothank
+CIFAR, and Canada Research Chairs for funding, and Compute Canada, and Calcul Que´bec for
+providingcomputationalresources. IanGoodfellowissupportedbythe2013GoogleFellowshipin
+DeepLearning. Finally,wewouldliketothankLesTroisBrasseursforstimulatingourcreativity.
+References
+[1] Bastien, F., Lamblin, P., Pascanu, R., Bergstra, J., Goodfellow, I. J., Bergeron, A., Bouchard, N., and
+Bengio, Y. (2012). Theano: new features and speed improvements. Deep Learning and Unsupervised
+FeatureLearningNIPS2012Workshop.
+[2] Bengio,Y.(2009). LearningdeeparchitecturesforAI. NowPublishers.
+[3] Bengio, Y., Mesnil, G., Dauphin, Y., and Rifai, S. (2013a). Better mixing via deep representations. In
+ICML’13.
+[4] Bengio,Y.,Yao,L.,Alain,G.,andVincent,P.(2013b).Generalizeddenoisingauto-encodersasgenerative
+models. InNIPS26.NipsFoundation.
+[5] Bengio,Y.,Thibodeau-Laufer,E.,andYosinski,J.(2014a). Deepgenerativestochasticnetworkstrainable
+bybackprop. InICML’14.
+[6] Bengio, Y., Thibodeau-Laufer, E., Alain, G., and Yosinski, J. (2014b). Deep generative stochastic net-
+workstrainablebybackprop. InProceedingsofthe30thInternationalConferenceonMachineLearning
+(ICML’14).
+[7] Bergstra,J.,Breuleux,O.,Bastien,F.,Lamblin,P.,Pascanu,R.,Desjardins,G.,Turian,J.,Warde-Farley,
+D., and Bengio, Y. (2010). Theano: a CPU and GPU math expression compiler. In Proceedings of the
+PythonforScientificComputingConference(SciPy). OralPresentation.
+[8] Breuleux, O., Bengio, Y., and Vincent, P. (2011). Quickly generating representative samples from an
+RBM-derivedprocess. NeuralComputation,23(8),2053–2073.
+[9] Glorot,X.,Bordes,A.,andBengio,Y.(2011). Deepsparserectifierneuralnetworks. InAISTATS’2011.
+[10] Goodfellow,I.J.,Warde-Farley,D.,Mirza,M.,Courville,A.,andBengio,Y.(2013a). Maxoutnetworks.
+InICML’2013.
+[11] Goodfellow, I.J., Mirza, M., Courville, A., andBengio, Y.(2013b). Multi-predictiondeepBoltzmann
+machines. InNIPS’2013.
+[12] Goodfellow, I. J., Warde-Farley, D., Lamblin, P., Dumoulin, V., Mirza, M., Pascanu, R., Bergstra,
+J., Bastien, F., and Bengio, Y. (2013c). Pylearn2: a machine learning research library. arXiv preprint
+arXiv:1308.4214.
+[13] Gutmann, M.andHyvarinen, A.(2010). Noise-contrastiveestimation: Anewestimationprinciplefor
+unnormalizedstatisticalmodels. InAISTATS’2010.
+[14] Hinton, G., Deng, L., Dahl, G. E., Mohamed, A., Jaitly, N., Senior, A., Vanhoucke, V., Nguyen, P.,
+Sainath,T.,andKingsbury,B.(2012a). Deepneuralnetworksforacousticmodelinginspeechrecognition.
+IEEESignalProcessingMagazine,29(6),82–97.
+[15] Hinton,G.E.,Dayan,P.,Frey,B.J.,andNeal,R.M.(1995). Thewake-sleepalgorithmforunsupervised
+neuralnetworks. Science,268,1558–1161.
+8
+
+[16] Hinton,G.E.,Osindero,S.,andTeh,Y.(2006). Afastlearningalgorithmfordeepbeliefnets. Neural
+Computation,18,1527–1554.
+[17] Hinton,G.E.,Srivastava,N.,Krizhevsky,A.,Sutskever,I.,andSalakhutdinov,R.(2012b). Improving
+neuralnetworksbypreventingco-adaptationoffeaturedetectors. Technicalreport,arXiv:1207.0580.
+[18] Hyva¨rinen,A.(2005).Estimationofnon-normalizedstatisticalmodelsusingscorematching.J.Machine
+LearningRes.,6.
+[19] Jarrett,K.,Kavukcuoglu,K.,Ranzato,M.,andLeCun,Y.(2009).Whatisthebestmulti-stagearchitecture
+forobjectrecognition? InProc.InternationalConferenceonComputerVision(ICCV’09),pages2146–2153.
+IEEE.
+[20] Kingma,D.P.andWelling,M.(2014). Auto-encodingvariationalbayes. InProceedingsoftheInterna-
+tionalConferenceonLearningRepresentations(ICLR).
+[21] Krizhevsky,A.andHinton,G.(2009). Learningmultiplelayersoffeaturesfromtinyimages. Technical
+report,UniversityofToronto.
+[22] Krizhevsky, A., Sutskever, I., andHinton, G.(2012). ImageNetclassificationwithdeepconvolutional
+neuralnetworks. InNIPS’2012.
+[23] LeCun,Y.,Bottou,L.,Bengio,Y.,andHaffner,P.(1998). Gradient-basedlearningappliedtodocument
+recognition. ProceedingsoftheIEEE,86(11),2278–2324.
+[24] Rezende, D. J., Mohamed, S., and Wierstra, D. (2014). Stochastic backpropagation and approximate
+inferenceindeepgenerativemodels. Technicalreport,arXiv:1401.4082.
+[25] Rifai,S.,Bengio,Y.,Dauphin,Y.,andVincent,P.(2012). Agenerativeprocessforsamplingcontractive
+auto-encoders. InICML’12.
+[26] Salakhutdinov,R.andHinton,G.E.(2009). DeepBoltzmannmachines. InAISTATS’2009,pages448–
+455.
+[27] Smolensky,P.(1986). Informationprocessingindynamicalsystems:Foundationsofharmonytheory. In
+D.E.RumelhartandJ.L.McClelland,editors,ParallelDistributedProcessing,volume1,chapter6,pages
+194–281.MITPress,Cambridge.
+[28] Susskind,J.,Anderson,A.,andHinton,G.E.(2010).TheTorontofacedataset.TechnicalReportUTML
+TR2010-001,U.Toronto.
+[29] Tieleman, T. (2008). Training restricted Boltzmann machines using approximations to the likelihood
+gradient. InW.W.Cohen,A.McCallum,andS.T.Roweis,editors,ICML2008,pages1064–1071.ACM.
+[30] Vincent, P., Larochelle, H., Bengio, Y., andManzagol, P.-A.(2008). Extractingandcomposingrobust
+featureswithdenoisingautoencoders. InICML2008.
+[31] Younes, L. (1999). On the convergence of Markovian stochastic algorithms with rapidly decreasing
+ergodicityrates. StochasticsandStochasticReports,65(3),177–228.
+9

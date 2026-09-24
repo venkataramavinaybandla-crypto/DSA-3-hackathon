@@ -1,0 +1,6 @@
+Title: Algorithm for Solution of a Problem of Maximum Flow with Power Estimation
+Authors: Dinic
+Year: 1970
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Algorithm for Solution of a Problem of Maximum Flow with Power Estimation' by Dinic (1970). Classic foundational literature published in original journal/conference proceedings.

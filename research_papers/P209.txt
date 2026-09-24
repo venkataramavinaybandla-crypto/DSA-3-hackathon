@@ -1,0 +1,6 @@
+Title: Information Cascades in the Blogosphere
+Authors: Leskovec et al.
+Year: 2007
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Information Cascades in the Blogosphere' by Leskovec et al. (2007). Classic foundational literature published in original journal/conference proceedings.

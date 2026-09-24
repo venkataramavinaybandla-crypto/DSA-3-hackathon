@@ -1,0 +1,895 @@
+9102
+luJ
+62
+]LC.sc[
+1v29611.7091:viXra
+RoBERTa: A Robustly Optimized BERT Pretraining Approach
+Yinhan Liu∗§ MyleOtt∗§ NamanGoyal∗§ Jingfei Du∗§ Mandar Joshi†
+Danqi Chen§ OmerLevy§ MikeLewis§ Luke Zettlemoyer†§ VeselinStoyanov§
+† Paul G.Allen SchoolofComputerScience& Engineering,
+UniversityofWashington,Seattle, WA
+{mandar90,lsz}@cs.washington.edu
+§ Facebook AI
+{yinhanliu,myleott,naman,jingfeidu,
+danqi,omerlevy,mikelewis,lsz,ves}@fb.com
+Abstract We present a replication study of BERT pre-
+training (Devlinetal., 2019), which includes a
+Language model pretraining has led to sig- careful evaluation of the effects of hyperparmeter
+nificant performance gains but careful com- tuning and training set size. We find that BERT
+parison between differentapproachesis chal-
+wassignificantly undertrained andproposeanim-
+lenging. Training is computationally expen-
+proved recipe for training BERT models, which
+sive,oftendoneonprivatedatasetsofdifferent
+we call RoBERTa, that can match or exceed the
+sizes, and, as we will show, hyperparameter
+choiceshavesignificantimpactonthefinalre- performance of all of the post-BERT methods.
+sults. WepresentareplicationstudyofBERT Our modifications are simple, they include: (1)
+pretraining(Devlinetal., 2019) thatcarefully training the model longer, with bigger batches,
+measurestheimpactofmanykeyhyperparam- over more data; (2) removing the next sentence
+etersandtrainingdatasize.WefindthatBERT
+prediction objective; (3) training on longer se-
+wassignificantlyundertrained,andcanmatch quences; and (4)dynamically changing themask-
+or exceed the performance of every model
+ing pattern applied to the training data. We also
+published after it. Our best model achieves
+state-of-the-art results on GLUE, RACE and
+collectalargenewdataset(CC-NEWS)ofcompa-
+SQuAD. These results highlight the impor- rablesizetootherprivatelyuseddatasets,tobetter
+tanceofpreviouslyoverlookeddesignchoices, controlfortrainingsetsizeeffects.
+and raise questions about the source of re- When controlling for training data, our im-
+centlyreportedimprovements.Wereleaseour provedtrainingprocedureimprovesuponthepub-
+modelsandcode.1
+lished BERT results on both GLUE and SQuAD.
+When trained for longer over additional data, our
+1 Introduction
+model achieves a score of 88.5 on the public
+GLUE leaderboard, matching the 88.4 reported
+Self-trainingmethodssuchasELMo(Petersetal.,
+by Yangetal. (2019). Our model establishes a
+2018), GPT (Radfordetal., 2018), BERT
+new state-of-the-art on 4/9 of the GLUE tasks:
+(Devlinetal.,2019),XLM(LampleandConneau,
+MNLI, QNLI, RTE and STS-B. We also match
+2019), and XLNet (Yangetal., 2019) have
+state-of-the-art results on SQuAD and RACE.
+brought significant performance gains, but it can
+Overall, we re-establish that BERT’smasked lan-
+be challenging to determine which aspects of
+guage model training objective is competitive
+the methods contribute the most. Training is
+with other recently proposed training objectives
+computationally expensive, limiting the amount
+such asperturbed autoregressive language model-
+oftuning that can bedone, andis often done with
+ing(Yangetal.,2019).2
+private training data of varying sizes, limiting
+In summary, the contributions of this paper
+our ability to measure the effects of the modeling
+are: (1) We present a set of important BERT de-
+advances.
+sign choices and training strategies and introduce
+∗Equalcontribution.
+1Ourmodelsandcodeareavailableat: 2Itispossiblethattheseothermethodscouldalsoimprove
+https://github.com/pytorch/fairseq withmoretuning.Weleavethisexplorationtofuturework.
+
+alternatives that lead to better downstream task and 10% are replaced by a randomly selected vo-
+performance; (2) We use a novel dataset, CC- cabulary token.
+NEWS, and confirm that using more data for pre- In the original implementation, random mask-
+training further improves performance on down- ing and replacement is performed once in the be-
+streamtasks;(3)Ourtrainingimprovementsshow ginning and saved for the duration of training, al-
+that masked language model pretraining, under though in practice, data is duplicated so the mask
+the right design choices, is competitive with all isnot always thesameforevery training sentence
+other recently published methods. Werelease our (seeSection4.1).
+model, pretraining and fine-tuning code imple-
+Next Sentence Prediction (NSP) NSP is a bi-
+mentedinPyTorch(Paszkeetal.,2017).
+naryclassification lossforpredicting whethertwo
+2 Background segments follow each other in the original text.
+Positive examples are created by taking consecu-
+In this section, we give a brief overview of the
+tive sentences from the text corpus. Negative ex-
+BERT (Devlinetal., 2019) pretraining approach
+amples are created by pairing segments from dif-
+and some of the training choices that we will ex-
+ferentdocuments. Positiveandnegative examples
+amineexperimentally inthefollowingsection.
+aresampledwithequalprobability.
+The NSP objective was designed to improve
+2.1 Setup
+performanceondownstreamtasks,suchasNatural
+BERT takes as input a concatenation of two
+LanguageInference(Bowmanetal.,2015),which
+segments (sequences of tokens), x1,...,xN
+require reasoning about the relationships between
+and y1,...,yM. Segments usually consist of
+pairsofsentences.
+more than one natural sentence. The two seg-
+ments are presented as a single input sequence 2.4 Optimization
+to BERT with special tokens delimiting them:
+BERT is optimized with Adam (KingmaandBa,
+[CLS],x1,...,xN,[SEP],y1,...,yM,[EOS].
+2015) using the following parameters: β1 = 0.9,
+M andN areconstrained such thatM +N < T,
+β2 = 0.999, ǫ = 1e-6 and L2 weight de-
+whereT isaparameterthatcontrolsthemaximum
+cay of 0.01. The learning rate is warmed up
+sequence lengthduringtraining.
+over the first 10,000 steps to a peak value of
+The model is first pretrained on a large unla-
+1e-4, and then linearly decayed. BERT trains
+beled text corpus and subsequently finetuned us-
+with a dropout of 0.1 on all layers and at-
+ingend-task labeleddata.
+tention weights, and a GELU activation func-
+tion (Hendrycks andGimpel, 2016). Models are
+2.2 Architecture
+pretrained for S = 1,000,000 updates, with mini-
+BERTuses the now ubiquitous transformer archi-
+batches containing B = 256 sequences of maxi-
+tecture (Vaswanietal., 2017), which we will not
+mumlengthT = 512tokens.
+reviewindetail. Weuseatransformerarchitecture
+with L layers. Each block uses A self-attention 2.5 Data
+headsandhiddendimensionH.
+BERTistrained onacombination of BOOKCOR-
+PUS (Zhuetal., 2015) plus English WIKIPEDIA,
+2.3 TrainingObjectives
+whichtotals16GBofuncompressed text.3
+During pretraining, BERT uses two objectives:
+maskedlanguagemodelingandnextsentencepre- 3 Experimental Setup
+diction.
+Inthissection,wedescribetheexperimentalsetup
+Masked Language Model (MLM) A random forourreplication studyofBERT.
+sample of the tokens in the input sequence is
+3.1 Implementation
+selected and replaced with the special token
+[MASK]. The MLM objective is a cross-entropy We reimplement BERT in FAIRSEQ (Ottetal.,
+loss on predicting the masked tokens. BERTuni- 2019). We primarily follow the original BERT
+formly selects 15% of the input tokens for possi-
+3Yangetal.(2019)usethesamedatasetbutreporthaving
+ble replacement. Of the selected tokens, 80% are
+only13GBoftextafterdatacleaning.Thisismostlikelydue
+replaced with [MASK], 10% are left unchanged, tosubtledifferencesincleaningoftheWikipediadata.
+
+optimization hyperparameters, given inSection 2, pusdescribed inRadfordetal.(2019). Thetext
+except for the peak learning rate and number of is web content extracted from URLs shared on
+warmupsteps,whicharetunedseparatelyforeach Redditwithatleastthreeupvotes. (38GB).5
+setting. We additionally found training to be very
+• STORIES, a dataset introduced in TrinhandLe
+sensitive to the Adam epsilon term, and in some
+(2018) containing a subset of CommonCrawl
+casesweobtainedbetterperformanceorimproved
+data filtered to match the story-like style of
+stabilityaftertuningit. Similarly,wefoundsetting
+Winogradschemas. (31GB).
+β2 = 0.98toimprovestability whentraining with
+largebatchsizes.
+3.3 Evaluation
+Wepretrainwithsequences ofatmostT = 512
+Following previous work, we evaluate our pre-
+tokens. UnlikeDevlinetal.(2019),wedonotran-
+trainedmodelsondownstreamtasksusingthefol-
+domly inject short sequences, and wedo not train
+lowingthreebenchmarks.
+withareducedsequencelengthforthefirst90%of
+updates. Wetrainonlywithfull-length sequences.
+GLUE The General Language Understand-
+We train with mixed precision floating point
+ing Evaluation (GLUE) benchmark (Wangetal.,
+arithmetic on DGX-1 machines, each with 8 ×
+2019b) is a collection of 9 datasets for evaluating
+32GB Nvidia V100 GPUs interconnected by In-
+natural language understanding systems.6 Tasks
+finiband(Micikevicius etal.,2018).
+are framed as either single-sentence classification
+3.2 Data or sentence-pair classification tasks. The GLUE
+organizers provide training and development data
+BERT-style pretraining crucially relies on large
+splits as well as a submission server and leader-
+quantities of text. Baevskietal. (2019) demon-
+boardthatallowsparticipantstoevaluateandcom-
+strate that increasing data size can result in im-
+paretheirsystemsonprivateheld-out testdata.
+proved end-task performance. Several efforts
+Forthereplication studyinSection4,wereport
+have trained on datasets larger and more diverse
+results on the development sets after finetuning
+than the original BERT (Radfordetal., 2019;
+thepretrainedmodelsonthecorrespondingsingle-
+Yangetal., 2019; Zellersetal., 2019). Unfortu-
+tasktraining data (i.e.,without multi-task training
+nately, not all of the additional datasets can be
+orensembling). Ourfinetuning procedure follows
+publiclyreleased. Forourstudy,wefocusongath-
+theoriginal BERTpaper(Devlinetal.,2019).
+ering as much data as possible for experimenta-
+In Section 5 we additionally report test set re-
+tion, allowing us to match the overall quality and
+sults obtained from the public leaderboard. These
+quantity of data as appropriate for each compari-
+resultsdependonaseveraltask-specificmodifica-
+son.
+tions,whichwedescribeinSection5.1.
+We consider five English-language corpora of
+varying sizes and domains, totaling over 160GB
+SQuAD The Stanford Question Answering
+of uncompressed text. We use the following text
+Dataset(SQuAD)providesaparagraph ofcontext
+corpora:
+andaquestion. Thetaskistoanswerthequestion
+• BOOKCORPUS (Zhuetal., 2015) plus English by extracting the relevant span from the context.
+WIKIPEDIA. This is the original data used to We evaluate on two versions of SQuAD: V1.1
+trainBERT.(16GB). and V2.0 (Rajpurkaretal., 2016, 2018). In V1.1
+thecontextalwayscontainsananswer,whereasin
+• CC-NEWS, which we collected from the En-
+glish portion of the CommonCrawl News
+5Theauthorsandtheiraffiliatedinstitutionsarenotinany
+dataset (Nagel, 2016). The data contains 63 wayaffiliatedwiththecreationoftheOpenWebTextdataset.
+million English news articles crawled between 6The datasets are: CoLA (Warstadtetal., 2018),
+Stanford Sentiment Treebank (SST) (Socheretal.,
+September2016 andFebruary 2019. (76GBaf-
+2013), Microsoft Research Paragraph Corpus
+terfiltering).4
+(MRPC) (DolanandBrockett, 2005), Semantic Tex-
+tual Similarity Benchmark (STS) (Agirreetal., 2007),
+• OPENWEBTEXT (Gokaslan andCohen, 2019),
+Quora Question Pairs (QQP) (Iyeretal., 2016), Multi-
+an open-source recreation of the WebText cor- Genre NLI (MNLI) (Williamsetal., 2018), Question NLI
+(QNLI) (Rajpurkaretal., 2016), Recognizing Textual
+4We use news-please(Hamborgetal., 2017) to col- Entailment (RTE) (Daganetal., 2006; Bar-Haimetal.,
+lectandextractCC-NEWS. CC-NEWSissimilartotheRE- 2006; Giampiccoloetal., 2007; Bentivoglietal., 2009) and
+ALNEWSdatasetdescribedinZellersetal.(2019). WinogradNLI(WNLI)(Levesqueetal.,2011).
+
+V2.0some questions are not answered in the pro- Masking SQuAD2.0 MNLI-m SST-2
+videdcontext,makingthetaskmorechallenging.
+reference 76.3 84.3 92.8
+For SQuAD V1.1 we adopt the same span pre-
+dictionmethodasBERT(Devlinetal.,2019). For Ourreimplementation:
+SQuADV2.0, weadd an additional binary classi- static 78.3 84.3 92.5
+fiertopredict whether the question isanswerable, dynamic 78.7 84.0 92.9
+which we train jointly by summing the classifica-
+tion and span loss terms. During evaluation, we
+Table 1: Comparison between static and dynamic
+only predict span indices on pairs that are classi- maskingforBERT . WereportF1forSQuADand
+BASE
+fiedasanswerable. accuracyforMNLI-mandSST-2. Reportedresultsare
+medians over 5 random initializations (seeds). Refer-
+RACE The ReAding Comprehension from Ex- enceresultsarefromYangetal.(2019).
+aminations (RACE) (Laietal., 2017) task is a
+large-scale reading comprehension dataset with
+Results Table 1 compares the published
+more than 28,000 passages and nearly 100,000
+BERT results from Devlinetal. (2019)toour
+questions. The dataset is collected from English BASE
+reimplementation with either static or dynamic
+examinations in China, which are designed for
+masking. We find that our reimplementation
+middle and high school students. In RACE, each
+with static masking performs similar to the
+passage isassociated withmultiplequestions. For
+original BERT model, and dynamic masking is
+everyquestion,thetaskistoselectonecorrectan-
+comparableorslightlybetterthanstaticmasking.
+swer from four options. RACE has significantly
+Giventheseresultsandtheadditionalefficiency
+longercontextthanotherpopularreadingcompre-
+benefits of dynamic masking, we use dynamic
+hension datasets and the proportion of questions
+maskingintheremainderoftheexperiments.
+thatrequires reasoning isverylarge.
+4.2 ModelInputFormatandNextSentence
+4 Training Procedure Analysis
+Prediction
+Thissectionexploresandquantifieswhichchoices In the original BERT pretraining procedure, the
+are important for successfully pretraining BERT model observes two concatenated document seg-
+models. We keep the model architecture fixed.7 ments, which are either sampled contiguously
+Specifically, we begin by training BERT models from the same document (with p = 0.5) or from
+with the same configuration as BERT BASE (L = distinctdocuments. Inadditiontothemaskedlan-
+12,H = 768,A = 12,110Mparams). guage modeling objective, the model is trained to
+predict whether the observed document segments
+4.1 Staticvs. DynamicMasking
+come from the same or distinct documents via an
+As discussed in Section 2, BERT relies on ran- auxiliary NextSentencePrediction(NSP)loss.
+domly masking and predicting tokens. The orig- TheNSPlosswashypothesized tobeanimpor-
+inal BERT implementation performed masking tant factor in training the original BERT model.
+onceduring datapreprocessing, resulting inasin- Devlinetal. (2019) observe that removing NSP
+glestaticmask. Toavoidusingthesamemaskfor hurts performance, with significant performance
+eachtraininginstanceineveryepoch,trainingdata degradation on QNLI, MNLI, and SQuAD 1.1.
+was duplicated 10 times so that each sequence is However, some recent work has questioned the
+maskedin10differentwaysoverthe40epochsof necessity of the NSP loss (LampleandConneau,
+training. Thus, each training sequence was seen 2019;Yangetal.,2019;Joshietal.,2019).
+withthesamemaskfourtimesduringtraining. Tobetter understand this discrepancy, we com-
+We compare this strategy with dynamic mask- pareseveralalternative training formats:
+ing where we generate the masking pattern every
+time we feed a sequence to the model. This be- • SEGMENT-PAIR+NSP: Thisfollowstheoriginal
+comes crucial when pretraining for more steps or inputformatusedinBERT(Devlinetal.,2019),
+withlargerdatasets. withtheNSPloss. Eachinputhasapairofseg-
+ments, which can each contain multiple natural
+sentences, but the total combined length must
+7Studying architectural changes, including larger archi-
+tectures,isanimportantareaforfuturework. belessthan512tokens.
+
+Model SQuAD1.1/2.0 MNLI-m SST-2 RACE
+Ourreimplementation (withNSPloss):
+SEGMENT-PAIR 90.4/78.7 84.0 92.9 64.2
+SENTENCE-PAIR 88.7/76.2 82.9 92.1 63.0
+Ourreimplementation (withoutNSPloss):
+FULL-SENTENCES 90.4/79.1 84.7 92.5 64.8
+DOC-SENTENCES 90.6/79.7 84.7 92.7 65.6
+BERT 88.5/76.3 84.3 92.8 64.3
+BASE
+XLNet (K=7) –/81.3 85.8 92.7 66.1
+BASE
+XLNet (K=6) –/81.0 85.6 93.4 66.7
+BASE
+Table2:DevelopmentsetresultsforbasemodelspretrainedoverBOOKCORPUSandWIKIPEDIA. Allmodelsare
+trained for 1M steps with a batch size of 256 sequences. We report F1 for SQuAD and accuracy for MNLI-m,
+SST-2andRACE.Reportedresultsaremediansoverfiverandominitializations(seeds).ResultsforBERT and
+BASE
+XLNet arefromYangetal.(2019).
+BASE
+• SENTENCE-PAIR+NSP: Each input contains a We next compare training without the NSP
+pair of natural sentences, either sampled from loss and training with blocks of text from a sin-
+a contiguous portion of one document or from gle document (DOC-SENTENCES). We find that
+separate documents. Since these inputs are sig- this setting outperforms the originally published
+nificantly shorter than 512 tokens, we increase BERT resultsandthatremovingtheNSPloss
+BASE
+thebatchsizesothatthetotalnumberoftokens matches or slightly improves downstream task
+remainssimilartoSEGMENT-PAIR+NSP. Were- performance, in contrast to Devlinetal. (2019).
+taintheNSPloss. It is possible that the original BERT implementa-
+tion may only have removed the loss term while
+• FULL-SENTENCES: Each input is packed with
+full sentences sampled contiguously from one
+stillretaining the SEGMENT-PAIR inputformat.
+Finally we find that restricting sequences to
+ormoredocuments, suchthatthetotallength is
+atmost512tokens. Inputsmaycrossdocument
+comefromasingledocument (DOC-SENTENCES)
+performs slightly better than packing sequences
+boundaries. Whenwereachtheendofonedoc-
+ument, we begin sampling sentences from the
+from multiple documents (FULL-SENTENCES).
+nextdocumentandaddanextraseparator token
+However, because the DOC-SENTENCES format
+betweendocuments. WeremovetheNSPloss.
+results in variable batch sizes, we use FULL-
+SENTENCES in the remainder of our experiments
+• DOC-SENTENCES: Inputs are constructed sim-
+foreasiercomparison withrelatedwork.
+ilarly to FULL-SENTENCES, except that they
+may not cross document boundaries. Inputs 4.3 Trainingwithlargebatches
+sampled near the end of a document may be
+Past work in Neural Machine Translation has
+shorter than 512 tokens, so we dynamically in-
+shown that training with very large mini-batches
+crease the batch size in these cases to achieve
+canbothimproveoptimizationspeedandend-task
+a similar number of total tokens as FULL-
+performance when the learning rate is increased
+SENTENCES. WeremovetheNSPloss.
+appropriately (Ottetal., 2018). Recent work has
+Results Table 2 shows results for the four dif- shown that BERT is also amenable to large batch
+ferent settings. We first compare the original training(Youetal.,2019).
+SEGMENT-PAIR input format from Devlinetal. Devlinetal. (2019) originally trained
+(2019) to the SENTENCE-PAIR format; both for- BERT for 1M steps with a batch size of
+BASE
+mats retain the NSP loss, but the latter uses sin- 256 sequences. This is equivalent in computa-
+gle sentences. We find that using individual tional cost, via gradient accumulation, to training
+sentences hurts performance on downstream for125Ksteps withabatchsizeof2Ksequences,
+tasks,whichwehypothesizeisbecausethemodel orfor31Kstepswithabatchsizeof8K.
+isnotabletolearnlong-range dependencies. In Table 3 we compare perplexity and end-
+
+The original BERT implementa-
+bsz steps lr ppl MNLI-m SST-2
+tion (Devlinetal., 2019) uses a character-level
+256 1M 1e-4 3.99 84.7 92.7
+BPE vocabulary of size 30K, which is learned
+2K 125K 7e-4 3.68 85.2 92.9
+after preprocessing the input with heuristic tok-
+8K 31K 1e-3 3.77 84.6 92.8
+enization rules. Following Radfordetal. (2019),
+we instead consider training BERT with a larger
+Table3: Perplexityonheld-outtrainingdata(ppl)and byte-level BPE vocabulary containing 50K sub-
+developmentsetaccuracyforbasemodelstrainedover word units, without any additional preprocessing
+BOOKCORPUS and WIKIPEDIA with varying batch
+or tokenization of the input. This adds approxi-
+sizes(bsz). Wetunethelearningrate(lr)foreachset-
+mately 15M and 20M additional parameters for
+ting.Modelsmakethesamenumberofpassesoverthe
+BERT andBERT ,respectively.
+data(epochs)andhavethesamecomputationalcost. BASE LARGE
+Early experiments revealed only slight dif-
+ferences between these encodings, with the
+task performance ofBERT BASE asweincrease the Radfordetal. (2019) BPE achieving slightly
+batch size, controlling for the number of passes worse end-task performance on some tasks. Nev-
+through the training data. We observe that train- ertheless, we believe the advantages of a univer-
+ingwithlarge batches improvesperplexity forthe sal encoding scheme outweighs the minor degre-
+masked language modeling objective, as well as dation in performance and use this encoding in
+end-taskaccuracy. Largebatchesarealsoeasierto the remainder of our experiments. A more de-
+parallelize via distributed data parallel training,8 tailed comparison of these encodings is left to fu-
+and in later experiments we train with batches of turework.
+8Ksequences.
+NotablyYouetal.(2019)trainBERTwitheven 5 RoBERTa
+largerbatchesizes,upto32Ksequences. Weleave
+further exploration of the limits of large batch In the previous section we propose modifications
+training tofuturework. to the BERT pretraining procedure that improve
+end-task performance. We now aggregate these
+4.4 TextEncoding improvements and evaluate their combined im-
+Byte-Pair Encoding (BPE) (Sennrichetal., 2016) pact. We call this configuration RoBERTa for
+isahybridbetweencharacter-andword-levelrep- Robustly optimized BERT approach. Specifi-
+resentations that allows handling the large vocab- cally, RoBERTa is trained with dynamic mask-
+ularies common in natural language corpora. In- ing(Section4.1),FULL-SENTENCES withoutNSP
+steadoffullwords,BPEreliesonsubwordsunits, loss(Section4.2),largemini-batches(Section4.3)
+whichareextractedbyperformingstatisticalanal- andalargerbyte-levelBPE(Section4.4).
+ysisofthetraining corpus. Additionally, we investigate two other impor-
+BPE vocabulary sizes typically range from tant factors that have been under-emphasized in
+10K-100Ksubwordunits. However,unicodechar- previous work: (1) the data used for pretraining,
+acters can account for a sizeable portion of this and (2) the number of training passes through the
+vocabulary when modeling large and diverse cor- data. For example, the recently proposed XLNet
+pora, such as the ones considered in this work. architecture (Yangetal., 2019) is pretrained us-
+Radfordetal. (2019) introduce a clever imple- ing nearly 10 times more data than the original
+mentation of BPE that uses bytes instead of uni- BERT(Devlinetal., 2019). Itisalso trained with
+code characters as the base subword units. Using abatchsizeeighttimeslargerforhalfasmanyop-
+bytes makes it possible tolearn asubword vocab- timization steps, thus seeing four times as many
+ularyofamodestsize(50Kunits)thatcanstillen- sequences inpretraining comparedtoBERT.
+code any input text without introducing any “un- Tohelpdisentangletheimportanceofthesefac-
+known”tokens. tors from other modeling choices (e.g., the pre-
+trainingobjective),webeginbytrainingRoBERTa
+8Largebatchtrainingcanimprovetrainingefficiencyeven
+without large scale parallel hardware through gradient ac- following the BERT LARGE architecture (L = 24,
+cumulation, whereby gradients from multiple mini-batches H = 1024, A = 16, 355M parameters). We
+areaccumulatedlocallybeforeeachoptimizationstep. This
+pretrainfor100Kstepsoveracomparable BOOK-
+functionality is supported natively in FAIRSEQ (Ottetal.,
+2019). CORPUS plus WIKIPEDIA dataset as was used in
+
+SQuAD
+Model data bsz steps MNLI-m SST-2
+(v1.1/2.0)
+RoBERTa
+withBOOKS +WIKI 16GB 8K 100K 93.6/87.3 89.0 95.3
++additional data(§3.2) 160GB 8K 100K 94.0/87.7 89.3 95.6
++pretrainlonger 160GB 8K 300K 94.4/88.7 90.0 96.1
++pretrainevenlonger 160GB 8K 500K 94.6/89.4 90.2 96.4
+BERT
+LARGE
+withBOOKS +WIKI 13GB 256 1M 90.9/81.8 86.6 93.7
+XLNet
+LARGE
+withBOOKS +WIKI 13GB 256 1M 94.0/87.8 88.4 94.4
++additional data 126GB 2K 500K 94.5/88.8 89.8 95.6
+Table4:DevelopmentsetresultsforRoBERTaaswepretrainovermoredata(16GB→160GBoftext)andpretrain
+forlonger(100K→300K→500Ksteps). Eachrowaccumulatesimprovementsfromtherowsabove. RoBERTa
+matchesthearchitectureandtrainingobjectiveofBERT . ResultsforBERT andXLNet arefrom
+LARGE LARGE LARGE
+Devlinetal.(2019)andYangetal.(2019),respectively. CompleteresultsonallGLUEtaskscanbefoundinthe
+Appendix.
+Devlinetal. (2019). Wepretrain our model using weconsiderRoBERTatrainedfor500Kstepsover
+1024V100GPUsforapproximately oneday. allfiveofthedatasets introduced inSection3.2.
+Results WepresentourresultsinTable4. When
+controlling for training data, we observe that 5.1 GLUEResults
+RoBERTa provides a large improvement over the
+For GLUE we consider two finetuning settings.
+originallyreportedBERT results,reaffirming
+LARGE
+In the first setting (single-task, dev) we finetune
+the importance of the design choices weexplored
+RoBERTaseparately for each of the GLUEtasks,
+inSection4.
+using only the training data for the correspond-
+Next, we combine this data with the three ad-
+ing task. We consider a limited hyperparameter
+ditional datasets described in Section 3.2. We
+sweep for each task, with batch sizes ∈ {16,32}
+train RoBERTa over the combined data with the
+andlearningrates∈ {1e−5,2e−5,3e−5},witha
+same number of training steps as before (100K).
+linearwarmupforthefirst6%ofstepsfollowedby
+In total, we pretrain over 160GB of text. We ob-
+alineardecayto0. Wefinetunefor10epochsand
+servefurtherimprovementsinperformanceacross
+perform early stopping based on each task’s eval-
+alldownstreamtasks,validatingtheimportanceof
+datasizeanddiversity inpretraining.9 uationmetriconthedevset. Therestofthehyper-
+parametersremainthesameasduringpretraining.
+Finally, we pretrain RoBERTa for significantly
+In this setting, wereport the median development
+longer, increasing the number ofpretraining steps
+set results for each task over five random initial-
+from100Kto300K,andthenfurtherto500K.We
+izations, withoutmodelensembling.
+againobservesignificantgainsindownstreamtask
+performance, and the 300K and 500K step mod- Inthesecondsetting(ensembles,test),wecom-
+elsoutperformXLNet acrossmosttasks. We pare RoBERTato other approaches on the test set
+LARGE
+note that even our longest-trained model does not via the GLUE leaderboard. While many submis-
+appear tooverfitourdataandwouldlikelybenefit sions to the GLUE leaderboard depend on multi-
+fromadditional training. taskfinetuning, oursubmissiondependsonlyon
+In the rest of the paper, we evaluate our best single-taskfinetuning. ForRTE,STSandMRPC
+RoBERTa model on the three different bench- we found it helpful to finetune starting from the
+marks: GLUE, SQuaD and RACE. Specifically MNLI single-task model, rather than the baseline
+pretrained RoBERTa. Weexplore aslightly wider
+9Our experiments conflate increases in data sizeand di-
+hyperparameter space,described intheAppendix,
+versity.Weleaveamorecarefulanalysisofthesetwodimen-
+sionstofuturework. andensemblebetween5and7modelspertask.
+
+MNLI QNLI QQP RTE SST MRPC CoLA STS WNLI Avg
+Single-task singlemodelsondev
+BERT 86.6/- 92.3 91.3 70.4 93.2 88.0 60.6 90.0 - -
+LARGE
+XLNet 89.8/- 93.9 91.8 83.8 95.6 89.2 63.6 91.8 - -
+LARGE
+RoBERTa 90.2/90.2 94.7 92.2 86.6 96.4 90.9 68.0 92.4 91.3 -
+Ensemblesontest(fromleaderboard asofJuly25,2019)
+ALICE 88.2/87.9 95.7 90.7 83.5 95.2 92.6 68.6 91.1 80.8 86.3
+MT-DNN 87.9/87.4 96.0 89.9 86.3 96.5 92.7 68.4 91.1 89.0 87.6
+XLNet 90.2/89.8 98.6 90.3 86.3 96.8 93.0 67.8 91.6 90.4 88.4
+RoBERTa 90.8/90.2 98.9 90.2 88.2 96.7 92.3 67.8 92.2 89.0 88.5
+Table5: ResultsonGLUE.Allresultsarebasedona 24-layerarchitecture. BERT andXLNet results
+LARGE LARGE
+arefromDevlinetal.(2019)andYangetal.(2019),respectively. RoBERTaresultsonthedevelopmentsetarea
+medianoverfiveruns. RoBERTa resultsonthetestset areensemblesofsingle-task models. ForRTE, STSand
+MRPCwefinetunestartingfromtheMNLImodelinsteadofthebaselinepretrainedmodel.Averagesareobtained
+fromtheGLUEleaderboard.
+Task-specific modifications Two of the GLUE Results WepresentourresultsinTable5. Inthe
+tasks require task-specific finetuning approaches first setting (single-task, dev), RoBERTaachieves
+toachievecompetitive leaderboard results. state-of-the-art results on all 9 of the GLUE
+QNLI: Recent submissions on the GLUE task development sets. Crucially, RoBERTa uses
+leaderboard adopt a pairwise ranking formulation the same masked language modeling pretrain-
+for the QNLI task, in which candidate answers ing objective and architecture as BERT , yet
+LARGE
+are mined from the training set and compared to consistently outperforms both BERT and
+LARGE
+one another, and a single (question, candidate) XLNet . This raises questions about the rel-
+LARGE
+pair is classified as positive (Liuetal., 2019b,a; ative importance of model architecture and pre-
+Yangetal., 2019). This formulation significantly trainingobjective,comparedtomoremundanede-
+simplifies the task, but is not directly comparable tailslikedataset sizeandtrainingtimethatweex-
+to BERT (Devlinetal., 2019). Following recent ploreinthiswork.
+work, we adopt the ranking approach for our test In the second setting (ensembles, test), we
+submission, but fordirect comparison withBERT submit RoBERTa to the GLUE leaderboard and
+wereport development setresults based onapure achieve state-of-the-art results on 4 out of 9 tasks
+classification approach. andthehighestaveragescoretodate. Thisisespe-
+WNLI: We found the provided NLI-format ciallyexcitingbecauseRoBERTadoesnotdepend
+data to be challenging to work with. Instead on multi-task finetuning, unlike most of the other
+we use the reformatted WNLI data from Super- top submissions. Weexpect future work may fur-
+GLUE (Wangetal., 2019a), which indicates the ther improve these results by incorporating more
+span of the query pronoun and referent. We fine- sophisticated multi-task finetuningprocedures.
+tuneRoBERTausingthemarginrankinglossfrom
+Kocijanetal. (2019). For a given input sentence, 5.2 SQuADResults
+we use spaCy (HonnibalandMontani, 2017) to
+We adopt a much simpler approach for SQuAD
+extractadditionalcandidatenounphrasesfromthe
+compared to past work. In particular, while
+sentence and finetune our model so that it assigns
+both BERT (Devlinetal., 2019) and XL-
+higher scores to positive referent phrases than for
+Net(Yangetal.,2019)augmenttheirtrainingdata
+any of the generated negative candidate phrases.
+with additional QA datasets, we only finetune
+One unfortunate consequence of this formulation
+RoBERTa using the provided SQuAD training
+isthat wecanonly make useofthepositive train-
+data. Yangetal. (2019) also employed a custom
+ingexamples,whichexcludesoverhalfofthepro-
+layer-wise learning rate schedule to finetune
+videdtrainingexamples.10
+resultscouldpotentiallybeimprovedbyaugmentingthiswith
+10WhileweonlyusetheprovidedWNLItrainingdata,our additionalpronoundisambiguationdatasets.
+
+SQuAD1.1 SQuAD2.0 Model Accuracy Middle High
+Model
+EM F1 EM F1
+Singlemodelsontest(asofJuly25,2019)
+Singlemodelsondev,w/odataaugmentation BERT 72.0 76.6 70.1
+LARGE
+BERT 84.1 90.9 79.0 81.8 XLNet 81.7 85.4 80.2
+LARGE LARGE
+XLNet 89.0 94.5 86.1 88.8
+LARGE RoBERTa 83.2 86.5 81.3
+RoBERTa 88.9 94.6 86.5 89.4
+Singlemodelsontest(asofJuly25,2019)
+Table7:ResultsontheRACEtestset. BERT and
+LARGE
+XLNet 86.3† 89.1† XLNet resultsarefromYangetal.(2019).
+LARGE LARGE
+RoBERTa 86.8 89.8
+XLNet+SG-NetVerifier 87.0† 89.9†
+natingeachcandidateanswerwiththecorrespond-
+Table6:ResultsonSQuAD.†indicatesresultsthatde- ingquestionandpassage. Wethenencodeeachof
+pend on additional external training data. RoBERTa thesefour sequences and passtheresulting [CLS]
+uses only the provided SQuAD data in both dev and
+representations through a fully-connected layer,
+test settings. BERT and XLNet results are
+LARGE LARGE which is used to predict the correct answer. We
+from Devlinetal. (2019) and Yangetal. (2019), re-
+truncatequestion-answerpairsthatarelongerthan
+spectively.
+128 tokens and, if needed, the passage so that the
+totallengthisatmost512tokens.
+XLNet, while we use the same learning rate for
+Results on the RACE test sets are presented in
+alllayers.
+Table7. RoBERTaachievesstate-of-the-artresults
+For SQuAD v1.1 we follow the same finetun-
+onbothmiddle-school andhigh-school settings.
+ingprocedureasDevlinetal.(2019). ForSQuAD
+v2.0, we additionally classify whether a given
+question is answerable; we train this classifier 6 RelatedWork
+jointly with the span predictor by summing the
+classification andspanlossterms.
+Pretraining methods have been designed
+Results We present our results in Table 6. On with different training objectives, includ-
+the SQuAD v1.1 development set, RoBERTa ing language modeling (DaiandLe, 2015;
+matches the state-of-the-art setby XLNet. Onthe Petersetal., 2018; HowardandRuder, 2018),
+SQuAD v2.0 development set, RoBERTa sets a machine translation (McCannetal., 2017), and
+newstate-of-the-art,improvingoverXLNetby0.4 masked language modeling (Devlinetal., 2019;
+points(EM)and0.6points(F1). LampleandConneau, 2019). Many recent
+WealsosubmitRoBERTatothepublicSQuAD papers have used a basic recipe of finetuning
+2.0 leaderboard and evaluate its performance rel- models for each end task (HowardandRuder,
+ative to other systems. Most of the top systems 2018; Radfordetal., 2018), and pretraining
+build upon either BERT (Devlinetal., 2019) or with some variant of a masked language model
+XLNet (Yangetal., 2019), both of which rely on objective. However, newer methods have
+additional external training data. In contrast, our improved performance by multi-task fine tun-
+submission doesnotuseanyadditional data. ing (Dongetal., 2019), incorporating entity
+OursingleRoBERTamodeloutperformsallbut embeddings (Sunetal., 2019), span predic-
+one of the single model submissions, and is the tion (Joshietal., 2019), and multiple variants
+top scoring system among those that do not rely of autoregressive pretraining (Songetal., 2019;
+ondataaugmentation. Chanetal., 2019; Yangetal., 2019). Perfor-
+mance is also typically improved by training
+5.3 RACEResults
+bigger models on more data (Devlinetal.,
+In RACE,systems are provided with apassage of 2019; Baevskietal., 2019; Yangetal., 2019;
+text,anassociatedquestion,andfourcandidatean- Radfordetal., 2019). Our goal was to replicate,
+swers. Systems are required to classify which of simplify, and better tune the training of BERT,
+thefourcandidate answersiscorrect. as a reference point for better understanding the
+We modify RoBERTa for this task by concate- relativeperformance ofallofthesemethods.
+
+7 Conclusion Ido Dagan, Oren Glickman, and Bernardo Magnini.
+2006. ThePASCAL recognisingtextualentailment
+We carefully evaluate a number of design de- challenge. In Machine learning challenges. evalu-
+cisions when pretraining BERT models. We atingpredictiveuncertainty,visualobjectclassifica-
+tion,andrecognisingtectualentailment.
+find that performance can be substantially im-
+proved by training the model longer, with bigger
+AndrewMDaiandQuocVLe.2015. Semi-supervised
+batches over more data; removing the next sen- sequencelearning. InAdvancesinNeuralInforma-
+tence prediction objective; training on longer se- tionProcessingSystems(NIPS).
+quences; and dynamically changing the masking
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+pattern applied tothetraining data. Ourimproved
+Kristina Toutanova. 2019. BERT: Pre-training of
+pretraining procedure, which we call RoBERTa,
+deepbidirectionaltransformersforlanguageunder-
+achieves state-of-the-art results on GLUE, RACE standing. In North AmericanAssociationforCom-
+and SQuAD, without multi-task finetuning for putationalLinguistics(NAACL).
+GLUE or additional data for SQuAD. These re-
+William B Dolan and Chris Brockett. 2005. Auto-
+sults illustrate the importance of these previ-
+matically constructing a corpus of sentential para-
+ously overlooked design decisions and suggest phrases. In Proceedingsofthe InternationalWork-
+that BERT’s pretraining objective remains com- shoponParaphrasing.
+petitivewithrecently proposed alternatives.
+Li Dong, Nan Yang, Wenhui Wang, Furu Wei,
+We additionally use a novel dataset,
+Xiaodong Liu, Yu Wang, Jianfeng Gao, Ming
+CC-NEWS, and release our models and
+Zhou, and Hsiao-Wuen Hon. 2019. Unified
+code for pretraining and finetuning at: language model pre-training for natural language
+https://github.com/pytorch/fairseq. understanding and generation. arXiv preprint
+arXiv:1905.03197.
+Danilo Giampiccolo, Bernardo Magnini, Ido Dagan,
+and Bill Dolan. 2007. The third PASCAL recog-
+References
+nizingtextualentailmentchallenge. InProceedings
+oftheACL-PASCALworkshopontextualentailment
+Eneko Agirre, Llu’is M‘arquez, and Richard Wicen-
+andparaphrasing.
+towski, editors. 2007. Proceedings of the Fourth
+International Workshop on Semantic Evaluations
+Aaron Gokaslan and Vanya Cohen. 2019. Openweb-
+(SemEval-2007).
+text corpus. http://web.archive.org/
+save/http://Skylion007.github.io/
+Alexei Baevski, Sergey Edunov, Yinhan Liu, Luke
+OpenWebTextCorpus.
+Zettlemoyer, and Michael Auli. 2019. Cloze-
+drivenpretrainingofself-attentionnetworks. arXiv
+Felix Hamborg, Norman Meuschke, Corinna Bre-
+preprintarXiv:1903.07785.
+itinger, and Bela Gipp. 2017. news-please: A
+genericnewscrawlerandextractor. InProceedings
+Roy Bar-Haim, Ido Dagan, Bill Dolan, Lisa Ferro,
+ofthe15thInternationalSymposiumofInformation
+Danilo Giampiccolo, Bernardo Magnini, and Idan
+Science.
+Szpektor. 2006. The second PASCAL recognising
+textualentailmentchallenge. InProceedingsofthe
+Dan Hendrycks and Kevin Gimpel. 2016. Gaus-
+second PASCAL challenges workshop on recognis-
+sian error linear units (gelus). arXiv preprint
+ingtextualentailment.
+arXiv:1606.08415.
+LuisaBentivogli,IdoDagan,HoaTrangDang,Danilo
+Giampiccolo, and Bernardo Magnini. 2009. The MatthewHonnibalandInesMontani.2017. spaCy 2:
+fifth PASCAL recognizing textual entailment chal- NaturallanguageunderstandingwithBloomembed-
+lenge. dings,convolutionalneuralnetworksandincremen-
+talparsing. Toappear.
+Samuel R Bowman, Gabor Angeli, Christopher Potts,
+and Christopher D Manning. 2015. A large anno- JeremyHowardandSebastianRuder.2018. Universal
+tatedcorpusforlearningnaturallanguageinference. language model fine-tuning for text classification.
+InEmpiricalMethodsinNaturalLanguageProcess- arXivpreprintarXiv:1801.06146.
+ing(EMNLP).
+Shankar Iyer, Nikhil Dandekar, and Kornl Cser-
+William Chan, Nikita Kitaev, Kelvin Guu, Mitchell nai. 2016. First quora dataset release: Question
+Stern,andJakobUszkoreit.2019. KERMIT:Gener- pairs. https://data.quora.com/First-
+ativeinsertion-basedmodelingforsequences. arXiv Quora-Dataset-Release-Question-
+preprintarXiv:1906.01604. Pairs.
+
+Mandar Joshi, Danqi Chen, Yinhan Liu, Daniel S. Myle Ott, Sergey Edunov, David Grangier, and
+Weld, Luke Zettlemoyer, and Omer Levy. 2019. MichaelAuli. 2018. Scalingneuralmachinetrans-
+SpanBERT: Improving pre-training by repre- lation. In Proceedings of the Third Conference on
+senting and predicting spans. arXiv preprint MachineTranslation(WMT).
+arXiv:1907.10529.
+Adam Paszke, Sam Gross, Soumith Chintala, Gre-
+Diederik Kingma and Jimmy Ba. 2015. Adam: A goryChanan,EdwardYang,ZacharyDeVito,Zem-
+methodforstochasticoptimization. InInternational ingLin,AlbanDesmaison,LucaAntiga,andAdam
+ConferenceonLearningRepresentations(ICLR). Lerer. 2017. Automatic differentiationin PyTorch.
+InNIPSAutodiffWorkshop.
+VidKocijan,Ana-MariaCretu,Oana-MariaCamburu,
+Yordan Yordanov, and ThomasLukasiewicz. 2019. Matthew Peters, Mark Neumann, Mohit Iyyer, Matt
+A surprisingly robust trick for winograd schema Gardner, Christopher Clark, Kenton Lee, and Luke
+challenge. arXivpreprintarXiv:1905.06290. Zettlemoyer.2018. Deepcontextualizedwordrepre-
+sentations. InNorthAmericanAssociationforCom-
+Guokun Lai, Qizhe Xie, Hanxiao Liu, Yiming Yang, putationalLinguistics(NAACL).
+andEduardHovy.2017. Race: Large-scalereading
+comprehension dataset from examinations. arXiv Alec Radford, Karthik Narasimhan, Time Salimans,
+preprintarXiv:1704.04683. and Ilya Sutskever. 2018. Improvinglanguage un-
+derstanding with unsupervised learning. Technical
+GuillaumeLampleandAlexisConneau.2019. Cross- report,OpenAI.
+linguallanguagemodelpretraining. arXiv preprint
+arXiv:1901.07291. AlecRadford,JeffreyWu, RewonChild, DavidLuan,
+DarioAmodei,andIlyaSutskever.2019. Language
+Hector J Levesque, Ernest Davis, and Leora Morgen- modelsareunsupervisedmultitasklearners. Techni-
+stern. 2011. The Winograd schema challenge. In calreport,OpenAI.
+AAAISpringSymposium:LogicalFormalizationsof
+CommonsenseReasoning. Pranav Rajpurkar, Robin Jia, and Percy Liang. 2018.
+Know what you don’t know: Unanswerable ques-
+Xiaodong Liu, Pengcheng He, Weizhu Chen, and tions for squad. In Association for Computational
+Jianfeng Gao. 2019a. Improving multi-task deep Linguistics(ACL).
+neural networks via knowledge distillation for
+natural language understanding. arXiv preprint PranavRajpurkar,JianZhang,KonstantinLopyrev,and
+arXiv:1904.09482. PercyLiang.2016. SQuAD:100,000+questionsfor
+machinecomprehensionoftext. InEmpiricalMeth-
+XiaodongLiu,PengchengHe,WeizhuChen,andJian- odsinNaturalLanguageProcessing(EMNLP).
+feng Gao. 2019b. Multi-task deep neuralnetworks
+for natural languageunderstanding. arXiv preprint Rico Sennrich, Barry Haddow, and Alexandra Birch.
+arXiv:1901.11504. 2016. Neuralmachinetranslationofrarewordswith
+subword units. In Association for Computational
+BryanMcCann,JamesBradbury,CaimingXiong,and Linguistics(ACL),pages1715–1725.
+RichardSocher.2017. Learnedintranslation: Con-
+textualizedwordvectors. InAdvancesinNeuralIn- Richard Socher, Alex Perelygin, Jean Wu, Jason
+formationProcessingSystems(NIPS),pages6297– Chuang, Christopher D Manning, Andrew Ng, and
+6308. Christopher Potts. 2013. Recursive deep models
+forsemanticcompositionalityoverasentimenttree-
+Paulius Micikevicius, Sharan Narang, Jonah Alben, bank. In Empirical Methods in Natural Language
+GregoryDiamos, Erich Elsen, David Garcia, Boris Processing(EMNLP).
+Ginsburg, Michael Houston, Oleksii Kuchaiev,
+GaneshVenkatesh,andHaoWu.2018. Mixedpreci- Kaitao Song, Xu Tan, Tao Qin, Jianfeng Lu, and
+siontraining. InInternationalConferenceonLearn- Tie-Yan Liu. 2019. MASS: Masked sequence
+ingRepresentations. to sequence pre-training for language generation.
+In International Conference on Machine Learning
+Sebastian Nagel. 2016. Cc-news. http: (ICML).
+//web.archive.org/save/http:
+//commoncrawl.org/2016/10/news- YuStephanieSun,ShuohuanWang,YukunLi,Shikun
+dataset-available. Feng,XuyiChen,HanZhang,XinlunTian, Danxi-
+angZhu,HaoTian,andHuaWu.2019. ERNIE:En-
+Myle Ott, Sergey Edunov, Alexei Baevski, Angela hanced representation through knowledge integra-
+Fan, Sam Gross, Nathan Ng, David Grangier, and tion. arXivpreprintarXiv:1904.09223.
+Michael Auli. 2019. FAIRSEQ: A fast, exten-
+sible toolkit for sequence modeling. In North Trieu H Trinh and Quoc V Le. 2018. A simple
+American Association for Computational Linguis- methodforcommonsensereasoning. arXivpreprint
+tics(NAACL):SystemDemonstrations. arXiv:1806.02847.
+
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob B Pretraining Hyperparameters
+Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz
+Kaiser, and Illia Polosukhin.2017. Attention is all Table 9 describes the hyperparameters for pre-
+you need. In Advances in neural information pro- trainingofRoBERTa andRoBERTa
+LARGE BASE
+cessingsystems.
+C Finetuning Hyperparameters
+Alex Wang, Yada Pruksachatkun, Nikita Nangia,
+AmanpreetSingh,JulianMichael,FelixHill,Omer Finetuning hyperparameters for RACE, SQuAD
+Levy,andSamuelR.Bowman.2019a. SuperGLUE:
+and GLUE are given in Table 10. We select the
+A stickierbenchmarkforgeneral-purposelanguage
+best hyperparameter values based on the median
+understandingsystems. arXivpreprint1905.00537.
+of5random seedsforeachtask.
+Alex Wang, Amanpreet Singh, Julian Michael, Felix
+Hill, Omer Levy, and Samuel R. Bowman. 2019b.
+GLUE: A multi-task benchmark and analysis plat-
+form for natural language understanding. In Inter-
+national Conference on Learning Representations
+(ICLR).
+AlexWarstadt,AmanpreetSingh,andSamuelR.Bow-
+man. 2018. Neural network acceptability judg-
+ments. arXivpreprint1805.12471.
+AdinaWilliams,NikitaNangia,andSamuelBowman.
+2018. A broad-coveragechallenge corpus for sen-
+tence understanding through inference. In North
+American Association for Computational Linguis-
+tics(NAACL).
+Zhilin Yang, Zihang Dai, Yiming Yang, Jaime Car-
+bonell, Ruslan Salakhutdinov, and Quoc V Le.
+2019. Xlnet: Generalized autoregressive pretrain-
+ing for language understanding. arXiv preprint
+arXiv:1906.08237.
+Yang You, Jing Li, Jonathan Hseu, Xiaodan Song,
+James Demmel, and Cho-Jui Hsieh. 2019. Reduc-
+ingbertpre-trainingtimefrom3daysto76minutes.
+arXivpreprintarXiv:1904.00962.
+Rowan Zellers, Ari Holtzman, Hannah Rashkin,
+Yonatan Bisk, Ali Farhadi, Franziska Roesner, and
+Yejin Choi. 2019. Defending against neural fake
+news. arXivpreprintarXiv:1905.12616.
+Yukun Zhu, Ryan Kiros, Richard Zemel, Ruslan
+Salakhutdinov, Raquel Urtasun, Antonio Torralba,
+andSanjaFidler.2015. Aligningbooksandmovies:
+Towards story-like visual explanations by watch-
+ing movies and reading books. In arXiv preprint
+arXiv:1506.06724.
+Appendix for“RoBERTa: A Robustly
+OptimizedBERT Pretraining Approach”
+A Fullresults on GLUE
+In Table 8 we present the full set of development
+set results for RoBERTa. We present results for
+a LARGE configuration that follows BERT ,
+LARGE
+as well as a BASE configuration that follows
+BERT .
+BASE
+
+MNLI QNLI QQP RTE SST MRPC CoLA STS
+RoBERTa
+BASE
++alldata+500ksteps 87.6 92.8 91.9 78.7 94.8 90.2 63.6 91.2
+RoBERTa
+LARGE
+with BOOKS +WIKI 89.0 93.9 91.9 84.5 95.3 90.2 66.3 91.6
++additional data(§3.2) 89.3 94.0 92.0 82.7 95.6 91.4 66.1 92.2
++pretrain longer300k 90.0 94.5 92.2 83.3 96.1 91.1 67.4 92.3
++pretrain longer500k 90.2 94.7 92.2 86.6 96.4 90.9 68.0 92.4
+Table8: DevelopmentsetresultsonGLUEtasksforvariousconfigurationsofRoBERTa.
+Hyperparam RoBERTa RoBERTa
+LARGE BASE
+NumberofLayers 24 12
+Hiddensize 1024 768
+FFNinnerhiddensize 4096 3072
+Attentionheads 16 12
+Attentionheadsize 64 64
+Dropout 0.1 0.1
+AttentionDropout 0.1 0.1
+WarmupSteps 30k 24k
+PeakLearningRate 4e-4 6e-4
+BatchSize 8k 8k
+WeightDecay 0.01 0.01
+MaxSteps 500k 500k
+LearningRateDecay Linear Linear
+Adamǫ 1e-6 1e-6
+Adamβ1 0.9 0.9
+Adamβ2 0.98 0.98
+GradientClipping 0.0 0.0
+Table9:HyperparametersforpretrainingRoBERTa andRoBERTa .
+LARGE BASE
+Hyperparam RACE SQuAD GLUE
+LearningRate 1e-5 1.5e-5 {1e-5,2e-5,3e-5}
+BatchSize 16 48 {16,32}
+WeightDecay 0.1 0.01 0.1
+MaxEpochs 4 2 10
+LearningRateDecay Linear Linear Linear
+Warmupratio 0.06 0.06 0.06
+Table10:HyperparametersforfinetuningRoBERTa onRACE,SQuADandGLUE.
+LARGE

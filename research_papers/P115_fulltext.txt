@@ -1,0 +1,987 @@
+node2vec: Scalable Feature Learning for Networks
+Aditya Grover Jure Leskovec
+StanfordUniversity StanfordUniversity
+adityag@cs.stanford.edu jure@cs.stanford.edu
+ABSTRACT predictwhetherapairofnodesinanetworkshouldhaveanedge
+connectingthem[18]. Linkpredictionisusefulinawidevariety
+Predictiontasksovernodesandedgesinnetworksrequirecareful
+of domains; for instance, in genomics, it helps us discover novel effortinengineeringfeaturesusedbylearningalgorithms. Recent
+interactionsbetweengenes,andinsocialnetworks,itcanidentify
+research in the broader field of representation learning has led to
+real-worldfriends[2,34].
+significant progress in automating prediction by learning the fea-
+Anysupervisedmachinelearningalgorithmrequiresasetofin-
+tures themselves. However, present feature learning approaches
+formative,discriminating,andindependentfeatures. Inprediction
+arenotexpressiveenoughtocapturethediversityofconnectivity
+problemsonnetworksthismeansthatonehastoconstructafeature
+patternsobservedinnetworks.
+vectorrepresentationforthenodesandedges.Atypicalsolutionin-
+Hereweproposenode2vec,analgorithmicframeworkforlearn-
+volveshand-engineeringdomain-specificfeaturesbasedonexpert ing continuous feature representations for nodes in networks. In
+knowledge. Even if one discounts the tedious effort required for
+node2vec,welearnamappingofnodestoalow-dimensionalspace
+featureengineering,suchfeaturesareusuallydesignedforspecific of features that maximizes the likelihood of preserving network
+tasksanddonotgeneralizeacrossdifferentpredictiontasks.
+neighborhoods of nodes. We define a flexible notion of a node’s
+An alternative approach is to learn feature representations by
+networkneighborhoodanddesignabiasedrandomwalkprocedure,
+solvinganoptimizationproblem[4].Thechallengeinfeaturelearn-
+which efficiently explores diverse neighborhoods. Our algorithm
+ing is defining an objective function, which involves a trade-off
+generalizespriorworkwhichisbasedonrigidnotionsofnetwork
+inbalancingcomputationalefficiencyandpredictiveaccuracy. On
+neighborhoods,andwearguethattheaddedflexibilityinexploring
+onesideofthespectrum, onecoulddirectlyaimtofindafeature neighborhoodsisthekeytolearningricherrepresentations.
+representationthatoptimizesperformanceofadownstreampredic-
+Wedemonstratetheefficacyofnode2vec overexistingstate-of-
+tion task. While this supervised procedure results in good accu-
+the-arttechniquesonmulti-labelclassificationandlinkprediction
+racy,itcomesatthecostofhightrainingtimecomplexityduetoa
+in several real-world networks from diverse domains. Taken to-
+blowupinthenumberofparametersthatneedtobeestimated. At
+gether,ourworkrepresentsanewwayforefficientlylearningstate-
+theotherextreme,theobjectivefunctioncanbedefinedtobeinde-
+of-the-arttask-independentrepresentationsincomplexnetworks.
+pendentofthedownstreampredictiontaskandtherepresentations
+CategoriesandSubjectDescriptors: H.2.8[DatabaseManage-
+canbelearnedinapurelyunsupervisedway. Thismakestheop-
+ment]: Databaseapplications—Datamining; I.2.6[ArtificialIn-
+timizationcomputationallyefficientandwithacarefullydesigned
+telligence]:Learning
+objective,itresultsintask-independentfeaturesthatcloselymatch
+GeneralTerms:Algorithms;Experimentation.
+task-specificapproachesinpredictiveaccuracy[21,23].
+Keywords: Informationnetworks,Featurelearning,Nodeembed-
+However,currenttechniquesfailtosatisfactorilydefineandopti-
+dings,Graphrepresentations.
+mizeareasonableobjectiverequiredforscalableunsupervisedfea-
+turelearninginnetworks. Classicapproachesbasedonlinearand
+1. INTRODUCTION non-linear dimensionality reduction techniques such as Principal
+Many important tasks in network analysis involve predictions ComponentAnalysis,Multi-DimensionalScalingandtheirexten-
+over nodes and edges. In a typical node classification task, we sions[3,27,30,35]optimizeanobjectivethattransformsarepre-
+are interested in predicting the most probable labels of nodes in sentativedatamatrixofthenetworksuchthatitmaximizesthevari-
+a network [33]. For example, in a social network, we might be anceofthedatarepresentation.Consequently,theseapproachesin-
+interestedinpredictinginterestsofusers,orinaprotein-proteinin- variablyinvolveeigendecompositionoftheappropriatedatamatrix
+teraction network we might be interested in predicting functional which is expensive for large real-world networks. Moreover, the
+labelsofproteins[25,37].Similarly,inlinkprediction,wewishto resulting latent representations give poor performance on various
+predictiontasksovernetworks.
+Permissiontomakedigitalorhardcopiesofallorpartofthisworkforpersonalor Alternatively,wecandesignanobjectivethatseekstopreserve
+classroomuseisgrantedwithoutfeeprovidedthatcopiesarenotmadeordistributed
+localneighborhoodsofnodes. Theobjectivecanbeefficientlyop-
+forprofitorcommercialadvantageandthatcopiesbearthisnoticeandthefullcitation
+onthefirstpage. Copyrightsforcomponentsofthisworkownedbyothersthanthe timizedusingstochasticgradientdescent(SGD)akintobackpro-
+author(s)mustbehonored.Abstractingwithcreditispermitted.Tocopyotherwise,or pogationonjustsinglehidden-layerfeedforwardneuralnetworks.
+republish,topostonserversortoredistributetolists,requirespriorspecificpermission
+Recent attempts in this direction [24, 28] propose efficient algo-
+and/orafee.Requestpermissionsfrompermissions@acm.org.
+rithmsbutrelyonarigidnotionofanetworkneighborhood,which
+KDD’16,August13-17,2016,SanFrancisco,CA,USA
+resultsintheseapproachesbeinglargelyinsensitivetoconnectiv-
+(cid:13)c 2016Copyrightheldbytheowner/author(s).PublicationrightslicensedtoACM.
+ISBN978-1-4503-4232-2/16/08...$15.00 ity patterns unique to networks. Specifically, nodes in networks
+DOI:http://dx.doi.org/10.1145/2939672.2939754
+6102
+luJ
+3
+]IS.sc[
+1v35600.7061:viXra
+
+m co o u p l h d il b y e ); or in ga o n t i h z e e r d c b a a s s e e s d , o th n e c o o r m g m an u iz n a it t i i e o s n th co ey ul b d e b lo e ng ba t s o ed (i. o e. n ,h th o e - s 1 s 2 s s 8
+7 BFS
+structural roles of nodes in the network (i.e., structural equiva-
+lence) [7, 10, 36]. For instance, in Figure 1, we observe nodes u s
+uands belongingtothesametightlyknitcommunityofnodes, 6 DFS
+1
+w sa h m il e e s t t h r e uc n t o u d ra e l s r u ole an o d fa s 6 hu in b t n h o e d t e w . o R d ea is l t - i w nc o t rl c d o n m e m tw u o n r i k ti s e c s o s m ha m re on th ly e s 3 s 4 s 5 s 9
+exhibitamixtureofsuchequivalences.Thus,itisessentialtoallow
+foraflexiblealgorithmthatcanlearnnoderepresentationsobeying Figure1:BFSandDFSsearchstrategiesfromnodeu(k=3).
+bothprinciples: abilitytolearnrepresentationsthatembednodes
+fromthesamenetworkcommunitycloselytogether,aswellasto
+learnrepresentationswherenodesthatsharesimilarroleshavesim- principlesinnetworkscience,providingflexibilityindiscov-
+ilarembeddings. Thiswouldallowfeaturelearningalgorithmsto eringrepresentationsconformingtodifferentequivalences.
+generalizeacrossawidevarietyofdomainsandpredictiontasks. 3. Weextendnode2vecandotherfeaturelearningmethodsbased
+onneighborhoodpreservingobjectives,fromnodestopairs
+Presentwork.Weproposenode2vec,asemi-supervisedalgorithm
+ofnodesforedge-basedpredictiontasks.
+for scalable feature learning in networks. We optimize a custom
+4. Weempiricallyevaluatenode2vec formulti-labelclassifica-
+graph-basedobjectivefunctionusingSGDmotivatedbypriorwork
+tionandlinkpredictiononseveralreal-worlddatasets.
+onnaturallanguageprocessing [21]. Intuitively,ourapproachre-
+Therestofthepaperisstructuredasfollows. InSection2,we
+turns feature representations that maximize the likelihood of pre-
+briefly survey related work in feature learning for networks. We
+serving network neighborhoods of nodes in a d-dimensional fea-
+present the technical details for feature learning using node2vec
+turespace. Weusea2nd orderrandomwalkapproachtogenerate
+in Section 3. In Section 4, we empirically evaluate node2vec on
+(sample)networkneighborhoodsfornodes.
+prediction tasks over nodes and edges on various real-world net-
+Ourkeycontributionisindefiningaflexiblenotionofanode’s
+works and assess the parameter sensitivity, perturbation analysis,
+network neighborhood. By choosing an appropriate notion of a
+andscalabilityaspectsofouralgorithm. Weconcludewithadis-
+neighborhood, node2vec can learn representations that organize
+cussion of the node2vec framework and highlight some promis-
+nodes based on their network roles and/or communities they be-
+ingdirectionsforfutureworkinSection5. Datasetsandarefer-
+longto. Weachievethisbydevelopingafamilyofbiasedrandom
+enceimplementationofnode2vecareavailableontheprojectpage:
+walks,whichefficientlyexplorediverseneighborhoodsofagiven
+http://snap.stanford.edu/node2vec.
+node.Theresultingalgorithmisflexible,givinguscontroloverthe
+searchspacethroughtunableparameters,incontrasttorigidsearch
+2. RELATEDWORK
+proceduresinpriorwork[24,28]. Consequently,ourmethodgen-
+eralizespriorworkandcanmodelthefullspectrumofequivalences Featureengineeringhasbeenextensivelystudiedbythemachine
+observedinnetworks. Theparametersgoverningoursearchstrat- learningcommunityundervariousheadings.Innetworks,thecon-
+egyhaveanintuitiveinterpretationandbiasthewalktowardsdif- ventional paradigm for generating features for nodes is based on
+ferent network exploration strategies. These parameters can also feature extraction techniques which typically involve some seed
+belearneddirectlyusingatinyfractionoflabeleddatainasemi- hand-craftedfeaturesbasedonnetworkproperties[8,11]. Incon-
+supervisedfashion. trast,ourgoalistoautomatethewholeprocessbycastingfeature
+We also show how feature representations of individual nodes extraction as a representation learning problem in which case we
+canbeextendedtopairsofnodes(i.e.,edges).Inordertogenerate donotrequireanyhand-engineeredfeatures.
+feature representations of edges, we compose the learned feature Unsupervised feature learning approaches typically exploit the
+representations of the individual nodes using simple binary oper- spectralpropertiesofvariousmatrixrepresentationsofgraphs,es-
+ators. This compositionality lends node2vec to prediction tasks peciallytheLaplacianandtheadjacencymatrices.Underthislinear
+involvingnodesaswellasedges. algebraperspective,thesemethodscanbeviewedasdimensional-
+Ourexperimentsfocusontwocommonpredictiontasksinnet- ityreductiontechniques. Severallinear(e.g.,PCA)andnon-linear
+works: a multi-label classification task, where every node is as- (e.g.,IsoMap)dimensionalityreductiontechniqueshavebeenpro-
+signedoneormoreclasslabelsandalinkpredictiontask,wherewe posed[3, 27, 30, 35]. Thesemethodssufferfrombothcomputa-
+predicttheexistenceofanedgegivenapairofnodes. Wecontrast tionalandstatisticalperformancedrawbacks.Intermsofcomputa-
+theperformanceofnode2vec withstate-of-the-artfeaturelearning tionalefficiency,eigendecompositionofadatamatrixisexpensive
+algorithms [24, 28]. We experiment with several real-world net- unless the solution quality is significantly compromised with ap-
+worksfromdiversedomains,suchassocialnetworks,information proximations,andhence,thesemethodsarehardtoscaletolarge
+networks,aswellasnetworksfromsystemsbiology. Experiments networks.Secondly,thesemethodsoptimizeforobjectivesthatare
+demonstratethatnode2vecoutperformsstate-of-the-artmethodsby notrobusttothediversepatternsobservedinnetworks(suchasho-
+upto26.7%onmulti-labelclassificationandupto12.6%onlink mophilyandstructuralequivalence)andmakeassumptionsabout
+prediction. The algorithm shows competitive performance with therelationshipbetweentheunderlyingnetworkstructureandthe
+even 10% labeled data and is also robust to perturbations in the prediction task. For instance, spectral clustering makes a strong
+formofnoisyormissingedges.Computationally,themajorphases homophilyassumptionthatgraphcutswillbeusefulforclassifica-
+of node2vec are trivially parallelizable, and it can scale to large tion[29]. Suchassumptionsarereasonableinmanyscenarios,but
+networkswithmillionsofnodesinafewhours. unsatisfactoryineffectivelygeneralizingacrossdiversenetworks.
+Overallourpapermakesthefollowingcontributions: Recentadvancementsinrepresentationallearningfornaturallan-
+1. We propose node2vec, an efficient scalable algorithm for guageprocessingopenednewwaysforfeaturelearningofdiscrete
+featurelearninginnetworksthatefficientlyoptimizesanovel objectssuchaswords.Inparticular,theSkip-grammodel[21]aims
+network-aware,neighborhoodpreservingobjectiveusingSGD. to learn continuous feature representations for words by optimiz-
+2. We show how node2vec is in accordance with established inganeighborhoodpreservinglikelihoodobjective.Thealgorithm
+
+proceeds as follows: It scans over the words of a document, and hoodofeverysource-neighborhoodnodepairasasoftmax
+for every word it aims to embed it such that the word’s features unitparametrizedbyadotproductoftheirfeatures:
+can predict nearby words (i.e., words inside some context win-
+dow). Thewordfeaturerepresentationsarelearnedbyoptmizing
+exp(f(n )·f(u))
+the likelihood objective using SGD with negative sampling [22]. Pr(n i |f(u))= (cid:80) exp( i f(v)·f(u)) .
+The Skip-gram objective is based on the distributional hypothe- v∈V
+siswhichstatesthatwordsinsimilarcontextstendtohavesimilar Withtheaboveassumptions,theobjectiveinEq.1simplifiesto:
+meanings[9].Thatis,similarwordstendtoappearinsimilarword (cid:20) (cid:21)
+(cid:88) (cid:88)
+neighborhoods. max −logZ u + f(n i )·f(u) . (2)
+f
+Inspired by the Skip-gram model, recent research established u∈V ni∈NS(u)
+an analogy for networks by representing a network as a “docu- (cid:80)
+Theper-nodepartitionfunction, Z = exp(f(u)·f(v)),
+ment” [24, 28]. The same way as a document is an ordered se- u v∈V
+isexpensivetocomputeforlargenetworksandweapproximateit
+quence of words, one could sample sequences of nodes from the
+usingnegativesampling[22]. WeoptimizeEq.2usingstochastic
+underlyingnetworkandturnanetworkintoaorderedsequenceof
+gradientascentoverthemodelparametersdefiningthefeaturesf.
+nodes. However, there are many possible sampling strategies for
+Feature learning methods based on the Skip-gram architecture
+nodes,resultingindifferentlearnedfeaturerepresentations.Infact,
+havebeenoriginallydevelopedinthecontextofnaturallanguage[21].
+asweshallshow,thereisnoclearwinningsamplingstrategythat
+Giventhelinearnatureoftext,thenotionofaneighborhoodcanbe
+worksacrossallnetworksandallpredictiontasks. Thisisamajor
+naturallydefinedusingaslidingwindowoverconsecutivewords.
+shortcomingofpriorworkwhichfailtoofferanyflexibilityinsam-
+Networks, however, are not linear, and thus a richer notion of a
+plingofnodesfromanetwork[24,28]. Ouralgorithmnode2vec
+neighborhoodisneeded. Toresolvethisissue,weproposearan-
+overcomesthislimitationbydesigningaflexibleobjectivethatis
+domizedprocedurethatsamplesmanydifferentneighborhoodsofa
+nottiedtoaparticularsamplingstrategyandprovidesparameters
+givensourcenodeu. TheneighborhoodsN (u)arenotrestricted
+totunetheexploredsearchspace(seeSection3). S
+tojustimmediateneighborsbutcanhavevastlydifferentstructures
+Finally,forbothnodeandedgebasedpredictiontasks,thereis
+dependingonthesamplingstrategyS.
+abodyofrecentworkforsupervisedfeaturelearningbasedonex-
+istingandnovelgraph-specificdeepnetworkarchitectures[15,16, 3.1 Classicsearchstrategies
+17,31,39].Thesearchitecturesdirectlyminimizethelossfunction
+We view the problem of sampling neighborhoods of a source
+foradownstreampredictiontaskusingseverallayersofnon-linear
+node as a form of local search. Figure 1 shows a graph, where
+transformations which results in high accuracy, but at the cost of
+given a source node u we aim to generate (sample) its neighbor-
+scalabilityduetohightrainingtimerequirements.
+hood N (u). Importantly, to be able to fairly compare different
+S
+samplingstrategiesS,weshallconstrainthesizeoftheneighbor-
+3. FEATURELEARNINGFRAMEWORK hoodsetN toknodesandthensamplemultiplesetsforasingle
+S
+nodeu. Generally, therearetwoextremesamplingstrategiesfor
+Weformulatefeaturelearninginnetworksasamaximumlike-
+generatingneighborhoodset(s)N ofknodes:
+lihood optimization problem. Let G = (V,E) be a given net- S
+• Breadth-firstSampling(BFS)TheneighborhoodN isre-
+work. Our analysis is general and applies to any (un)directed, S
+(un)weighted network. Let f : V → Rd be the mapping func- strictedtonodeswhichareimmediateneighborsofthesource.
+Forexample,inFigure1foraneighborhoodofsizek = 3,
+tion from nodes to feature representaions we aim to learn for a
+BFSsamplesnodess ,s ,s .
+downstreampredictiontask. Heredisaparameterspecifyingthe 1 2 3
+• Depth-firstSampling(DFS)Theneighborhoodconsistsof
+numberofdimensionsofourfeaturerepresentation. Equivalently,
+nodessequentiallysampledatincreasingdistancesfromthe
+f isamatrixofsize|V|×dparameters. Foreverysourcenode
+sourcenode.InFigure1,DFSsampless ,s ,s .
+u∈V,wedefineN (u)⊂V asanetworkneighborhoodofnode 4 5 6
+S
+Thebreadth-firstanddepth-firstsamplingrepresentextremesce-
+ugeneratedthroughaneighborhoodsamplingstrategyS.
+nariosintermsofthesearchspacetheyexploreleadingtointerest-
+WeproceedbyextendingtheSkip-gramarchitecturetonetworks
+ingimplicationsonthelearnedrepresentations.
+[21, 24]. We seek to optimize the following objective function,
+Inparticular, predictiontasksonnodesinnetworksoftenshut-
+whichmaximizesthelog-probabilityofobservinganetworkneigh-
+tle between two kinds of similarities: homophily and structural
+borhoodN (u)foranodeuconditionedonitsfeaturerepresenta-
+S
+equivalence [12]. Under the homophily hypothesis [7, 36] nodes
+tion,givenbyf:
+thatarehighlyinterconnectedandbelongtosimilarnetworkclus-
+(cid:88)
+max logPr(N S (u)|f(u)). (1) ters or communities should be embedded closely together (e.g.,
+f
+u∈V nodes s 1 and u in Figure 1 belong to the same network commu-
+nity). Incontrast,underthestructuralequivalencehypothesis[10]
+In order to make the optimization problem tractable, we make
+nodesthathavesimilarstructuralrolesinnetworksshouldbeem-
+twostandardassumptions:
+bedded closely together (e.g., nodes u and s in Figure 1 act as
+• Conditionalindependence.Wefactorizethelikelihoodbyas- 6
+hubsoftheircorrespondingcommunities). Importantly,unlikeho-
+sumingthatthelikelihoodofobservinganeighborhoodnode
+mophily, structural equivalence does not emphasize connectivity;
+is independent of observing any other neighborhood node
+nodes could be far apart in the network and still have the same
+giventhefeaturerepresentationofthesource:
+structuralrole.Inreal-world,theseequivalencenotionsarenotex-
+(cid:89) clusive; networks commonly exhibit both behaviors where some
+Pr(N (u)|f(u))= Pr(n |f(u)).
+S i
+nodesexhibithomophilywhileothersreflectstructuralequivalence.
+ni∈NS(u)
+WeobservethatBFSandDFSstrategiesplayakeyroleinpro-
+• Symmetry in feature space. A source node and neighbor- ducingrepresentationsthatreflecteitheroftheaboveequivalences.
+hood node have a symmetric effect over each other in fea- In particular, the neighborhoods sampled by BFS lead to embed-
+ture space. Accordingly, we model the conditional likeli- dingsthatcorrespondcloselytostructuralequivalence.Intuitively,
+
+we note that in order to ascertain structural equivalence, it is of-
+ten sufficient to characterize the local neighborhoods accurately. x x
+Forexample,structuralequivalencebasedonn x e1tw orkrolessuchxa 2 s 1 α=1 2
+bridgesandhubscanbeinferredjustbyobservingαt=he1 immediate α=1/q
+α=1/q
+neighborhoodsofeachnode.Byrestrictingsearchtonearbynodes,
+v
+BFSachievesthischaracterizationandobtainsamicrovsc opicview α=1/q
+oftheneighborhoodofeverynode. Additionally,inBFS,nodαes=i1n/q
+α=1/p
+thesampledneighborhoodstendtorepeatmanyαt=im1e/sp. Thisisalso
+x t
+x
+3
+importantasitreducesthevarianceinchta racterizingthedistribu- 3
+tionof1-hopnodeswithrespectthesourcenode. However,avery
+smallportionofthegraphisexploredforanygivenk. Figure2: Illustrationoftherandomwalkprocedureinnode2vec.
+TheoppositeistrueforDFSwhichcanexplorelargerpartsof Thewalkjusttransitionedfromttovandisnowevaluatingitsnext
+the network as it can move further away from the source node u stepoutofnodev.Edgelabelsindicatesearchbiasesα.
+(withsamplesizekbeingfixed). InDFS,thesamplednodesmore
+accuratelyreflectamacro-viewoftheneighborhoodwhichises- andd denotestheshortestpathdistancebetweennodestandx.
+tx
+sential in inferring communities based on homophily. However, Notethatd mustbeoneof{0,1,2},andhence,thetwoparame-
+tx
+the issue with DFS is that it is important to not only infer which tersarenecessaryandsufficienttoguidethewalk.
+node-to-nodedependenciesexistinanetworks,butalsotocharsac- Intuitively,parameterspandqcontrolhowfastthewalkexplores
+1 2 s
+terize the exact nature of these dependencies. This is hard given and6le avestheneighborhoodofstartingnodeu. Inparticular,the
+BFS
+wehaveaconstrainonthesamplesizeandalargeneighborhood parametersallowoursearchprocedureto(approximately)interpo-
+toexplore,resultinginhighvariance. Secondly,movinug tomuch latebetwseenBFSandDFSandtherebyreflectanaffinityfordif-
+greaterdepthsleadstocomplexdependenciessinceasamplednode ferentnotio 7 n sofnodeequivaDlenFceSs.
+maybefarfromthesourceandpotentiallylessrepresentative.
+s
+s
+4
+Retsurnparameter,p. Parameterpcontrolsthelikelihoodofim-
+3.2 node2vec 3 medi5a telyrevisitinganodeinthewalk. Settingittoahighvalue
+(>max(q,1))ensuresthatwearelesslikelytosampleanalready-
+Buildingontheaboveobservations,wedesignaflexibleneigh-
+visited node in the following two steps (unless the next node in
+borhoodsamplingstrategywhichallowsustosmoothlyinterpolate
+thewalkhadnootherneighbor). Thisstrategyencouragesmoder-
+between BFS and DFS. We achieve this by developing a flexible
+ateexplorationandavoids2-hopredundancyinsampling. Onthe
+biasedrandomwalkprocedurethatcanexploreneighborhoodsina
+other hand, if p is low (< min(q,1)), it would lead the walk to
+BFSaswellasDFSfashion.
+backtrack a step (Figure 2) and this would keep the walk “local”
+3.2.1 RandomWalks closetothestartingnodeu.
+Formally,givenasourcenodeu,wesimulatearandomwalkof In-outparameter,q.Parameterqallowsthesearchtodifferentiate
+fixedlengthl. Letc denotetheithnodeinthewalk,startingwith between“inward”and“outward”nodes. GoingbacktoFigure2,
+i
+c =u.Nodesc aregeneratedbythefollowingdistribution: ifq >1,therandomwalkisbiasedtowardsnodesclosetonodet.
+0 i
+Suchwalksobtainalocalviewoftheunderlyinggraphwithrespect
+(cid:40)
+πvx if(v,x)∈E tothestartnodeinthewalkandapproximateBFSbehaviorinthe
+P(c =x|c =v)= Z
+i i−1 0 otherwise sensethatoursamplescompriseofnodeswithinasmalllocality.
+In contrast, if q < 1, the walk is more inclined to visit nodes
+whereπ vx istheunnormalizedtransitionprobabilitybetweennodes whicharefurtherawayfromthenodet. Suchbehaviorisreflec-
+vandx,andZisthenormalizingconstant. tiveofDFSwhichencouragesoutwardexploration. However, an
+essential difference here is that we achieve DFS-like exploration
+3.2.2 Searchbiasα withintherandomwalkframework.Hence,thesamplednodesare
+Thesimplestwaytobiasourrandomwalkswouldbetosample notatstrictlyincreasingdistancesfromagivensourcenodeu,but
+thenextnodebasedonthestaticedgeweightsw i.e.,π =w . inturn,webenefitfromtractablepreprocessingandsuperiorsam-
+vx vx vx
+(In case of unweighted graphs w vx = 1.) However, this does plingefficiencyofrandomwalks. Notethatbysettingπ v,x tobe
+not allow us to account for the network structure and guide our afunctionofthepreceedingnodeinthewalkt,therandomwalks
+search procedure to explore different types of network neighbor-
+are2ndorderMarkovian.
+hoods. Additionally,unlikeBFSandDFSwhichareextremesam- Benefitsofrandomwalks. Thereareseveralbenefitsofrandom
+pling paradigms suited for structural equivalence and homophily walksoverpureBFS/DFSapproaches. Randomwalksarecompu-
+respectively, our random walks should accommodate for the fact tationally efficient in terms of both space and time requirements.
+that these notions of equivalence are not competing or exclusive, The space complexity to store the immediate neighbors of every
+andreal-worldnetworkscommonlyexhibitamixtureofboth. node in the graph is O(|E|). For 2nd order random walks, it is
+Wedefinea2ndorderrandomwalkwithtwoparameterspandq
+helpfultostoretheinterconnectionsbetweentheneighborsofev-
+whichguidethewalk: Considerarandomwalkthatjusttraversed erynode, whichincursaspacecomplexityofO(a2|V|)wherea
+edge (t,v) and now resides at node v (Figure 2). The walk now is the average degree of the graph and is usually small for real-
+needstodecideonthenextstepsoitevaluatesthetransitionprob- world networks. The other key advantage of random walks over
+abilitiesπ vx onedges(v,x)leadingfromv.Wesettheunnormal- classicsearch-basedsamplingstrategiesisitstimecomplexity. In
+izedtransitionprobabilitytoπ vx =α pq (t,x)·w vx ,where particular, by imposing graph connectivity in the sample genera-
+ tionprocess,randomwalksprovideaconvenientmechanismtoin-
+1 ifd =0
+p tx creasetheeffectivesamplingratebyreusingsamplesacrossdiffer-
+α pq (t,x)= 1 ifd tx =1 entsourcenodes.Bysimulatingarandomwalkoflengthl>kwe
+1
+q
+ifd
+tx
+=2 cangenerateksamplesforl−knodesatonceduetotheMarko-
+
+Operator Symbol Definition betweennodesintheunderlyingnetwork,weextendthemtopairs
+Average (cid:1) [f(u)(cid:1)f(v)] i = fi(u)+ 2 fi(v) ofnodesusingabootstrappingapproachoverthefeaturerepresen-
+Hadamard (cid:0) [f(u)(cid:0)f(v)] i =f i (u)∗f i (v) tationsoftheindividualnodes.
+Weighted-L1 (cid:107)·(cid:107)¯1 (cid:107)f(u)·f(v)(cid:107)¯1i =|f i (u)−f i (v)| Giventwonodesuandv,wedefineabinaryoperator◦overthe
+Weighted-L2 (cid:107)·(cid:107)¯2 (cid:107)f(u)·f(v)(cid:107)¯2i =|f
+i
+(u)−f
+i
+(v)|2 correspondingfeaturevectorsf(u)andf(v)inordertogenerate
+Table 1: Choiceof binaryoperators ◦for learningedge features. arepresentationg(u,v)suchthatg : V ×V → Rd(cid:48) whered(cid:48) is
+Thedefinitionscorrespondtotheithcomponentofg(u,v). therepresentationsizeforthepair(u,v). Wewantouroperators
+tobegenerallydefinedforanypairofnodes,evenifanedgedoes
+viannatureoftherandomwalk. Hence, oureffectivecomplexity notexistbetweenthepairsincedoingsomakestherepresentations
+isO (cid:0) l (cid:1) persample. Forexample, inFigure1wesamplea usefulforlinkpredictionwhereourtestsetcontainsbothtrueand
+k(l−k) falseedges(i.e.,donotexist). Weconsiderseveralchoicesforthe
+randomwalk{u,s ,s ,s ,s ,s }oflengthl = 6,whichresults
+4 5 6 8 9 operator◦suchthatd(cid:48) =dwhicharesummarizedinTable1.
+inN (u) = {s ,s ,s },N (s ) = {s ,s ,s }andN (s ) =
+S 4 5 6 S 4 5 6 8 S 5
+{s ,s ,s }.Notethatsamplereusecanintroducesomebiasinthe
+6 8 9 4. EXPERIMENTS
+overall procedure. However, we observe that it greatly improves
+theefficiency. TheobjectiveinEq.2isindependentofanydownstreamtaskand
+theflexibilityinexplorationofferedbynode2veclendsthelearned
+3.2.3 Thenode2vecalgorithm feature representations to a wide variety of network analysis set-
+tingsdiscussedbelow.
+Algorithm1Thenode2vecalgorithm.
+4.1 CaseStudy: LesMisérablesnetwork
+LearnFeatures(GraphG=(V,E,W),Dimensionsd,Walksper
+InSection3.1weobservedthatBFSandDFSstrategiesrepre-
+noder,Walklengthl,Contextsizek,Returnp,In-outq)
+sentextremeendsonthespectrumofembeddingnodesbasedon
+π=PreprocessModifiedWeights(G,p,q)
+G(cid:48) =(V,E,π) theprinciplesofhomophily(i.e.,networkcommunities)andstruc-
+turalequivalence(i.e., structuralrolesofnodes). Wenowaimto
+InitializewalkstoEmpty
+empirically demonstrate this fact and show that node2vec in fact
+foriter=1tordo
+candiscoverembeddingsthatobeybothprinciples.
+forallnodesu∈V do
+walk=node2vecWalk(G(cid:48),u,l) Weuseanetworkwherenodescorrespondtocharactersinthe
+novelLesMisérables[13]andedgesconnectcoappearingcharac-
+Appendwalktowalks
+ters. The network has 77 nodes and 254 edges. We set d = 16
+f =StochasticGradientDescent(k,d,walks)
+and run node2vec to learn feature representation for every node
+returnf
+inthenetwork. Thefeaturerepresentationsareclusteredusingk-
+node2vecWalk(GraphG(cid:48) =(V,E,π),Startnodeu,Lengthl) means. Wethenvisualizetheoriginalnetworkintwodimensions
+withnodesnowassignedcolorsbasedontheirclusters.
+Inititalizewalkto[u]
+Figure3(top)showstheexamplewhenwesetp = 1,q = 0.5.
+forwalk_iter=1toldo
+Noticehowregionsofthenetwork(i.e.,networkcommunities)are
+curr=walk[−1]
+V =GetNeighbors(curr,G(cid:48)) colored using the same color. In this setting node2vec discov-
+curr
+ersclusters/communitiesofcharactersthatfrequentlyinteractwith
+s=AliasSample(V ,π)
+curr
+eachotherinthemajorsub-plotsofthenovel. Sincetheedgesbe-
+Appendstowalk
+tweencharactersarebasedoncoappearances,wecanconcludethis
+returnwalk
+characterizationcloselyrelateswithhomophily.
+Inordertodiscoverwhichnodeshavethesamestructuralroles
+Thepseudocodefornode2vec,isgiveninAlgorithm1. Inany weusethesamenetworkbutsetp=1,q=2,usenode2vectoget
+randomwalk,thereisanimplicitbiasduetothechoiceofthestart nodefeaturesandthenclusterthenodesbasedontheobtainedfea-
+nodeu.Sincewelearnrepresentationsforallnodes,weoffsetthis tures.Herenode2vecobtainsacomplementaryassignmentofnode
+biasbysimulatingr randomwalksoffixedlengthlstartingfrom toclusterssuchthatthecolorscorrespondtostructuralequivalence
+everynode. Ateverystepofthewalk,samplingisdonebasedon asillustratedinFigure3(bottom). Forinstance,node2vec embeds
+thetransitionprobabilitiesπ vx .Thetransitionprobabilitiesπ vx for blue-colorednodesclosetogether. Thesenodesrepresentcharac-
+the2nd orderMarkovchaincanbeprecomputedandhence, sam- ters that act as bridges between different sub-plots of the novel.
+plingofnodeswhilesimulatingtherandomwalkcanbedoneef- Similarly,theyellownodesmostlyrepresentcharactersthatareat
+ficiently in O(1) time using alias sampling. The three phases of theperipheryandhavelimitedinteractions. Onecouldassignal-
+node2vec, i.e., preprocessing to compute transition probabilities, ternatesemanticinterpretationstotheseclustersofnodes,butthe
+random walk simulations and optimization using SGD, are exe- keytakeawayisthatnode2vec isnottiedtoaparticularnotionof
+cutedsequentially.Eachphaseisparallelizableandexecutedasyn- equivalence. Asweshowthroughourexperiments, theseequiva-
+chronously,contributingtotheoverallscalabilityofnode2vec. lencenotionsarecommonlyexhibitedinmostreal-worldnetworks
+node2vecisavailableat:http://snap.stanford.edu/node2vec. and have a significant impact on the performance of the learned
+representationsforpredictiontasks.
+3.3 Learningedgefeatures
+4.2 Experimentalsetup
+Thenode2vec algorithmprovidesasemi-supervisedmethodto
+learnrichfeaturerepresentationsfornodesinanetwork.However, Our experiments evaluate the feature representations obtained
+weareofteninterestedinpredictiontasksinvolvingpairsofnodes through node2vec on standard supervised learning tasks: multi-
+insteadofindividualnodes.Forinstance,inlinkprediction,wepre- label classification for nodes and link prediction for edges. For
+dictwhetheralinkexistsbetweentwonodesinanetwork. Since both tasks, we evaluate the performance of node2vec against the
+ourrandomwalksarenaturallybasedontheconnectivitystructure followingfeaturelearningalgorithms:
+
+Algorithm Dataset
+BlogCatalog PPI Wikipedia
+SpectralClustering 0.0405 0.0681 0.0395
+DeepWalk 0.2110 0.1768 0.1274
+LINE 0.0784 0.1447 0.1164
+node2vec 0.2581 0.1791 0.1552
+node2vecsettings(p,q) 0.25,0.25 4,1 4,0.5
+Gainofnode2vec[%] 22.3 1.3 21.8
+Table2:Macro-F scoresformultilabelclassificationonBlogCat-
+1
+alog, PPI(Homosapiens)andWikipediawordcooccurrencenet-
+workswith50%ofthenodeslabeledfortraining.
+aparameterforthenumberofcontextneighborhoodnodestoopti-
+mizeforandthegreaterthenumber,themoreroundsofoptimiza-
+tionarerequired.ThisparameterissettounityforLINE,butsince
+LINEcompletesasingleepochquickerthanotherapproaches,we
+letitrunforkepochs.
+Theparametersettingsusedfornode2vecareinlinewithtypical
+valuesusedforDeepWalkandLINE.Specifically,wesetd=128,
+r = 10, l = 80, k = 10, and the optimization is run for a sin-
+gleepoch. Werepeatourexperimentsfor10randomseedinitial-
+izations,andourresultsarestatisticallysignificantwithap-value
+Figure3: ComplementaryvisualizationsofLesMisérablescoap- oflessthan0.01.Thebestin-outandreturnhyperparameterswere
+pearancenetworkgeneratedbynode2vec withlabelcolorsreflect- learnedusing10-foldcross-validationon10%labeleddatawitha
+inghomophily(top)andstructuralequivalence(bottom). gridsearchoverp,q∈{0.25,0.50,1,2,4}.
+4.3 Multi-labelclassification
+• Spectral clustering [29]: This is a matrix factorization ap-
+proachinwhichwetakethetopdeigenvectorsofthenor- In the multi-label classification setting, every node is assigned
+malized Laplacian matrix of graph G as the feature vector oneormorelabelsfromafinitesetL.Duringthetrainingphase,we
+representationsfornodes. observeacertainfractionofnodesandalltheirlabels. Thetaskis
+• DeepWalk [24]:Thisapproachlearnsd-dimensionalfeature topredictthelabelsfortheremainingnodes. Thisisachallenging
+representations by simulating uniform random walks. The taskespeciallyifLislarge.Weutilizethefollowingdatasets:
+samplingstrategyinDeepWalkcanbeseenasaspecialcase • BlogCatalog[38]: Thisisanetworkofsocialrelationships
+ofnode2vecwithp=1andq=1. of the bloggers listed on the BlogCatalog website. The la-
+• LINE [28]:Thisapproachlearnsd-dimensionalfeaturerep- bels represent blogger interests inferred through the meta-
+resentations in two separate phases. In the first phase, it dataprovidedbythebloggers.Thenetworkhas10,312nodes,
+learnsd/2dimensionsbyBFS-stylesimulationsoverimme- 333,983edges,and39differentlabels.
+diateneighborsofnodes. Inthesecondphase,itlearnsthe • Protein-ProteinInteractions(PPI)[5]: Weuseasubgraphof
+next d/2 dimensions by sampling nodes strictly at a 2-hop the PPI network for Homo Sapiens. The subgraph corre-
+distancefromthesourcenodes. sponds to the graph induced by nodes for which we could
+Weexcludeothermatrixfactorizationapproacheswhichhaveal- obtain labels from the hallmark gene sets [19] and repre-
+readybeenshowntobeinferiortoDeepWalk[24].Wealsoexclude sentbiologicalstates. Thenetworkhas3,890nodes,76,584
+arecentapproach, GraRep[6], thatgeneralizesLINEtoincorpo- edges,and50differentlabels.
+rateinformationfromnetworkneighborhoodsbeyond2-hops,but • Wikipedia [20]: This is a cooccurrence network of words
+isunabletoefficientlyscaletolargenetworks. appearinginthefirstmillionbytesoftheWikipediadump.
+Incontrasttothesetupusedinpriorworkforevaluatingsampling- ThelabelsrepresentthePart-of-Speech(POS)tagsinferred
+basedfeaturelearningalgorithms,wegenerateanequalnumberof usingtheStanfordPOS-Tagger[32].Thenetworkhas4,777
+samplesforeachmethodandthenevaluatethequalityoftheob- nodes,184,812edges,and40differentlabels.
+tainedfeaturesonthepredictiontask. Indoingso,wediscountfor All these networks exhibit a fair mix of homophilic and struc-
+performancegainobservedpurelybecauseoftheimplementation turalequivalences. Forexample,weexpectthesocialnetworkof
+language (C/C++/Python) since it is secondary to the algorithm. bloggerstoexhibitstronghomophily-basedrelationships;however,
+Thus,inthesamplingphase,theparametersforDeepWalk,LINE theremightalsobesome“familiarstrangers”,i.e.,bloggersthatdo
+andnode2vecaresetsuchthattheygenerateequalnumberofsam- notinteractbutshareinterestsandhencearestructurallyequivalent
+plesatruntime.Asanexample,ifKistheoverallsamplingbudget, nodes.Thebiologicalstatesofproteinsinaprotein-proteininterac-
+thenthenode2vec parameterssatisfyK = r·l·|V|. Intheopti- tionnetworkalsoexhibitbothtypesofequivalences.Forexample,
+mizationphase,allthesebenchmarksoptimizeusingSGDwithtwo theyexhibitstructuralequivalencewhenproteinsperformfunctions
+keydifferencesthatwecorrectfor.First,DeepWalkuseshierarchi- complementarytothoseofneighboringproteins,andatothertimes,
+calsamplingtoapproximatethesoftmaxprobabilitieswithanob- theyorganizebasedonhomophilyinassistingneighboringproteins
+jectivesimilartotheoneusebynode2vec. However,hierarchical inperformingsimilarfunctions.Thewordcooccurencenetworkis
+softmaxisinefficientwhencomparedwithnegativesampling[22]. fairly dense, since edges exist between words cooccuring in a 2-
+Hence, keeping everything else the same, we switch to negative lengthwindowintheWikipediacorpus. Hence,wordshavingthe
+samplinginDeepWalkwhichisalsothedefactoapproximationin samePOStagsarenothardtofind, lendingahighdegreeofho-
+node2vec andLINE.Second,bothnode2vec andDeepWalkhave mophily. Atthesametime,weexpectsomestructuralequivalence
+
+0.45
+0.40
+0.35
+0.30
+0.25
+0.20
+0.15
+0.0 0.2 0.4 0.6 0.8 1.0
+erocs1F-orciM
+BlogCatalog
+0.30
+0.25
+0.20
+0.15
+0.10
+0.05
+0.00
+0.0 0.2 0.4 0.6 0.8 1.0
+erocs1F-orcaM
+PPI(HomoSapiens) Wikipedia
+0.30 0.60
+0.25
+0.55
+0.20
+0.50
+0.15
+0.45
+0.10
+0.40
+0.05
+0.00 0.35
+0.0 0.2 0.4 0.6 0.8 1.0 0.0 0.2 0.4 0.6 0.8 1.0
+0.30 0.30
+0.25 0.25
+0.20 0.20
+0.15 0.15
+0.10 0.10
+0.05 0.05
+0.00 0.00
+0.0 0.2 0.4 0.6 0.8 1.0 0.0 0.2 0.4 0.6 0.8 1.0
+SpectralClustering DeepWalk LINE node2vec
+Figure4: Performanceevaluationofdifferentbenchmarksonvaryingtheamountoflabeleddatausedfortraining. Thexaxisdenotesthe
+fractionoflabeleddata,whereastheyaxisinthetopandbottomrowsdenotetheMicro-F andMacro-F scoresrespectively. DeepWalk
+1 1
+andnode2vecgivecomparableperformanceonPPI.Inallothernetworks,acrossallfractionsoflabeleddatanode2vecperformsbest.
+inthePOStagsduetosyntacticgrammarpatternssuchasnouns we summarize the results for the Micro-F and Macro-F scores
+1 1
+followingdeterminers,punctuationssucceedingnounsetc. graphicallyinFigure4. Herewemakesimilarobservations. All
+methods significantly outperform Spectral clustering, DeepWalk
+Experimentalresults. Thenodefeaturerepresentationsareinput
+outperformsLINE,node2vec consistentlyoutperformsLINEand
+toaone-vs-restlogisticregressionclassifierwithL2regularization.
+achieveslargeimprovementoverDeepWalkacrossdomains. For
+Thetrainandtestdataissplitequallyover10randominstances.We
+example, weachievethebiggestimprovementoverDeepWalkof
+usetheMacro-F scoresforcomparingperformanceinTable2and
+1 26.7%onBlogCatalogat70%labeleddata. Intheworstcase,the
+therelativeperformancegainisovertheclosestbenchmark. The
+searchphasehaslittlebearingonlearnedrepresentationsinwhich
+trendsaresimilarforMicro-F andaccuracyandarenotshown.
+1 casenode2vec isequivalenttoDeepWalk. Similarly,theimprove-
+From the results, it is evident we can see how the added flexi-
+ments are even more striking when compared to LINE, where in
+bilityinexploringneighborhoodsallowsnode2vec tooutperform
+additiontodrasticgain(over200%)onBlogCatalog, weobserve
+theotherbenchmarkalgorithms. InBlogCatalog,wecandiscover
+highmagnitudeimprovementsupto41.1%onotherdatasetssuch
+the right mix of homophily and structural equivalence by setting
+asPPIwhiletrainingonjust10%labeleddata.
+parameterspandqtolowvalues,givingus22.3%gainoverDeep-
+Walkand229.2%gainoverLINEinMacro-F scores.LINEshowed
+1 4.4 Parametersensitivity
+worse performance than expected, which can be explained by its
+inabilitytoreusesamples,afeatthatcanbeeasilydoneusingthe The node2vec algorithm involves a number of parameters and
+randomwalkmethods. Eveninourothertwonetworks,wherewe inFigure5a,weexaminehowthedifferentchoicesofparameters
+haveamixofequivalencespresent,thesemi-supervisednatureof affecttheperformanceofnode2vecontheBlogCatalogdatasetus-
+node2vec can help us infer the appropriate degree of exploration inga50-50splitbetweenlabeledandunlabeleddata.Exceptforthe
+necessaryforfeaturelearning.InthecaseofPPInetwork,thebest parameterbeingtested,allotherparametersassumedefaultvalues.
+explorationstrategy(p=4,q =1)turnsouttobevirtuallyindis- Thedefaultvaluesforpandqaresettounity.
+tinguishablefromDeepWalk’suniform(p=1,q=1)exploration We measure the Macro-F 1 score as a function of parameters p
+givingusonlyaslightedgeoverDeepWalkbyavoidingredudancy and q. The performance of node2vec improves as the in-out pa-
+inalreadyvisitednodesthroughahighpvalue, butaconvincing rameter p and the return parameter q decrease. This increase in
+23.8%gainoverLINEinMacro-F scores. However, ingeneral, performancecanbebasedonthehomophilicandstructuralequiva-
+1
+theuniformrandomwalkscanbemuchworsethantheexploration lencesweexpecttoseeinBlogCatalog.Whilealowqencourages
+strategylearnedbynode2vec.AswecanseeintheWikipediaword outwardexploration,itisbalancedbyalowpwhichensuresthat
+cooccurrencenetwork,uniformwalkscannotguidethesearchpro- thewalkdoesnotgotoofarfromthestartnode.
+ceduretowardsthebestsamplesandhence, weachieveagainof Wealsoexaminehowthenumberoffeaturesdandthenode’s
+21.8%overDeepWalkand33.2%overLINE. neighborhoodparameters(numberofwalksr, walklengthl, and
+Foramorefine-grainedanalysis,wealsocompareperformance neighborhoodsizek)affecttheperformance.Weobservethatper-
+while varying the train-test split from 10% to 90%, while learn- formancetendstosaturateoncethedimensionsoftherepresenta-
+ingparameterspandqon10%ofthedataasbefore. Forbrevity, tions reaches around 100. Similarly, we observe that increasing
+thenumberandlengthofwalkspersourceimprovesperformance,
+
+0.28
+0.26
+0.24
+0.22
+0.20
+0.18
+0.16
+3 2 1 0 1 2 3
+      log p 2
+erocs
+F-orcaM 1
+0.28 0.28
+0.26 0.26
+0.24 0.24
+0.22 0.22
+0.20 0.20
+0.18 0.18
+0.16 0.16
+3 2 1 0 1 2 3 3 4 5 6 7 8 9
+      log q log d 2 2
+0.28
+0.26
+0.24
+0.22
+0.20
+0.18
+0.16
+6 8 10 12 14 16 18 20
+Numberofwalkspernode,r
+erocs
+F-orcaM 1
+0.28
+0.26
+0.24
+0.22
+0.20
+0.18
+0.16
+3 2 1 0 1 2 3
+      log p 2
+0.28 0.28
+0.26 0.26
+0.24 0.24
+0.22 0.22
+0.20 0.20
+0.18 0.18
+0.16 0.16
+30 40 50 60 70 80 90100110 8 10 12 14 16 18 20
+Lengthofwalk,l Contextsize,k
+(a)
+erocs
+F-orcaM 1
+0.28 0.30
+0.26 0.25
+0.24 0.20
+0.22 0.15
+0.20
+0.10
+0.18
+0.05
+0.16
+0.00
+3 2 1 0 1 2 3 0.0 0.1 0.2 0.3 0.4 0.5 0.6
+      log 2 q Fractionofmissingedges
+erocs
+F-orcaM 1
+0.28
+0.26
+0.24
+0.22
+0.20
+0.18
+0.16
+6 8 10 12 14 16 18 20
+Numberofwalkspernode,r
+erocs
+F-orcaM 1
+0.28 0.30
+0.26 0.25
+0.24 0.20
+0.22 0.15
+0.20
+0.10
+0.18
+0.05
+0.16
+0.00
+30 40 50 60 70 80 90100110 0.0 0.1 0.2 0.3 0.4 0.5 0.6
+Lengthofwalk,l Fractionofadditionaledges
+erocs
+F-orcaM 1
+(b)
+Figure5:(a).Parametersensitivity(b).PerturbationanalysisformultilabelclassificationontheBlogCatalognetwork.
+which is not surprising since we have a greater overall sampling
+budget K to learn representations. Both these parameters have a
+relativelyhighimpactontheperformanceofthemethod. Interest-
+4
+ingly,thecontextsize,kalsoimprovesperformanceatthecostof
+increasedoptimizationtime.However,theperformancedifferences
+arenotthatlargeinthiscase. 3
+4.5 PerturbationAnalysis
+2
+Formanyreal-worldnetworks,wedonothaveaccesstoaccurate
+informationaboutthenetworkstructure. Weperformedapertur-
+bationstudywhereweanalyzedtheperformanceofnode2vec for
+1
+two imperfect information scenarios related to the edge structure
+intheBlogCatalognetwork. Inthefirstscenario,wemeasureper-
+formaceasafunctionofthefractionofmissingedges(relativeto 0
+thefullnetwork). Themissingedgesarechosenrandomly,subject
+totheconstraintthatthenumberofconnectedcomponentsinthe 1 2 3 4 5 6 7
+network remains fixed. As we can see in Figure 5b(top), the de- log 10 nodes
+creaseinMacro-F scoreasthefractionofmissingedgesincreases 1
+isroughlylinearwithasmallslope. Robustnesstomissingedges
+in the network is especially important in cases where the graphs
+areevolvingovertime(e.g.,citationnetworks),orwherenetwork
+constructionisexpensive(e.g.,biologicalnetworks).
+Inthesecondperturbationsetting,wehavenoisyedgesbetween
+randomly selected pairs of nodes in the network. As shown in
+Figure5b(bottom),theperformanceofnode2vec declinesslightly
+faster initially when compared with the setting of missing edges,
+however, the rate of decrease in Macro-F score gradually slows 1
+downovertime. Again,therobustnessofnode2vec tofalseedges
+is useful in several situations such as sensor networks where the
+measurementsusedforconstructingthenetworkarenoisy.
+4.6 Scalability
+Totestforscalability,welearnnoderepresentationsusingnode2vec
+withdefaultparametervaluesforErdos-Renyigraphswithincreas-
+ingsizesfrom100to1,000,000nodesandconstantaveragedegree
+)sdnocesni(emit
+gol
+01
+sampling+optimizationtime
+samplingtime
+Figure6: Scalabilityofnode2vec onErdos-Renyigraphswithan
+averagedegreeof10.
+of10.InFigure6,weempiricallyobservethatnode2vecscaleslin-
+earlywithincreaseinnumberofnodesgeneratingrepresentations
+foronemillionnodesinlessthanfourhours. Thesamplingpro-
+cedurecomprisesofpreprocessingforcomputingtransitionproba-
+bilities for our walk (negligibly small) and simulation of random
+walks. The optimization phase is made efficient using negative
+sampling[22]andasynchronousSGD[26].
+Many ideas from prior work serve as useful pointers in mak-
+ingthesamplingprocedurecomputationallyefficient. Weshowed
+howrandomwalks,alsousedinDeepWalk[24],allowthesampled
+nodestobereusedasneighborhoodsfordifferentsourcenodesap-
+pearinginthewalk. Aliassamplingallowsourwalkstogeneral-
+ize to weighted networks, with little preprocessing [28]. Though
+we are free to set the search parameters based on the underlying
+taskanddomainatnoadditionalcost,learningthebestsettingsof
+
+Score Definition Op Algorithm Dataset
+CommonNeighbors |N(u)∩N(v)| Facebook PPI arXiv
+Jaccard’sCoefficient |N(u)∩N(v)| CommonNeighbors 0.8100 0.7142 0.8153
+|N(u)∪N(v)|
+Adamic-AdarScore (cid:80) 1 Jaccard’sCoefficient 0.8880 0.7018 0.8067
+t∈N(u)∩N(v) log|N(t)| Adamic-Adar 0.8289 0.7126 0.8315
+PreferentialAttachment |N(u)|·|N(v)|
+Pref.Attachment 0.7137 0.6670 0.6996
+Table3: Linkpredictionheuristicscoresfornodepair(u,v)with SpectralClustering 0.5960 0.6588 0.5812
+immediateneighborsetsN(u)andN(v)respectively. (a) DeepWalk 0.7238 0.6923 0.7066
+LINE 0.7029 0.6330 0.6516
+oursearchparametersaddsanoverhead. However, asourexper-
+node2vec 0.7266 0.7543 0.7221
+imentsconfirm,thisoverheadisminimalsincenode2vec issemi-
+SpectralClustering 0.6192 0.4920 0.5740
+supervised and hence, can learn these parameters efficiently with
+(b) DeepWalk 0.9680 0.7441 0.9340
+verylittlelabeleddata.
+LINE 0.9490 0.7249 0.8902
+4.7 Linkprediction node2vec 0.9680 0.7719 0.9366
+SpectralClustering 0.7200 0.6356 0.7099
+In link prediction, we are given a network with a certain frac-
+(c) DeepWalk 0.9574 0.6026 0.8282
+tionofedgesremoved,andwewouldliketopredictthesemissing
+LINE 0.9483 0.7024 0.8809
+edges. Wegeneratethelabeleddatasetofedgesasfollows:Toob-
+node2vec 0.9602 0.6292 0.8468
+tainpositiveexamples,weremove50%ofedgeschosenrandomly
+SpectralClustering 0.7107 0.6026 0.6765
+fromthenetworkwhileensuringthattheresidualnetworkobtained
+(d) DeepWalk 0.9584 0.6118 0.8305
+aftertheedgeremovalsisconnected,andtogeneratenegativeex-
+LINE 0.9460 0.7106 0.8862
+amples,werandomlysampleanequalnumberofnodepairsfrom
+node2vec 0.9606 0.6236 0.8477
+thenetworkwhichhavenoedgeconnectingthem.
+Sincenoneoffeaturelearningalgorithmshavebeenpreviously Table4:AreaUnderCurve(AUC)scoresforlinkprediction.Com-
+usedforlinkprediction,weadditionallyevaluatenode2vecagainst parisonwithpopularbaselinesandembeddingbasedmethodsboot-
+some popular heuristic scores that achieve good performance in stapped using binary operators: (a) Average, (b) Hadamard, (c)
+linkprediction. Thescoresweconsideraredefinedintermsofthe Weighted-L1,and(d)Weighted-L2(SeeTable1fordefinitions).
+neighborhoodsetsofthenodesconstitutingthepair(seeTable3).
+Wetestourbenchmarksonthefollowingdatasets:
+• Facebook [14]: In the Facebook network, nodes represent the exploration-exploitation trade-off. Additionally, it provides a
+users,andedgesrepresentafriendshiprelationbetweenany degree of interpretability to the learned representations when ap-
+twousers.Thenetworkhas4,039nodesand88,234edges. pliedforapredictiontask.Forinstance,weobservedthatBFScan
+• Protein-ProteinInteractions(PPI)[5]:InthePPInetworkfor exploreonlylimitedneighborhoods. ThismakesBFSsuitablefor
+HomoSapiens, nodesrepresentproteins, andanedgeindi- characterizing structural equivalences in network that rely on the
+catesabiologicalinteractionbetweenapairofproteins.The immediate local structure of nodes. On the other hand, DFS can
+networkhas19,706nodesand390,633edges. freely explore network neighborhoods which is important in dis-
+• arXivASTRO-PH[14]:Thisisacollaborationnetworkgen- coveringhomophilouscommunitiesatthecostofhighvariance.
+eratedfrompaperssubmittedtothee-printarXivwherenodes BothDeepWalkandLINEcanbeseenasrigidsearchstrategies
+representscientists,andanedgeispresentbetweentwosci- overnetworks.DeepWalk[24]proposessearchusinguniformran-
+entistsiftheyhavecollaboratedinapaper. Thenetworkhas domwalks. Theobviouslimitationwithsuchastrategyisthatit
+18,722nodesand198,110edges. gives us no control over the explored neighborhoods. LINE [28]
+proposesprimarilyabreadth-firststrategy,samplingnodesandop-
+Experimental results. We summarize our results for link pre-
+timizing the likelihood independently over only 1-hop and 2-hop
+diction in Table 4. The best p and q parameter settings for each
+neighbors. The effect of such an exploration is easier to charac-
+node2vecentryareomittedforeaseofpresentation.Ageneralob-
+terize, but it is restrictive and provides no flexibility in exploring
+servationwecandrawfromtheresultsisthatthelearnedfeature
+nodesatfurtherdepths.Incontrast,thesearchstrategyinnode2vec
+representationsfornodepairssignificantlyoutperformtheheuris-
+isbothflexibleandcontrollableexploringnetworkneighborhoods
+ticbenchmarkscoreswithnode2vec achievingthebestAUCim-
+throughparameterspandq.Whilethesesearchparametershavein-
+provementon12.6%onthearXivdatasetoverthebestperforming
+tuitiveinterpretations,weobtainbestresultsoncomplexnetworks
+baseline(Adamic-Adar[1]).
+whenwecanlearnthemdirectlyfromdata.Fromapracticalstand-
+Amongstthefeaturelearningalgorithms,node2vecoutperforms
+point,node2vecisscalableandrobusttoperturbations.
+bothDeepWalkandLINEinallnetworkswithgainupto3.8%and
+Weshowedhowextensionsofnodeembeddingstolinkpredic-
+6.5%respectivelyintheAUCscoresforthebestpossiblechoices
+tionoutperformpopularheuristicscoresdesignedspecificallyfor
+ofthebinaryoperatorforeachalgorithm. Whenwelookatopera-
+thistask. Ourmethodpermitsadditionalbinaryoperatorsbeyond
+torsindividually(Table1), node2vec outperformsDeepWalkand
+thoselistedinTable1. Asafuturework,wewouldliketoexplore
+LINE barring a couple of cases involving the Weighted-L1 and
+the reasons behind the success of Hadamard operator over oth-
+Weighted-L2 operators in which LINE performs better. Overall,
+ers,aswellasestablishinterpretableequivalencenotionsforedges
+theHadamardoperatorwhenusedwithnode2vec ishighlystable
+based on the search parameters. Future extensions of node2vec
+andgivesthebestperformanceonaverageacrossallnetworks.
+could involve networks with special structure such as heteroge-
+neous information networks, networks with explicit domain fea-
+5. DISCUSSIONANDCONCLUSION
+turesfornodesandedgesandsigned-edgenetworks. Continuous
+Inthispaper,westudiedfeaturelearninginnetworksasasearch- featurerepresentationsarethebackboneofmanydeeplearningal-
+basedoptimizationproblem.Thisperspectivegivesusmultiplead- gorithms,anditwouldbeinterestingtousenode2vec representa-
+vantages. It can explain classic search strategies on the basis of tionsasbuildingblocksforend-to-enddeeplearningongraphs.
+
+Acknowledgements.WearethankfultoAustinBenson,WillHamil- [19] A.Liberzon,A.Subramanian,R.Pinchback,
+ton,RokSosicˇ,MarinkaŽitnikaswellastheanonymousreview- H.Thorvaldsdóttir,P.Tamayo,andJ.P.Mesirov.Molecular
+ersfortheirhelpfulcomments. Thisresearchhasbeensupported signaturesdatabase(MSigDB)3.0.Bioinformatics,
+in part by NSF CNS-1010921, IIS-1149837, NIH BD2K, ARO 27(12):1739–1740,2011.
+MURI,DARPAXDATA,DARPASIMPLEX,StanfordDataSci- [20] M.Mahoney.Largetextcompressionbenchmark.
+enceInitiative,Boeing,Lightspeed,SAP,andVolkswagen. www.mattmahoney.net/dc/textdata,2011.
+[21] T.Mikolov,K.Chen,G.Corrado,andJ.Dean.Efficient
+6. REFERENCES estimationofwordrepresentationsinvectorspace.InICLR,
+2013.
+[1] L.A.AdamicandE.Adar.Friendsandneighborsonthe
+[22] T.Mikolov,I.Sutskever,K.Chen,G.S.Corrado,and
+web.Socialnetworks,25(3):211–230,2003.
+J.Dean.Distributedrepresentationsofwordsandphrases
+[2] L.BackstromandJ.Leskovec.Supervisedrandomwalks:
+andtheircompositionality.InNIPS,2013.
+predictingandrecommendinglinksinsocialnetworks.In
+[23] J.Pennington,R.Socher,andC.D.Manning.GloVe:Global
+WSDM,2011.
+vectorsforwordrepresentation.InEMNLP,2014.
+[3] M.BelkinandP.Niyogi.Laplacianeigenmapsandspectral
+[24] B.Perozzi,R.Al-Rfou,andS.Skiena.DeepWalk:Online
+techniquesforembeddingandclustering.InNIPS,2001.
+learningofsocialrepresentations.InKDD,2014.
+[4] Y.Bengio,A.Courville,andP.Vincent.Representation
+[25] P.Radivojac,W.T.Clark,T.R.Oron,A.M.Schnoes,
+learning:Areviewandnewperspectives.IEEETPAMI,
+T.Wittkop,A.Sokolov,K.Graim,C.Funk,Verspoor,etal.
+35(8):1798–1828,2013.
+Alarge-scaleevaluationofcomputationalproteinfunction
+[5] B.-J.Breitkreutz,C.Stark,T.Reguly,L.Boucher,
+prediction.Naturemethods,10(3):221–227,2013.
+A.Breitkreutz,M.Livstone,R.Oughtred,D.H.Lackner,
+[26] B.Recht,C.Re,S.Wright,andF.Niu.Hogwild!:A
+J.Bähler,V.Wood,etal.TheBioGRIDinteractiondatabase.
+lock-freeapproachtoparallelizingstochasticgradient
+Nucleicacidsresearch,36:D637–D640,2008.
+descent.InNIPS,2011.
+[6] S.Cao,W.Lu,andQ.Xu.GraRep:LearningGraph
+[27] S.T.RoweisandL.K.Saul.Nonlineardimensionality
+Representationswithglobalstructuralinformation.InCIKM,
+reductionbylocallylinearembedding.Science,
+2015.
+290(5500):2323–2326,2000.
+[7] S.Fortunato.Communitydetectioningraphs.Physics
+[28] J.Tang,M.Qu,M.Wang,M.Zhang,J.Yan,andQ.Mei.
+Reports,486(3-5):75–174,2010.
+LINE:Large-scaleInformationNetworkEmbedding.In
+[8] B.GallagherandT.Eliassi-Rad.Leveraging
+WWW,2015.
+label-independentfeaturesforclassificationinsparsely
+[29] L.TangandH.Liu.Leveragingsocialmedianetworksfor
+labelednetworks:Anempiricalstudy.InLectureNotesin
+classification.DataMiningandKnowledgeDiscovery,
+ComputerScience:AdvancesinSocialNetworkMiningand
+23(3):447–478,2011.
+Analysis.Springer,2009.
+[30] J.B.Tenenbaum,V.DeSilva,andJ.C.Langford.Aglobal
+[9] Z.S.Harris.Word.DistributionalStructure,
+geometricframeworkfornonlineardimensionalityreduction.
+10(23):146–162,1954.
+Science,290(5500):2319–2323,2000.
+[10] K.Henderson,B.Gallagher,T.Eliassi-Rad,H.Tong,
+[31] F.Tian,B.Gao,Q.Cui,E.Chen,andT.-Y.Liu.Learning
+S.Basu,L.Akoglu,D.Koutra,C.Faloutsos,andL.Li.
+deeprepresentationsforgraphclustering.InAAAI,2014.
+RolX:structuralroleextraction&mininginlargegraphs.In
+[32] K.Toutanova,D.Klein,C.D.Manning,andY.Singer.
+KDD,2012.
+Feature-richpart-of-speechtaggingwithacyclicdependency
+[11] K.Henderson,B.Gallagher,L.Li,L.Akoglu,T.Eliassi-Rad,
+network.InNAACL,2003.
+H.Tong,andC.Faloutsos.It’swhoyouknow:graphmining
+[33] G.TsoumakasandI.Katakis.Multi-labelclassification:An
+usingrecursivestructuralfeatures.InKDD,2011.
+overview.Dept.ofInformatics,AristotleUniversityof
+[12] P.D.Hoff,A.E.Raftery,andM.S.Handcock.Latentspace
+Thessaloniki,Greece,2006.
+approachestosocialnetworkanalysis.J.oftheAmerican
+[34] A.Vazquez,A.Flammini,A.Maritan,andA.Vespignani.
+StatisticalAssociation,2002.
+Globalproteinfunctionpredictionfromprotein-protein
+[13] D.E.Knuth.TheStanfordGraphBase:aplatformfor
+interactionnetworks.Naturebiotechnology,21(6):697–700,
+combinatorialcomputing,volume37.Addison-Wesley
+2003.
+Reading,1993.
+[35] S.Yan,D.Xu,B.Zhang,H.-J.Zhang,Q.Yang,andS.Lin.
+[14] J.LeskovecandA.Krevl.SNAPDatasets:Stanfordlarge
+Graphembeddingandextensions:ageneralframeworkfor
+networkdatasetcollection.http://snap.stanford.edu/data,
+dimensionalityreduction.IEEETPAMI,29(1):40–51,2007.
+June2014.
+[36] J.YangandJ.Leskovec.Overlappingcommunitiesexplain
+[15] K.Li,J.Gao,S.Guo,N.Du,X.Li,andA.Zhang.LRBM:A
+core-peripheryorganizationofnetworks.Proceedingsofthe
+restrictedboltzmannmachinebasedapproachfor
+IEEE,102(12):1892–1902,2014.
+representationlearningonlinkeddata.InICDM,2014.
+[37] S.-H.Yang,B.Long,A.Smola,N.Sadagopan,Z.Zheng,
+[16] X.Li,N.Du,H.Li,K.Li,J.Gao,andA.Zhang.Adeep
+andH.Zha.Likelikealike:jointfriendshipandinterest
+learningapproachtolinkpredictionindynamicnetworks.In
+propagationinsocialnetworks.InWWW,2011.
+ICDM,2014.
+[38] R.ZafaraniandH.Liu.Socialcomputingdatarepositoryat
+[17] Y.Li,D.Tarlow,M.Brockschmidt,andR.Zemel.Gated
+ASU,2009.
+graphsequenceneuralnetworks.InICLR,2016.
+[39] S.ZhaiandZ.Zhang.Dropouttrainingofmatrix
+[18] D.Liben-NowellandJ.Kleinberg.Thelink-prediction
+factorizationandautoencoderforlinkpredictioninsparse
+problemforsocialnetworks.J.oftheAmericansocietyfor
+graphs.InSDM,2015.
+informationscienceandtechnology,58(7):1019–1031,2007.

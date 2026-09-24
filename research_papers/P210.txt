@@ -1,0 +1,6 @@
+Title: Cascading Behavior in Networks: Algorithmic and Economic Issues
+Authors: Easley & Kleinberg
+Year: 2010
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Cascading Behavior in Networks: Algorithmic and Economic Issues' by Easley & Kleinberg (2010). Classic foundational literature published in original journal/conference proceedings.

@@ -1,0 +1,6 @@
+Title: Mastering the Game of Go with Self-play Experience Replay
+Authors: Jingbin Liu et al.
+Year: 2026
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Mastering the Game of Go with Self-play Experience Replay' by Jingbin Liu et al. (2026). Classic foundational literature published in original journal/conference proceedings.

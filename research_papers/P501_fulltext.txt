@@ -1,0 +1,747 @@
+5102
+rpA
+01
+]VC.sc[
+6v6551.9041:viXra
+PublishedasaconferencepaperatICLR2015
+VERY DEEP CONVOLUTIONAL NETWORKS
+FOR LARGE-SCALE IMAGE RECOGNITION
+KarenSimonyan∗ &AndrewZisserman+
+VisualGeometryGroup,DepartmentofEngineeringScience,UniversityofOxford
+{karen,az}@robots.ox.ac.uk
+ABSTRACT
+In this work we investigate the effect of the convolutionalnetwork depth on its
+accuracy in the large-scale image recognition setting. Our main contribution is
+athoroughevaluationofnetworksofincreasingdepthusinganarchitecturewith
+verysmall(3×3)convolutionfilters,whichshowsthatasignificantimprovement
+on the prior-art configurations can be achieved by pushing the depth to 16–19
+weight layers. These findings were the basis of our ImageNet Challenge 2014
+submission,whereourteamsecuredthefirstandthesecondplacesinthelocalisa-
+tionandclassificationtracksrespectively. We alsoshowthatourrepresentations
+generalisewellto otherdatasets, where theyachievestate-of-the-artresults. We
+havemadeourtwobest-performingConvNetmodelspubliclyavailabletofacili-
+tatefurtherresearchontheuseofdeepvisualrepresentationsincomputervision.
+1 INTRODUCTION
+Convolutional networks (ConvNets) have recently enjoyed a great success in large-scale im-
+age and video recognition (Krizhevskyetal., 2012; Zeiler&Fergus, 2013; Sermanetetal., 2014;
+Simonyan&Zisserman, 2014) whichhasbecomepossibleduetothelargepublicimagereposito-
+ries,suchasImageNet(Dengetal.,2009),andhigh-performancecomputingsystems,suchasGPUs
+orlarge-scaledistributedclusters(Deanetal.,2012). Inparticular,animportantroleintheadvance
+ofdeepvisualrecognitionarchitectureshasbeenplayedbytheImageNetLarge-ScaleVisualRecog-
+nition Challenge (ILSVRC) (Russakovskyetal., 2014), which has served as a testbed for a few
+generationsoflarge-scaleimageclassificationsystems,fromhigh-dimensionalshallowfeatureen-
+codings(Perronninetal.,2010)(thewinnerofILSVRC-2011)todeepConvNets(Krizhevskyetal.,
+2012)(thewinnerofILSVRC-2012).
+With ConvNets becoming more of a commodity in the computer vision field, a number of at-
+tempts have been made to improve the original architecture of Krizhevskyetal. (2012) in a
+bid to achieve better accuracy. For instance, the best-performing submissions to the ILSVRC-
+2013 (Zeiler&Fergus, 2013; Sermanetetal., 2014) utilised smaller receptive window size and
+smaller stride of the first convolutional layer. Another line of improvements dealt with training
+and testing the networks densely over the whole image and over multiple scales (Sermanetetal.,
+2014;Howard,2014). Inthispaper,we addressanotherimportantaspectofConvNetarchitecture
+design–itsdepth.Tothisend,wefixotherparametersofthearchitecture,andsteadilyincreasethe
+depthofthenetworkbyaddingmoreconvolutionallayers,whichisfeasibleduetotheuseofvery
+small(3×3)convolutionfiltersinalllayers.
+As a result, we come up with significantly more accurate ConvNet architectures, which not only
+achieve the state-of-the-artaccuracyon ILSVRC classification and localisation tasks, but are also
+applicabletootherimagerecognitiondatasets,wheretheyachieveexcellentperformanceevenwhen
+usedasapartofarelativelysimplepipelines(e.g.deepfeaturesclassifiedbyalinearSVMwithout
+fine-tuning).Wehavereleasedourtwobest-performingmodels1tofacilitatefurtherresearch.
+Therestofthepaperisorganisedasfollows. InSect.2, we describeourConvNetconfigurations.
+ThedetailsoftheimageclassificationtrainingandevaluationarethenpresentedinSect.3,andthe
+∗currentaffiliation:GoogleDeepMind +currentaffiliation:UniversityofOxfordandGoogleDeepMind
+1http://www.robots.ox.ac.uk/˜vgg/research/very_deep/
+1
+
+PublishedasaconferencepaperatICLR2015
+configurations are compared on the ILSVRC classification task in Sect. 4. Sect. 5 concludes the
+paper. Forcompleteness,wealsodescribeandassessourILSVRC-2014objectlocalisationsystem
+inAppendixA,anddiscussthegeneralisationofverydeepfeaturestootherdatasetsinAppendixB.
+Finally,AppendixCcontainsthelistofmajorpaperrevisions.
+2 CONVNET CONFIGURATIONS
+To measure the improvement brought by the increased ConvNet depth in a fair setting, all our
+ConvNet layer configurations are designed using the same principles, inspired by Ciresanetal.
+(2011);Krizhevskyetal.(2012). Inthissection,wefirstdescribeagenericlayoutofourConvNet
+configurations(Sect.2.1)andthendetailthespecificconfigurationsusedintheevaluation(Sect.2.2).
+OurdesignchoicesarethendiscussedandcomparedtothepriorartinSect.2.3.
+2.1 ARCHITECTURE
+During training, the input to our ConvNets is a fixed-size 224×224 RGB image. The only pre-
+processingwedoissubtractingthemeanRGBvalue,computedonthetrainingset,fromeachpixel.
+Theimageispassedthroughastackofconvolutional(conv.)layers,whereweusefilterswithavery
+smallreceptivefield: 3×3(whichisthesmallestsizetocapturethenotionofleft/right,up/down,
+center). Inoneoftheconfigurationswealsoutilise1×1convolutionfilters,whichcanbeseenas
+alineartransformationoftheinputchannels(followedbynon-linearity). Theconvolutionstrideis
+fixedto1pixel;thespatialpaddingofconv.layerinputissuchthatthespatialresolutionispreserved
+afterconvolution,i.e.thepaddingis1pixelfor3×3conv.layers. Spatialpoolingiscarriedoutby
+fivemax-poolinglayers,whichfollowsomeoftheconv.layers(notalltheconv.layersarefollowed
+bymax-pooling).Max-poolingisperformedovera2×2pixelwindow,withstride2.
+Astackofconvolutionallayers(whichhasadifferentdepthindifferentarchitectures)isfollowedby
+threeFully-Connected(FC)layers: thefirsttwohave4096channelseach,thethirdperforms1000-
+wayILSVRCclassificationandthuscontains1000channels(oneforeachclass). Thefinallayeris
+thesoft-maxlayer. Theconfigurationofthefullyconnectedlayersisthesameinallnetworks.
+Allhiddenlayersareequippedwiththerectification(ReLU(Krizhevskyetal.,2012))non-linearity.
+We note that none of our networks (except for one) contain Local Response Normalisation
+(LRN) normalisation (Krizhevskyetal., 2012): as will be shown in Sect. 4, such normalisation
+does not improve the performance on the ILSVRC dataset, but leads to increased memory con-
+sumption and computation time. Where applicable, the parameters for the LRN layer are those
+of(Krizhevskyetal.,2012).
+2.2 CONFIGURATIONS
+The ConvNet configurations, evaluated in this paper, are outlined in Table 1, one per column. In
+thefollowingwewillrefertothenetsbytheirnames(A–E).Allconfigurationsfollowthegeneric
+designpresentedinSect.2.1,anddifferonlyinthedepth: from11weightlayersinthenetworkA
+(8conv.and3FClayers)to19weightlayersinthenetworkE(16conv.and3FClayers).Thewidth
+ofconv.layers(thenumberofchannels)israthersmall,startingfrom64inthefirstlayerandthen
+increasingbyafactorof2aftereachmax-poolinglayer,untilitreaches512.
+InTable2wereportthenumberofparametersforeachconfiguration. Inspiteofalargedepth,the
+numberofweightsinournetsisnotgreaterthanthenumberofweightsinamoreshallownetwith
+largerconv.layerwidthsandreceptivefields(144Mweightsin(Sermanetetal.,2014)).
+2.3 DISCUSSION
+Our ConvNet configurations are quite different from the ones used in the top-performing entries
+of the ILSVRC-2012 (Krizhevskyetal., 2012) and ILSVRC-2013 competitions (Zeiler&Fergus,
+2013;Sermanetetal.,2014). Ratherthanusingrelativelylargereceptivefieldsinthefirstconv.lay-
+ers(e.g.11×11withstride4in(Krizhevskyetal.,2012),or7×7withstride2in(Zeiler&Fergus,
+2013; Sermanetetal., 2014)), we use very small 3×3 receptive fields throughoutthe whole net,
+whichareconvolvedwiththeinputateverypixel(withstride1).Itiseasytoseethatastackoftwo
+3×3conv.layers(withoutspatialpoolinginbetween)hasaneffectivereceptivefieldof5×5;three
+2
+
+PublishedasaconferencepaperatICLR2015
+Table 1: ConvNetconfigurations(shownin columns). The depth of the configurationsincreases
+fromtheleft(A)totheright(E),asmorelayersareadded(theaddedlayersareshowninbold).The
+convolutionallayer parameters are denoted as “convhreceptive field sizei-hnumber of channelsi”.
+TheReLUactivationfunctionisnotshownforbrevity.
+ConvNetConfiguration
+A A-LRN B C D E
+11weight 11weight 13weight 16weight 16weight 19weight
+layers layers layers layers layers layers
+input(224×224RGBimage)
+conv3-64 conv3-64 conv3-64 conv3-64 conv3-64 conv3-64
+LRN conv3-64 conv3-64 conv3-64 conv3-64
+maxpool
+conv3-128 conv3-128 conv3-128 conv3-128 conv3-128 conv3-128
+conv3-128 conv3-128 conv3-128 conv3-128
+maxpool
+conv3-256 conv3-256 conv3-256 conv3-256 conv3-256 conv3-256
+conv3-256 conv3-256 conv3-256 conv3-256 conv3-256 conv3-256
+conv1-256 conv3-256 conv3-256
+conv3-256
+maxpool
+conv3-512 conv3-512 conv3-512 conv3-512 conv3-512 conv3-512
+conv3-512 conv3-512 conv3-512 conv3-512 conv3-512 conv3-512
+conv1-512 conv3-512 conv3-512
+conv3-512
+maxpool
+conv3-512 conv3-512 conv3-512 conv3-512 conv3-512 conv3-512
+conv3-512 conv3-512 conv3-512 conv3-512 conv3-512 conv3-512
+conv1-512 conv3-512 conv3-512
+conv3-512
+maxpool
+FC-4096
+FC-4096
+FC-1000
+soft-max
+Table2: Numberofparameters(inmillions).
+Network A,A-LRN B C D E
+Numberofparameters 133 133 134 138 144
+suchlayershavea7×7effectivereceptivefield. Sowhathavewegainedbyusing,forinstance,a
+stackofthree3×3conv.layersinsteadofasingle7×7layer?First,weincorporatethreenon-linear
+rectificationlayersinsteadofasingleone,whichmakesthedecisionfunctionmorediscriminative.
+Second, we decrease the number of parameters: assuming that both the input and the outputof a
+three-layer3×3convolutionstackhasC channels,thestackisparametrisedby3(cid:0)32C2 (cid:1)=27C2
+weights;atthesametime,asingle7×7conv.layerwouldrequire72C2 = 49C2 parameters,i.e.
+81%more. Thiscanbeseenasimposingaregularisationonthe7×7conv.filters,forcingthemto
+haveadecompositionthroughthe3×3filters(withnon-linearityinjectedinbetween).
+The incorporation of 1 ×1 conv. layers (configuration C, Table 1) is a way to increase the non-
+linearity of the decision function without affecting the receptive fields of the conv. layers. Even
+thoughinourcasethe1×1convolutionisessentiallyalinearprojectionontothespaceofthesame
+dimensionality(thenumberofinputandoutputchannelsisthesame),anadditionalnon-linearityis
+introducedbytherectificationfunction.Itshouldbenotedthat1×1conv.layershaverecentlybeen
+utilisedinthe“NetworkinNetwork”architectureofLinetal.(2014).
+Small-size convolution filters have been previously used by Ciresanetal. (2011), but their nets
+are significantly less deep than ours, and they did not evaluate on the large-scale ILSVRC
+dataset. Goodfellowetal. (2014) applied deep ConvNets (11 weight layers) to the task of
+street number recognition, and showed that the increased depth led to better performance.
+GoogLeNet(Szegedyetal.,2014),atop-performingentryoftheILSVRC-2014classificationtask,
+wasdevelopedindependentlyofourwork,butissimilarinthatitisbasedonverydeepConvNets
+3
+
+PublishedasaconferencepaperatICLR2015
+(22 weight layers) and small convolutionfilters (apartfrom 3×3, they also use 1×1 and 5×5
+convolutions). Theirnetworktopologyis, however,morecomplexthanours, andthespatialreso-
+lution of the feature maps is reduced more aggressively in the first layers to decrease the amount
+of computation. As will be shown in Sect. 4.5, our modelis outperformingthat of Szegedyetal.
+(2014)intermsofthesingle-networkclassificationaccuracy.
+3 CLASSIFICATION FRAMEWORK
+Intheprevioussectionwe presentedthe detailsofournetworkconfigurations. Inthissection, we
+describethedetailsofclassificationConvNettrainingandevaluation.
+3.1 TRAINING
+The ConvNet training procedure generally follows Krizhevskyetal. (2012) (except for sampling
+theinputcropsfrommulti-scaletrainingimages,asexplainedlater). Namely,thetrainingiscarried
+out by optimising the multinomiallogistic regression objective using mini-batch gradientdescent
+(basedonback-propagation(LeCunetal.,1989))withmomentum. Thebatchsizewassetto256,
+momentumto0.9. The trainingwas regularisedbyweightdecay(theL2 penaltymultipliersetto
+5·10
+−4)anddropoutregularisationforthefirsttwofully-connectedlayers(dropoutratiosetto0.5).
+Thelearningratewasinitiallysetto10 −2,andthendecreasedbyafactorof10whenthevalidation
+setaccuracystoppedimproving. Intotal,thelearningratewasdecreased3times,andthelearning
+wasstoppedafter370Kiterations(74epochs). Weconjecturethatinspiteofthelargernumberof
+parametersandthegreaterdepthofournetscomparedto(Krizhevskyetal.,2012),thenetsrequired
+lessepochstoconvergedueto(a)implicitregularisationimposedbygreaterdepthandsmallerconv.
+filtersizes;(b)pre-initialisationofcertainlayers.
+Theinitialisationofthenetworkweightsisimportant,sincebadinitialisationcanstalllearningdue
+to the instability of gradient in deep nets. To circumvent this problem, we began with training
+theconfigurationA(Table1),shallowenoughtobetrainedwithrandominitialisation. Then,when
+trainingdeeperarchitectures,weinitialisedthefirstfourconvolutionallayersandthelastthreefully-
+connectedlayerswiththelayersofnetA(theintermediatelayerswereinitialisedrandomly).Wedid
+notdecreasethelearningrateforthepre-initialisedlayers,allowingthemtochangeduringlearning.
+For random initialisation (where applicable), we sampled the weights from a normal distribution
+withthezeromeanand10 −2variance.Thebiaseswereinitialisedwithzero. Itisworthnotingthat
+afterthepapersubmissionwefoundthatitispossibletoinitialisetheweightswithoutpre-training
+byusingtherandominitialisationprocedureofGlorot&Bengio(2010).
+Toobtainthefixed-size224×224ConvNetinputimages,theywererandomlycroppedfromrescaled
+training images (one crop per image per SGD iteration). To further augmentthe training set, the
+cropsunderwentrandomhorizontalflippingandrandomRGBcolourshift(Krizhevskyetal.,2012).
+Trainingimagerescalingisexplainedbelow.
+Trainingimagesize. LetS bethesmallestsideofanisotropically-rescaledtrainingimage,from
+whichtheConvNetinputiscropped(wealsorefertoS asthetrainingscale). Whilethecropsize
+isfixedto224×224,inprincipleS cantakeonanyvaluenotlessthan224: forS = 224thecrop
+willcapturewhole-imagestatistics, completelyspanningthesmallestsideofa trainingimage;for
+S ≫224thecropwillcorrespondtoasmallpartoftheimage,containingasmallobjectoranobject
+part.
+WeconsidertwoapproachesforsettingthetrainingscaleS. ThefirstistofixS,whichcorresponds
+tosingle-scaletraining(notethatimagecontentwithinthesampledcropscanstillrepresentmulti-
+scale image statistics). In ourexperiments, we evaluatedmodelstrainedat two fixed scales: S =
+256 (which has been widely used in the prior art (Krizhevskyetal., 2012; Zeiler&Fergus, 2013;
+Sermanetetal.,2014))andS = 384. GivenaConvNetconfiguration,wefirsttrainedthenetwork
+usingS = 256. To speed-uptrainingof theS = 384network,it wasinitialised with the weights
+pre-trainedwithS =256,andweusedasmallerinitiallearningrateof10 −3.
+ThesecondapproachtosettingS ismulti-scaletraining,whereeachtrainingimageisindividually
+rescaled by randomly sampling S from a certain range [Smin,Smax] (we used Smin = 256 and
+Smax =512).Sinceobjectsinimagescanbeofdifferentsize,itisbeneficialtotakethisintoaccount
+duringtraining.Thiscanalsobeseenastrainingsetaugmentationbyscalejittering,whereasingle
+4
+
+PublishedasaconferencepaperatICLR2015
+model is trained to recognise objects over a wide range of scales. For speed reasons, we trained
+multi-scale models by fine-tuning all layers of a single-scale model with the same configuration,
+pre-trainedwithfixedS =384.
+3.2 TESTING
+Attesttime,givenatrainedConvNetandaninputimage,itisclassifiedinthefollowingway.First,
+it is isotropically rescaled to a pre-defined smallest image side, denoted as Q (we also refer to it
+asthetestscale). We notethatQisnotnecessarilyequaltothetrainingscale S (aswewillshow
+inSect.4,usingseveralvaluesofQforeachS leadstoimprovedperformance).Then,thenetwork
+isapplieddenselyovertherescaledtestimageinawaysimilarto(Sermanetetal.,2014). Namely,
+the fully-connectedlayersare first convertedto convolutionallayers (the first FC layer to a 7×7
+conv.layer, the last two FC layers to 1×1 conv.layers). The resulting fully-convolutionalnet is
+then appliedto the whole (uncropped)image. The result is a class score map with the numberof
+channelsequalto the numberof classes, and a variable spatial resolution, dependenton the input
+imagesize. Finally,toobtainafixed-sizevectorofclassscoresfortheimage,theclassscoremapis
+spatiallyaveraged(sum-pooled). Wealsoaugmentthetestsetbyhorizontalflippingoftheimages;
+thesoft-maxclassposteriorsoftheoriginalandflippedimagesareaveragedtoobtainthefinalscores
+fortheimage.
+Sincethe fully-convolutionalnetworkis appliedoverthewholeimage,thereisnoneedto sample
+multiple crops at test time (Krizhevskyetal., 2012), which is less efficient as it requires network
+re-computationforeachcrop.Atthesametime,usingalargesetofcrops,asdonebySzegedyetal.
+(2014),canleadtoimprovedaccuracy,asitresultsinafinersamplingoftheinputimagecompared
+tothefully-convolutionalnet.Also,multi-cropevaluationiscomplementarytodenseevaluationdue
+to differentconvolutionboundaryconditions: when applying a ConvNetto a crop, the convolved
+featuremapsarepaddedwithzeros,whileinthecaseofdenseevaluationthepaddingforthesame
+crop naturally comes from the neighbouringparts of an image (due to both the convolutionsand
+spatialpooling),whichsubstantiallyincreasestheoverallnetworkreceptivefield, so morecontext
+iscaptured.Whilewebelievethatinpracticetheincreasedcomputationtimeofmultiplecropsdoes
+notjustifythepotentialgainsinaccuracy,forreferencewealsoevaluateournetworksusing50crops
+perscale(5×5regulargridwith2flips),foratotalof150cropsover3scales,whichiscomparable
+to144cropsover4scalesusedbySzegedyetal.(2014).
+3.3 IMPLEMENTATIONDETAILS
+OurimplementationisderivedfromthepubliclyavailableC++Caffetoolbox(Jia,2013)(branched
+outinDecember2013),butcontainsanumberofsignificantmodifications,allowingustoperform
+trainingandevaluationonmultipleGPUsinstalledinasinglesystem,aswellastrainandevaluateon
+full-size (uncropped)imagesat multiplescales (asdescribedabove). Multi-GPU trainingexploits
+data parallelism, and is carried out by splitting each batch of training images into several GPU
+batches,processedinparalleloneachGPU.AftertheGPUbatchgradientsarecomputed,theyare
+averagedto obtainthe gradientof the fullbatch. Gradientcomputationis synchronousacross the
+GPUs,sotheresultisexactlythesameaswhentrainingonasingleGPU.
+While more sophisticated methods of speeding up ConvNet training have been recently pro-
+posed(Krizhevsky,2014),whichemploymodelanddataparallelismfordifferentlayersofthenet,
+wehavefoundthatourconceptuallymuchsimplerschemealreadyprovidesaspeedupof3.75times
+onanoff-the-shelf4-GPUsystem,ascomparedtousingasingleGPU.Onasystemequippedwith
+fourNVIDIATitanBlackGPUs,trainingasinglenettook2–3weeksdependingonthearchitecture.
+4 CLASSIFICATION EXPERIMENTS
+Dataset. In this section, we present the image classification results achieved by the described
+ConvNetarchitecturesontheILSVRC-2012dataset(whichwasusedforILSVRC2012–2014chal-
+lenges). The dataset includes images of 1000 classes, and is split into three sets: training (1.3M
+images),validation(50Kimages),andtesting(100Kimageswithheld-outclasslabels). Theclas-
+sificationperformanceisevaluatedusingtwomeasures: thetop-1andtop-5error. Theformerisa
+multi-class classification error, i.e. the proportionof incorrectlyclassified images; the latter is the
+5
+
+PublishedasaconferencepaperatICLR2015
+mainevaluationcriterionusedinILSVRC, andiscomputedas theproportionofimagessuchthat
+theground-truthcategoryisoutsidethetop-5predictedcategories.
+Forthemajorityofexperiments,weusedthevalidationsetasthetestset. Certainexperimentswere
+alsocarriedoutonthetestsetandsubmittedtotheofficialILSVRCserverasa“VGG”teamentry
+totheILSVRC-2014competition(Russakovskyetal.,2014).
+4.1 SINGLE SCALE EVALUATION
+WebeginwithevaluatingtheperformanceofindividualConvNetmodelsatasinglescalewiththe
+layerconfigurationsdescribedinSect.2.2. Thetestimagesizewassetasfollows: Q=S forfixed
+S,andQ=0.5(Smin+Smax)forjitteredS ∈[Smin,Smax]. TheresultsofareshowninTable3.
+First, we note that using local response normalisation (A-LRN network) does not improveon the
+model A without any normalisation layers. We thus do not employ normalisation in the deeper
+architectures(B–E).
+Second,weobservethattheclassificationerrordecreaseswiththeincreasedConvNetdepth: from
+11 layers in A to 19 layers in E. Notably, in spite of the same depth, the configurationC (which
+containsthree1×1conv.layers),performsworsethantheconfigurationD,whichuses3×3conv.
+layersthroughoutthenetwork.Thisindicatesthatwhiletheadditionalnon-linearitydoeshelp(Cis
+better than B), it is also importantto capture spatialcontextby usingconv.filters with non-trivial
+receptive fields (D is better than C). The error rate of our architecture saturates when the depth
+reaches19layers,butevendeepermodelsmightbebeneficialforlargerdatasets. Wealsocompared
+thenetBwitha shallownetwithfive5×5 conv. layers, whichwasderivedfromBbyreplacing
+eachpairof3×3conv.layerswithasingle5×5conv.layer(whichhasthesamereceptivefieldas
+explainedinSect.2.3). Thetop-1erroroftheshallownetwasmeasuredtobe7%higherthanthat
+ofB(onacentercrop),whichconfirmsthatadeepnetwithsmallfiltersoutperformsashallownet
+withlargerfilters.
+Finally, scale jittering at training time (S ∈ [256;512]) leads to significantly better results than
+training on imageswith fixed smallest side (S = 256 or S = 384), even thougha single scale is
+usedattesttime. Thisconfirmsthattrainingsetaugmentationbyscalejitteringisindeedhelpfulfor
+capturingmulti-scaleimagestatistics.
+Table3: ConvNetperformanceatasingletestscale.
+ConvNetconfig.(Table1) smallestimageside top-1val.error(%) top-5val.error(%)
+train(S) test(Q)
+A 256 256 29.6 10.4
+A-LRN 256 256 29.7 10.5
+B 256 256 28.7 9.9
+256 256 28.1 9.4
+C 384 384 28.1 9.3
+[256;512] 384 27.3 8.8
+256 256 27.0 8.8
+D 384 384 26.8 8.7
+[256;512] 384 25.6 8.1
+256 256 27.3 9.0
+E 384 384 26.9 8.7
+[256;512] 384 25.5 8.0
+4.2 MULTI-SCALEEVALUATION
+HavingevaluatedtheConvNetmodelsatasinglescale,wenowassesstheeffectofscalejitteringat
+testtime.Itconsistsofrunningamodeloverseveralrescaledversionsofatestimage(corresponding
+to differentvalues of Q), followedby averagingthe resulting class posteriors. Consideringthat a
+large discrepancy between training and testing scales leads to a drop in performance, the models
+trained with fixed S were evaluated over three test image sizes, close to the training one: Q =
+{S −32,S,S +32}. At the same time, scale jittering at training time allows the network to be
+appliedtoawiderrangeofscalesattesttime,sothemodeltrainedwithvariableS ∈[Smin;Smax]
+wasevaluatedoveralargerrangeofsizesQ={Smin,0.5(Smin+Smax),Smax}.
+6
+
+PublishedasaconferencepaperatICLR2015
+Theresults,presentedinTable4,indicatethatscalejitteringattesttimeleadstobetterperformance
+(as compared to evaluating the same model at a single scale, shown in Table 3). As before, the
+deepestconfigurations(DandE)performthebest, andscalejitteringisbetterthantrainingwitha
+fixed smallest side S. Our best single-network performanceon the validation set is 24.8%/7.5%
+top-1/top-5error(highlightedinboldinTable4). Onthetestset,theconfigurationEachieves7.3%
+top-5error.
+Table4:ConvNetperformanceatmultipletestscales.
+ConvNetconfig.(Table1) smallestimageside top-1val.error(%) top-5val.error(%)
+train(S) test(Q)
+B 256 224,256,288 28.2 9.6
+256 224,256,288 27.7 9.2
+C 384 352,384,416 27.8 9.2
+[256;512] 256,384,512 26.3 8.2
+256 224,256,288 26.6 8.6
+D 384 352,384,416 26.5 8.6
+[256;512] 256,384,512 24.8 7.5
+256 224,256,288 26.9 8.7
+E 384 352,384,416 26.7 8.6
+[256;512] 256,384,512 24.8 7.5
+4.3 MULTI-CROP EVALUATION
+InTable 5we comparedenseConvNetevaluationwithmult-cropevaluation(seeSect. 3.2forde-
+tails). Wealsoassessthecomplementarityofthetwoevaluationtechniquesbyaveragingtheirsoft-
+maxoutputs. Ascan beseen, usingmultiplecropsperformsslightly betterthandense evaluation,
+andthetwoapproachesareindeedcomplementary,astheircombinationoutperformseachofthem.
+As noted above, we hypothesize that this is due to a different treatment of convolutionboundary
+conditions.
+Table5: ConvNetevaluationtechniquescomparison. InallexperimentsthetrainingscaleS was
+sampledfrom[256;512],andthreetestscalesQwereconsidered:{256,384,512}.
+ConvNetconfig.(Table1) Evaluationmethod top-1val.error(%) top-5val.error(%)
+dense 24.8 7.5
+D multi-crop 24.6 7.5
+multi-crop&dense 24.4 7.2
+dense 24.8 7.5
+E multi-crop 24.6 7.4
+multi-crop&dense 24.4 7.1
+4.4 CONVNET FUSION
+Upuntilnow,weevaluatedtheperformanceofindividualConvNetmodels.Inthispartoftheexper-
+iments,wecombinetheoutputsofseveralmodelsbyaveragingtheirsoft-maxclassposteriors.This
+improvestheperformanceduetocomplementarityofthemodels,andwasusedinthetopILSVRC
+submissions in 2012 (Krizhevskyetal., 2012) and 2013 (Zeiler&Fergus, 2013; Sermanetetal.,
+2014).
+The results are shown in Table 6. By the time of ILSVRC submission we had only trained the
+single-scale networks, as well as a multi-scale model D (by fine-tuning only the fully-connected
+layers rather than all layers). The resulting ensemble of 7 networkshas 7.3% ILSVRC test error.
+Afterthesubmission,weconsideredanensembleofonlytwobest-performingmulti-scalemodels
+(configurationsD and E), which reduced the test error to 7.0% using dense evaluation and 6.8%
+usingcombineddenseandmulti-cropevaluation. Forreference,ourbest-performingsinglemodel
+achieves7.1%error(modelE,Table5).
+4.5 COMPARISON WITHTHESTATEOF THEART
+Finally, we compare our results with the state of the art in Table 7. In the classification task of
+ILSVRC-2014challenge(Russakovskyetal., 2014), our“VGG” team securedthe 2ndplace with
+7
+
+PublishedasaconferencepaperatICLR2015
+Table6: MultipleConvNetfusionresults.
+Error
+CombinedConvNetmodels
+top-1val top-5val top-5test
+ILSVRCsubmission
+(D/256/224,256,288),(D/384/352,384,416),(D/[256;512]/256,384,512)
+(C/256/224,256,288),(C/384/352,384,416) 24.7 7.5 7.3
+(E/256/224,256,288),(E/384/352,384,416)
+post-submission
+(D/[256;512]/256,384,512),(E/[256;512]/256,384,512),denseeval. 24.0 7.1 7.0
+(D/[256;512]/256,384,512),(E/[256;512]/256,384,512),multi-crop 23.9 7.2 -
+(D/[256;512]/256,384,512),(E/[256;512]/256,384,512),multi-crop&denseeval. 23.7 6.8 6.8
+7.3%testerrorusinganensembleof7models.Afterthesubmission,wedecreasedtheerrorrateto
+6.8%usinganensembleof2models.
+AscanbeseenfromTable7,ourverydeepConvNetssignificantlyoutperformthepreviousgener-
+ationofmodels,whichachievedthebestresultsintheILSVRC-2012andILSVRC-2013competi-
+tions. Ourresultisalsocompetitivewithrespecttotheclassificationtaskwinner(GoogLeNetwith
+6.7% error) and substantially outperformsthe ILSVRC-2013 winning submission Clarifai, which
+achieved11.2% with outside training data and 11.7% withoutit. This is remarkable, considering
+thatourbestresultisachievedbycombiningjusttwomodels–significantlylessthanusedinmost
+ILSVRC submissions. In terms of the single-net performance, our architecture achieves the best
+result (7.0% test error), outperforminga single GoogLeNet by 0.9%. Notably, we did not depart
+from the classical ConvNet architecture of LeCunetal. (1989), but improved it by substantially
+increasingthedepth.
+Table7: ComparisonwiththestateoftheartinILSVRCclassification. Ourmethodisdenoted
+as“VGG”.Onlytheresultsobtainedwithoutoutsidetrainingdataarereported.
+Method top-1val.error(%) top-5val.error(%) top-5testerror(%)
+VGG(2nets,multi-crop&denseeval.) 23.7 6.8 6.8
+VGG(1net,multi-crop&denseeval.) 24.4 7.1 7.0
+VGG(ILSVRCsubmission,7nets,denseeval.) 24.7 7.5 7.3
+GoogLeNet(Szegedyetal.,2014)(1net) - 7.9
+GoogLeNet(Szegedyetal.,2014)(7nets) - 6.7
+MSRA(Heetal.,2014)(11nets) - - 8.1
+MSRA(Heetal.,2014)(1net) 27.9 9.1 9.1
+Clarifai(Russakovskyetal.,2014)(multiplenets) - - 11.7
+Clarifai(Russakovskyetal.,2014)(1net) - - 12.5
+Zeiler&Fergus(Zeiler&Fergus,2013)(6nets) 36.0 14.7 14.8
+Zeiler&Fergus(Zeiler&Fergus,2013)(1net) 37.5 16.0 16.1
+OverFeat(Sermanetetal.,2014)(7nets) 34.0 13.2 13.6
+OverFeat(Sermanetetal.,2014)(1net) 35.7 14.2 -
+Krizhevskyetal.(Krizhevskyetal.,2012)(5nets) 38.1 16.4 16.4
+Krizhevskyetal.(Krizhevskyetal.,2012)(1net) 40.7 18.2 -
+5 CONCLUSION
+In this work we evaluated very deep convolutional networks (up to 19 weight layers) for large-
+scale image classification. It was demonstrated that the representation depth is beneficial for the
+classificationaccuracy,andthatstate-of-the-artperformanceontheImageNetchallengedatasetcan
+beachievedusingaconventionalConvNetarchitecture(LeCunetal.,1989;Krizhevskyetal.,2012)
+withsubstantiallyincreaseddepth.Intheappendix,wealsoshowthatourmodelsgeneralisewellto
+awiderangeoftasksanddatasets,matchingoroutperformingmorecomplexrecognitionpipelines
+builtaroundlessdeepimagerepresentations.Ourresultsyetagainconfirmtheimportanceofdepth
+invisualrepresentations.
+ACKNOWLEDGEMENTS
+ThisworkwassupportedbyERCgrantVisRecno.228180.Wegratefullyacknowledgethesupport
+ofNVIDIACorporationwiththedonationoftheGPUsusedforthisresearch.
+8
+
+PublishedasaconferencepaperatICLR2015
+REFERENCES
+Bell,S.,Upchurch,P.,Snavely,N.,andBala,K. Materialrecognitioninthewildwiththematerialsincontext
+database. CoRR,abs/1412.0623,2014.
+Chatfield,K.,Simonyan,K.,Vedaldi,A.,andZisserman,A. Returnofthedevilinthedetails: Delvingdeep
+intoconvolutionalnets. InProc.BMVC.,2014.
+Cimpoi,M.,Maji,S.,andVedaldi,A.Deepconvolutionalfilterbanksfortexturerecognitionandsegmentation.
+CoRR,abs/1411.6836,2014.
+Ciresan, D. C., Meier, U., Masci, J., Gambardella, L. M., and Schmidhuber, J. Flexible, high performance
+convolutionalneuralnetworksforimageclassification. InIJCAI,pp.1237–1242,2011.
+Dean,J.,Corrado,G.,Monga,R.,Chen,K.,Devin,M.,Mao,M.,Ranzato,M.,Senior,A.,Tucker,P.,Yang,
+K.,Le,Q.V.,andNg,A.Y. Largescaledistributeddeepnetworks. InNIPS,pp.1232–1240,2012.
+Deng,J.,Dong, W.,Socher,R.,Li,L.-J.,Li,K.,andFei-Fei,L. Imagenet: Alarge-scalehierarchicalimage
+database. InProc.CVPR,2009.
+Donahue,J.,Jia,Y.,Vinyals,O.,Hoffman,J.,Zhang,N.,Tzeng,E.,andDarrell,T.Decaf:Adeepconvolutional
+activationfeatureforgenericvisualrecognition. CoRR,abs/1310.1531,2013.
+Everingham,M.,Eslami,S.M.A.,VanGool,L.,Williams,C.,Winn,J.,andZisserman,A. ThePascalvisual
+objectclasseschallenge: Aretrospective. IJCV,111(1):98–136,2015.
+Fei-Fei, L., Fergus, R., and Perona, P. Learning generative visual models from few training examples: An
+incremental bayesian approach tested on 101 object categories. In IEEE CVPR Workshop of Generative
+ModelBasedVision,2004.
+Girshick,R.B.,Donahue, J.,Darrell,T.,andMalik,J. Richfeaturehierarchiesforaccurateobjectdetection
+andsemanticsegmentation. CoRR,abs/1311.2524v5,2014. PublishedinProc.CVPR,2014.
+Gkioxari,G.,Girshick,R.,andMalik,J. Actionsandattributesfromwholesandparts. CoRR,abs/1412.2604,
+2014.
+Glorot,X.andBengio,Y. Understandingthedifficultyoftrainingdeepfeedforwardneuralnetworks. InProc.
+AISTATS,volume9,pp.249–256,2010.
+Goodfellow, I.J.,Bulatov,Y.,Ibarz, J.,Arnoud, S.,andShet,V. Multi-digitnumberrecognitionfromstreet
+viewimageryusingdeepconvolutionalneuralnetworks. InProc.ICLR,2014.
+Griffin,G.,Holub,A.,andPerona,P. Caltech-256objectcategorydataset. TechnicalReport7694,California
+InstituteofTechnology,2007.
+He, K., Zhang, X., Ren, S., and Sun, J. Spatial pyramid pooling indeep convolutional networks for visual
+recognition. CoRR,abs/1406.4729v2,2014.
+Hoai,M. Regularizedmaxpoolingforimagecategorization. InProc.BMVC.,2014.
+Howard,A.G. Someimprovementsondeepconvolutionalneuralnetworkbasedimageclassification. InProc.
+ICLR,2014.
+Jia, Y. Caffe: An open source convolutional architecture for fast feature embedding.
+http://caffe.berkeleyvision.org/,2013.
+Karpathy, A. and Fei-Fei, L. Deep visual-semantic alignments for generating image descriptions. CoRR,
+abs/1412.2306,2014.
+Kiros,R.,Salakhutdinov,R.,andZemel,R.S. Unifyingvisual-semanticembeddingswithmultimodalneural
+languagemodels. CoRR,abs/1411.2539,2014.
+Krizhevsky,A. Oneweirdtrickforparallelizingconvolutionalneuralnetworks. CoRR,abs/1404.5997,2014.
+Krizhevsky, A.,Sutskever, I.,andHinton,G.E. ImageNetclassificationwithdeepconvolutionalneuralnet-
+works. InNIPS,pp.1106–1114,2012.
+LeCun,Y.,Boser,B.,Denker,J.S.,Henderson,D.,Howard,R.E.,Hubbard,W.,andJackel,L.D. Backpropa-
+gationappliedtohandwrittenzipcoderecognition. NeuralComputation,1(4):541–551,1989.
+Lin,M.,Chen,Q.,andYan,S. Networkinnetwork. InProc.ICLR,2014.
+Long, J., Shelhamer, E., and Darrell, T. Fully convolutional networks for semantic segmentation. CoRR,
+abs/1411.4038,2014.
+Oquab,M.,Bottou,L.,Laptev,I.,andSivic,J. LearningandTransferringMid-LevelImageRepresentations
+usingConvolutionalNeuralNetworks. InProc.CVPR,2014.
+Perronnin,F.,Sa´nchez,J.,andMensink,T. ImprovingtheFisherkernelforlarge-scaleimageclassification. In
+Proc.ECCV,2010.
+Razavian,A.,Azizpour,H.,Sullivan,J.,andCarlsson,S. CNNFeaturesoff-the-shelf:anAstoundingBaseline
+forRecognition. CoRR,abs/1403.6382,2014.
+9
+
+PublishedasaconferencepaperatICLR2015
+Russakovsky, O., Deng, J., Su, H., Krause, J., Satheesh, S., Ma, S., Huang, Z., Karpathy, A., Khosla, A.,
+Bernstein, M., Berg, A. C., and Fei-Fei, L. ImageNet large scale visual recognition challenge. CoRR,
+abs/1409.0575,2014.
+Sermanet,P.,Eigen,D.,Zhang,X.,Mathieu,M.,Fergus,R.,andLeCun,Y. OverFeat:IntegratedRecognition,
+LocalizationandDetectionusingConvolutionalNetworks. InProc.ICLR,2014.
+Simonyan,K.andZisserman,A. Two-streamconvolutionalnetworksforactionrecognitioninvideos. CoRR,
+abs/1406.2199,2014. PublishedinProc.NIPS,2014.
+Szegedy,C.,Liu,W.,Jia,Y.,Sermanet,P.,Reed,S.,Anguelov,D.,Erhan,D.,Vanhoucke,V.,andRabinovich,
+A. Goingdeeperwithconvolutions. CoRR,abs/1409.4842,2014.
+Wei,Y.,Xia,W.,Huang,J.,Ni,B.,Dong,J.,Zhao,Y.,andYan,S. CNN:Single-labeltomulti-label. CoRR,
+abs/1406.5726,2014.
+Zeiler,M.D.andFergus, R. Visualizingandunderstanding convolutional networks. CoRR,abs/1311.2901,
+2013. PublishedinProc.ECCV,2014.
+A LOCALISATION
+InthemainbodyofthepaperwehaveconsideredtheclassificationtaskoftheILSVRCchallenge,
+and performeda thoroughevaluationof ConvNetarchitecturesof differentdepth. In this section,
+we turntothelocalisationtaskofthechallenge,whichwehavewonin 2014with 25.3%error. It
+can be seen as a special case of object detection, where a single object bounding box should be
+predictedforeachofthetop-5classes,irrespectiveoftheactualnumberofobjectsoftheclass. For
+thisweadopttheapproachofSermanetetal.(2014),thewinnersoftheILSVRC-2013localisation
+challenge,withafewmodifications.OurmethodisdescribedinSect.A.1andevaluatedinSect.A.2.
+A.1 LOCALISATIONCONVNET
+To performobjectlocalisation, we use a very deep ConvNet, where the last fully connectedlayer
+predictsthe boundingbox location instead of the class scores. A boundingbox is representedby
+a 4-D vector storing its center coordinates, width, and height. There is a choice of whether the
+boundingboxpredictionissharedacrossallclasses(single-classregression,SCR(Sermanetetal.,
+2014))orisclass-specific(per-classregression,PCR).Intheformercase,thelastlayeris4-D,while
+inthelatteritis4000-D(sincethereare1000classesinthedataset). Apartfromthelastbounding
+boxpredictionlayer,weusetheConvNetarchitectureD(Table1),whichcontains16weightlayers
+andwasfoundtobethebest-performingintheclassificationtask(Sect.4).
+Training. Training of localisation ConvNets is similar to that of the classification ConvNets
+(Sect.3.1). ThemaindifferenceisthatwereplacethelogisticregressionobjectivewithaEuclidean
+loss,whichpenalisesthedeviationofthepredictedboundingboxparametersfromtheground-truth.
+Wetrainedtwolocalisationmodels,eachonasinglescale: S = 256andS = 384(duetothetime
+constraints,wedidnotusetrainingscalejitteringforourILSVRC-2014submission). Trainingwas
+initialisedwiththecorrespondingclassificationmodels(trainedonthesamescales),andtheinitial
+learningratewassetto10 −3. Weexploredbothfine-tuningalllayersandfine-tuningonlythefirst
+two fully-connectedlayers, asdonein (Sermanetetal., 2014). The last fully-connectedlayer was
+initialisedrandomlyandtrainedfromscratch.
+Testing. We consider two testing protocols. The first is used for comparing different network
+modificationsonthevalidationset,andconsidersonlytheboundingboxpredictionfortheground
+truth class (to factor out the classification errors). The boundingbox is obtained by applying the
+networkonlytothecentralcropoftheimage.
+The second, fully-fledged, testing procedure is based on the dense application of the localisation
+ConvNetto the wholeimage, similarlyto the classification task (Sect. 3.2). Thedifferenceisthat
+instead of the class score map, the output of the last fully-connected layer is a set of bounding
+box predictions. To come up with the final prediction, we utilise the greedy merging procedure
+of Sermanetetal. (2014), which first merges spatially close predictions (by averaging their coor-
+dinates), and then rates them based on the class scores, obtainedfrom the classification ConvNet.
+WhenseverallocalisationConvNetsareused,wefirsttaketheunionoftheirsetsofboundingbox
+predictions,andthenrunthemergingprocedureontheunion. Wedidnotusethemultiplepooling
+10
+
+PublishedasaconferencepaperatICLR2015
+offsetstechniqueof Sermanetetal. (2014), whichincreasesthe spatial resolutionof the bounding
+boxpredictionsandcanfurtherimprovetheresults.
+A.2 LOCALISATIONEXPERIMENTS
+Inthissectionwefirstdeterminethebest-performinglocalisationsetting(usingthefirsttestproto-
+col), and then evaluate it in a fully-fledged scenario (the second protocol). The localisation error
+is measured according to the ILSVRC criterion (Russakovskyetal., 2014), i.e. the boundingbox
+predictionisdeemedcorrectifitsintersectionoverunionratiowiththeground-truthboundingbox
+isabove0.5.
+Settingscomparison. As canbe seen fromTable 8, per-classregression(PCR) outperformsthe
+class-agnostic single-class regression (SCR), which differs from the findings of Sermanetetal.
+(2014), wherePCR was outperformedby SCR. We also note thatfine-tuningalllayersfor the lo-
+calisationtaskleadstonoticeablybetterresultsthanfine-tuningonlythefully-connectedlayers(as
+donein(Sermanetetal.,2014)). Intheseexperiments,thesmallestimagessidewassettoS =384;
+theresultswithS =256exhibitthesamebehaviourandarenotshownforbrevity.
+Table 8: Localisationerror for different modifications with the simplified testing protocol: the
+boundingboxispredictedfromasinglecentralimagecrop,andtheground-truthclassisused. All
+ConvNet layers (except for the last one) have the configuration D (Table 1), while the last layer
+performseithersingle-classregression(SCR)orper-classregression(PCR).
+Fine-tunedlayers regressiontype GTclasslocalisationerror
+SCR 36.4
+1stand2ndFC
+PCR 34.3
+all PCR 33.1
+Fully-fledgedevaluation. Havingdeterminedthebestlocalisationsetting(PCR,fine-tuningofall
+layers),wenowapplyitinthefully-fledgedscenario,wherethetop-5classlabelsarepredictedus-
+ingourbest-performingclassificationsystem(Sect.4.5),andmultipledensely-computedbounding
+box predictionsare mergedusing the methodof Sermanetetal. (2014). As can be seen from Ta-
+ble9,applicationofthelocalisationConvNettothewholeimagesubstantiallyimprovestheresults
+comparedtousingacentercrop(Table8),despiteusingthetop-5predictedclasslabelsinsteadof
+thegroundtruth.Similarlytotheclassificationtask(Sect.4),testingatseveralscalesandcombining
+thepredictionsofmultiplenetworksfurtherimprovestheperformance.
+Table9:Localisationerror
+smallestimageside top-5localisationerror(%)
+train(S) test(Q) val. test.
+256 256 29.5 -
+384 384 28.2 26.7
+384 352,384 27.5 -
+fusion:256/256and384/352,384 26.9 25.3
+Comparison with the state of the art. We compare our best localisation result with the state
+of the art in Table 10. With 25.3% test error, our “VGG” team won the localisation challenge of
+ILSVRC-2014 (Russakovskyetal., 2014). Notably, our results are considerablybetter than those
+oftheILSVRC-2013winnerOverfeat(Sermanetetal.,2014),eventhoughweusedlessscalesand
+did not employ their resolution enhancementtechnique. We envisage that better localisation per-
+formance can be achieved if this technique is incorporated into our method. This indicates the
+performanceadvancementbroughtbyourverydeepConvNets–wegotbetterresultswithasimpler
+localisationmethod,butamorepowerfulrepresentation.
+B GENERALISATION OF VERY DEEP FEATURES
+In the previoussections we have discussed training and evaluation of very deep ConvNets on the
+ILSVRC dataset. In this section, we evaluate our ConvNets, pre-trained on ILSVRC, as feature
+11
+
+PublishedasaconferencepaperatICLR2015
+Table10: ComparisonwiththestateoftheartinILSVRClocalisation. Ourmethodisdenoted
+as“VGG”.
+Method top-5val.error(%) top-5testerror(%)
+VGG 26.9 25.3
+GoogLeNet(Szegedyetal.,2014) - 26.7
+OverFeat(Sermanetetal.,2014) 30.0 29.9
+Krizhevskyetal.(Krizhevskyetal.,2012) - 34.2
+extractorsonother, smaller, datasets, wheretraininglargemodelsfromscratchisnotfeasibledue
+toover-fitting. Recently,therehasbeenalotofinterestinsuchausecase(Zeiler&Fergus,2013;
+Donahueetal., 2013; Razavianetal., 2014; Chatfieldetal., 2014), as it turnsoutthat deep image
+representations,learntonILSVRC,generalisewelltootherdatasets,wheretheyhaveoutperformed
+hand-craftedrepresentationsby a largemargin. Followingthatline of work, we investigateif our
+modelsleadtobetterperformancethanmoreshallowmodelsutilisedinthestate-of-the-artmethods.
+In this evaluation, we consider two models with the best classification performance on ILSVRC
+(Sect.4)–configurations“Net-D”and“Net-E”(whichwemadepubliclyavailable).
+To utilise the ConvNets, pre-trained on ILSVRC, for image classification on other datasets, we
+removethe lastfully-connectedlayer(whichperforms1000-wayILSVRC classification), anduse
+4096-Dactivationsofthepenultimatelayerasimagefeatures,whichareaggregatedacrossmultiple
+locationsandscales. TheresultingimagedescriptorisL2-normalisedandcombinedwith a linear
+SVMclassifier, trainedonthetargetdataset. Forsimplicity,pre-trainedConvNetweightsarekept
+fixed(nofine-tuningisperformed).
+Aggregation of features is carried out in a similar manner to our ILSVRC evaluation procedure
+(Sect.3.2). Namely,an imageisfirstrescaledso thatitssmallestside equalsQ, andthenthe net-
+workisdenselyappliedovertheimageplane(whichispossiblewhenallweightlayersaretreated
+as convolutional). We then perform global average pooling on the resulting feature map, which
+producesa4096-Dimagedescriptor. Thedescriptoristhenaveragedwiththedescriptorofahori-
+zontallyflippedimage. AswasshowninSect.4.2,evaluationovermultiplescalesisbeneficial,so
+we extractfeaturesoverseveralscales Q. The resultingmulti-scalefeaturescanbe either stacked
+orpooledacrossscales. Stackingallowsasubsequentclassifiertolearnhowtooptimallycombine
+imagestatistics overarangeofscales; this,however,comesatthecostoftheincreaseddescriptor
+dimensionality.Wereturntothediscussionofthisdesignchoiceintheexperimentsbelow.Wealso
+assesslate fusionoffeatures,computedusingtwonetworks,whichisperformedbystackingtheir
+respectiveimagedescriptors.
+Table11:ComparisonwiththestateoftheartinimageclassificationonVOC-2007,VOC-2012,
+Caltech-101, and Caltech-256. Our modelsare denotedas “VGG”. Results markedwith * were
+achievedusingConvNetspre-trainedontheextendedILSVRCdataset(2000classes).
+VOC-2007 VOC-2012 Caltech-101 Caltech-256
+Method
+(meanAP) (meanAP) (meanclassrecall) (meanclassrecall)
+Zeiler&Fergus(Zeiler&Fergus,2013) - 79.0 86.5±0.5 74.2±0.3
+Chatfieldetal.(Chatfieldetal.,2014) 82.4 83.2 88.4±0.6 77.6±0.1
+Heetal.(Heetal.,2014) 82.4 - 93.4±0.5 -
+Weietal.(Weietal.,2014) 81.5(85.2∗) 81.7(90.3∗) - -
+VGGNet-D(16layers) 89.3 89.0 91.8±1.0 85.0±0.2
+VGGNet-E(19layers) 89.3 89.0 92.3±0.5 85.1±0.3
+VGGNet-D&Net-E 89.7 89.3 92.7±0.5 86.2±0.3
+ImageClassificationonVOC-2007andVOC-2012. Webeginwiththeevaluationontheimage
+classification task of PASCAL VOC-2007 and VOC-2012 benchmarks (Everinghametal., 2015).
+These datasetscontain10Kand 22.5Kimagesrespectively,andeach imageis annotatedwith one
+orseverallabels,correspondingto20objectcategories. TheVOCorganisersprovideapre-defined
+split into training, validation, and test data (the test data for VOC-2012 is not publicly available;
+instead,anofficialevaluationserverisprovided).Recognitionperformanceismeasuredusingmean
+averageprecision(mAP)acrossclasses.
+Notably, by examining the performance on the validation sets of VOC-2007 and VOC-2012, we
+foundthataggregatingimagedescriptors,computedatmultiplescales,byaveragingperformssim-
+12
+
+PublishedasaconferencepaperatICLR2015
+ilarly to the aggregationby stacking. We hypothesizethat this is due to the fact that in the VOC
+dataset the objects appear over a variety of scales, so there is no particular scale-specific seman-
+tics which a classifier could exploit. Since averaging has a benefit of not inflating the descrip-
+tor dimensionality, we were able to aggregated image descriptors over a wide range of scales:
+Q ∈ {256,384,512,640,768}. It is worth noting though that the improvement over a smaller
+rangeof{256,384,512}wasrathermarginal(0.3%).
+ThetestsetperformanceisreportedandcomparedwithotherapproachesinTable11.Ournetworks
+“Net-D”and“Net-E”exhibitidenticalperformanceonVOCdatasets,andtheircombinationslightly
+improvesthe results. Our methods set the new state of the art across image representations, pre-
+trainedontheILSVRCdataset,outperformingthepreviousbestresultofChatfieldetal.(2014)by
+more than 6%. It shouldbe notedthat the methodof Weietal. (2014), which achieves1% better
+mAP on VOC-2012, is pre-trained on an extended 2000-class ILSVRC dataset, which includes
+additional1000categories, semantically close to those in VOC datasets. It also benefits from the
+fusionwithanobjectdetection-assistedclassificationpipeline.
+ImageClassificationonCaltech-101andCaltech-256. Inthissectionweevaluateverydeepfea-
+turesonCaltech-101(Fei-Feietal.,2004)andCaltech-256(Griffinetal.,2007)imageclassification
+benchmarks.Caltech-101contains9Kimageslabelledinto102classes(101objectcategoriesanda
+backgroundclass),whileCaltech-256islargerwith31Kimagesand257classes. Astandardeval-
+uationprotocolonthesedatasetsistogenerateseveralrandomsplitsintotrainingandtestdataand
+reporttheaveragerecognitionperformanceacrossthesplits, whichismeasuredbythemeanclass
+recall(whichcompensatesforadifferentnumberoftestimagesperclass).FollowingChatfieldetal.
+(2014);Zeiler&Fergus(2013);Heetal.(2014),onCaltech-101wegenerated3randomsplitsinto
+training and test data, so that each split contains 30 training images per class, and up to 50 test
+images per class. On Caltech-256 we also generated 3 splits, each of which contains 60 training
+imagesperclass(andtherestisusedfortesting). Ineachsplit, 20%oftrainingimageswereused
+asavalidationsetforhyper-parameterselection.
+We foundthat unlike VOC, on Caltech datasets the stacking of descriptors, computedovermulti-
+ple scales, performsbetter than averagingor max-pooling. This can be explainedby the fact that
+inCaltech imagesobjectstypicallyoccupythewholeimage, somulti-scaleimagefeaturesarese-
+manticallydifferent(capturingthewholeobjectvs.objectparts),andstackingallowsaclassifierto
+exploitsuchscale-specificrepresentations.WeusedthreescalesQ∈{256,384,512}.
+OurmodelsarecomparedtoeachotherandthestateoftheartinTable11.Ascanbeseen,thedeeper
+19-layerNet-Eperformsbetterthanthe16-layerNet-D,andtheircombinationfurtherimprovesthe
+performance. On Caltech-101, our representations are competitive with the approach of Heetal.
+(2014),which,however,performssignificantlyworsethanournetsonVOC-2007.OnCaltech-256,
+ourfeaturesoutperformthestateoftheart(Chatfieldetal.,2014)byalargemargin(8.6%).
+Action Classification on VOC-2012. We also evaluated our best-performingimage representa-
+tion (the stacking of Net-D and Net-E features) on the PASCAL VOC-2012 action classification
+task (Everinghametal., 2015), which consists in predicting an action class from a single image,
+givenaboundingboxofthepersonperformingtheaction. Thedatasetcontains4.6Ktrainingim-
+ages,labelledinto11classes. SimilarlytotheVOC-2012objectclassificationtask,theperformance
+is measured using the mAP. We consideredtwo trainingsettings: (i) computingthe ConvNetfea-
+turesonthewholeimageandignoringtheprovidedboundingbox;(ii)computingthefeaturesonthe
+wholeimageandontheprovidedboundingbox,andstackingthemtoobtainthefinalrepresentation.
+TheresultsarecomparedtootherapproachesinTable12.
+OurrepresentationachievesthestateofartontheVOCactionclassificationtaskevenwithoutusing
+the provided bounding boxes, and the results are further improved when using both images and
+boundingboxes. Unlike otherapproaches,we didnotincorporateanytask-specificheuristics, but
+reliedontherepresentationpowerofverydeepconvolutionalfeatures.
+Other RecognitionTasks. Since the publicrelease ofourmodels, they havebeenactivelyused
+by the research communityfor a wide range of image recognitiontasks, consistently outperform-
+ing more shallow representations. For instance, Girshicketal. (2014) achieve the state of the
+object detection results by replacing the ConvNet of Krizhevskyetal. (2012) with our 16-layer
+model. Similar gains over a more shallow architecture of Krizhevskyetal. (2012) have been ob-
+13
+
+PublishedasaconferencepaperatICLR2015
+Table 12: Comparison with the state of the art in single-image actionclassificationon VOC-
+2012. Our models are denoted as “VGG”. Results marked with * were achievedusing ConvNets
+pre-trainedontheextendedILSVRCdataset(1512classes).
+Method VOC-2012(meanAP)
+(Oquabetal.,2014) 70.2∗
+(Gkioxarietal.,2014) 73.6
+(Hoai,2014) 76.3
+VGGNet-D&Net-E,image-only 79.2
+VGGNet-D&Net-E,imageandboundingbox 84.0
+servedin semantic segmentation(Longetal., 2014), image captiongeneration(Kirosetal., 2014;
+Karpathy&Fei-Fei,2014),textureandmaterialrecognition(Cimpoietal.,2014;Belletal.,2014).
+C PAPER REVISIONS
+Here we presentthe list of major paperrevisions, outliningthe substantialchangesforthe conve-
+nienceofthereader.
+v1Initialversion.PresentstheexperimentscarriedoutbeforetheILSVRCsubmission.
+v2Addspost-submissionILSVRCexperimentswithtrainingsetaugmentationusingscalejittering,
+whichimprovestheperformance.
+v3Addsgeneralisationexperiments(AppendixB)onPASCALVOCandCaltechimageclassifica-
+tiondatasets. Themodelsusedfortheseexperimentsarepubliclyavailable.
+v4ThepaperisconvertedtoICLR-2015submissionformat. Alsoaddsexperimentswithmultiple
+cropsforclassification.
+v6Camera-readyICLR-2015conferencepaper. AddsacomparisonofthenetBwithashallownet
+andtheresultsonPASCALVOCactionclassificationbenchmark.
+14

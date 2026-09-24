@@ -1,0 +1,1021 @@
+Inductive Representation Learning on Large Graphs
+WilliamL.Hamilton∗ RexYing∗ JureLeskovec
+wleif@stanford.edu rexying@stanford.edu jure@cs.stanford.edu
+DepartmentofComputerScience
+StanfordUniversity
+Stanford,CA,94305
+Abstract
+Low-dimensional embeddings of nodes in large graphs have proved extremely
+usefulinavarietyofpredictiontasks,fromcontentrecommendationtoidentifying
+proteinfunctions. However,mostexistingapproachesrequirethatallnodesinthe
+grapharepresentduringtrainingoftheembeddings;thesepreviousapproachesare
+inherentlytransductiveanddonotnaturallygeneralizetounseennodes. Herewe
+presentGraphSAGE,ageneralinductiveframeworkthatleveragesnodefeature
+information (e.g., text attributes) to efficiently generate node embeddings for
+previouslyunseendata. Insteadoftrainingindividualembeddingsforeachnode,
+welearnafunctionthatgeneratesembeddingsbysamplingandaggregatingfeatures
+fromanode’slocalneighborhood. Ouralgorithmoutperformsstrongbaselines
+on three inductive node-classification benchmarks: we classify the category of
+unseennodesinevolvinginformationgraphsbasedoncitationandRedditpost
+data, andweshowthatouralgorithmgeneralizestocompletelyunseengraphs
+usingamulti-graphdatasetofprotein-proteininteractions.
+1 Introduction
+Low-dimensional vector embeddings of nodes in large graphs1 have proved extremely useful as
+featureinputsforawidevarietyofpredictionandgraphanalysistasks[5,11,28,35,36]. Thebasic
+ideabehindnodeembeddingapproachesistousedimensionalityreductiontechniquestodistillthe
+high-dimensionalinformationaboutanode’sgraphneighborhoodintoadensevectorembedding.
+Thesenodeembeddingscanthenbefedtodownstreammachinelearningsystemsandaidintasks
+suchasnodeclassification,clustering,andlinkprediction[11,28,35].
+However,previousworkshavefocusedonembeddingnodesfromasinglefixedgraph,andmany
+real-worldapplicationsrequireembeddingstobequicklygeneratedforunseennodes,orentirelynew
+(sub)graphs. Thisinductivecapabilityisessentialforhigh-throughput,productionmachinelearning
+systems,whichoperateonevolvinggraphsandconstantlyencounterunseennodes(e.g.,postson
+Reddit,usersandvideosonYoutube). Aninductiveapproachtogeneratingnodeembeddingsalso
+facilitatesgeneralizationacrossgraphswiththesameformoffeatures: forexample,onecouldtrain
+anembeddinggeneratoronprotein-proteininteractiongraphsderivedfromamodelorganism,and
+theneasilyproducenodeembeddingsfordatacollectedonneworganismsusingthetrainedmodel.
+Theinductivenodeembeddingproblemisespeciallydifficult,comparedtothetransductivesetting,
+because generalizing to unseen nodes requires “aligning” newly observed subgraphs to the node
+embeddings that the algorithm has already optimized on. An inductive framework must learn to
+∗Thetwofirstauthorsmadeequalcontributions.
+1Whileitiscommontorefertothesedatastructuresassocialorbiologicalnetworks,weusethetermgraph
+toavoidambiguitywithneuralnetworkterminology.
+31stConferenceonNeuralInformationProcessingSystems(NIPS2017),LongBeach,CA,USA.
+8102
+peS
+01
+]IS.sc[
+4v61220.6071:viXra
+
+Figure1: VisualillustrationoftheGraphSAGEsampleandaggregateapproach.
+recognizestructuralpropertiesofanode’sneighborhoodthatrevealboththenode’slocalroleinthe
+graph,aswellasitsglobalposition.
+Mostexistingapproachestogeneratingnodeembeddingsareinherentlytransductive. Themajority
+oftheseapproachesdirectlyoptimizetheembeddingsforeachnodeusingmatrix-factorization-based
+objectives,anddonotnaturallygeneralizetounseendata,sincetheymakepredictionsonnodesina
+single,fixedgraph[5,11,23,28,35,36,37,39]. Theseapproachescanbemodifiedtooperateinan
+inductivesetting(e.g.,[28]),butthesemodificationstendtobecomputationallyexpensive,requiring
+additionalroundsofgradientdescentbeforenewpredictionscanbemade. Therearealsorecent
+approachestolearningovergraphstructuresusingconvolutionoperatorsthatofferpromiseasan
+embeddingmethodology[17]. Sofar,graphconvolutionalnetworks(GCNs)haveonlybeenapplied
+inthetransductivesettingwithfixedgraphs[17,18]. InthisworkwebothextendGCNstothetask
+ofinductiveunsupervisedlearningandproposeaframeworkthatgeneralizestheGCNapproachto
+usetrainableaggregationfunctions(beyondsimpleconvolutions).
+Presentwork. Weproposeageneralframework,calledGraphSAGE(SAmpleandaggreGatE),for
+inductivenodeembedding. Unlikeembeddingapproachesthatarebasedonmatrixfactorization,
+weleveragenodefeatures(e.g.,textattributes,nodeprofileinformation,nodedegrees)inorderto
+learnanembeddingfunctionthatgeneralizestounseennodes. Byincorporatingnodefeaturesinthe
+learningalgorithm,wesimultaneouslylearnthetopologicalstructureofeachnode’sneighborhood
+aswellasthedistributionofnodefeaturesintheneighborhood. Whilewefocusonfeature-rich
+graphs(e.g.,citationdatawithtextattributes,biologicaldatawithfunctional/molecularmarkers),our
+approachcanalsomakeuseofstructuralfeaturesthatarepresentinallgraphs(e.g.,nodedegrees).
+Thus,ouralgorithmcanalsobeappliedtographswithoutnodefeatures.
+Insteadoftrainingadistinctembeddingvectorforeachnode,wetrainasetofaggregatorfunctions
+that learn to aggregate feature information from a node’s local neighborhood (Figure 1). Each
+aggregatorfunctionaggregatesinformationfromadifferentnumberofhops,orsearchdepth,away
+fromagivennode. Attest,orinferencetime,weuseourtrainedsystemtogenerateembeddingsfor
+entirelyunseennodesbyapplyingthelearnedaggregationfunctions. Followingpreviousworkon
+generatingnodeembeddings,wedesignanunsupervisedlossfunctionthatallowsGraphSAGEtobe
+trainedwithouttask-specificsupervision. WealsoshowthatGraphSAGEcanbetrainedinafully
+supervisedmanner.
+Weevaluateouralgorithmonthreenode-classificationbenchmarks,whichtestGraphSAGE’sability
+to generate useful embeddings on unseen data. We use two evolving document graphs based on
+citationdataandRedditpostdata(predictingpaperandpostcategories,respectively),andamulti-
+graphgeneralizationexperimentbasedonadatasetofprotein-proteininteractions(predictingprotein
+functions). Using these benchmarks, we show that our approach is able to effectively generate
+representationsforunseennodesandoutperformrelevantbaselinesbyasignificantmargin: across
+domains,oursupervisedapproachimprovesclassificationF1-scoresbyanaverageof51%compared
+tousingnodefeaturesaloneandGraphSAGEconsistentlyoutperformsastrong,transductivebaseline
+[28],despitethisbaselinetaking∼100×longertorunonunseennodes. Wealsoshowthatthenew
+aggregatorarchitecturesweproposeprovidesignificantgains(7.4%onaverage)comparedtoan
+aggregatorinspiredbygraphconvolutionalnetworks[17]. Lastly,weprobetheexpressivecapability
+of our approach and show, through theoretical analysis, that GraphSAGE is capable of learning
+structuralinformationaboutanode’sroleinagraph,despitethefactthatitisinherentlybasedon
+features(Section5).
+2
+
+2 Relatedwork
+Ouralgorithmisconceptuallyrelatedtopreviousnodeembeddingapproaches,generalsupervised
+approaches to learning over graphs, and recent advancements in applying convolutional neural
+networkstograph-structureddata.2
+Factorization-based embedding approaches. There are a number of recent node embedding
+approaches that learn low-dimensional embeddings using random walk statistics and matrix
+factorization-based learning objectives [5, 11, 28, 35, 36]. These methods also bear close rela-
+tionships to more classic approaches to spectral clustering [23], multi-dimensional scaling [19],
+as well as the PageRank algorithm [25]. Since these embedding algorithms directly train node
+embeddings for individual nodes, they are inherently transductive and, at the very least, require
+expensiveadditionaltraining(e.g.,viastochasticgradientdescent)tomakepredictionsonnewnodes.
+Inaddition,formanyoftheseapproaches(e.g.,[11,28,35,36])theobjectivefunctionisinvariant
+toorthogonaltransformationsoftheembeddings,whichmeansthattheembeddingspacedoesnot
+naturallygeneralizebetweengraphsandcandriftduringre-training. Onenotableexceptiontothis
+trendisthePlanetoid-IalgorithmintroducedbyYangetal.[40],whichisaninductive,embedding-
+basedapproachtosemi-supervisedlearning. However,Planetoid-Idoesnotuseanygraphstructural
+informationduringinference;instead,itusesthegraphstructureasaformofregularizationduring
+training. Unlikethesepreviousapproaches,weleveragefeatureinformationinordertotrainamodel
+toproduceembeddingsforunseennodes.
+Supervisedlearningovergraphs. Beyondnodeembeddingapproaches,thereisarichliterature
+on supervised learning over graph-structured data. This includes a wide variety of kernel-based
+approaches,wherefeaturevectorsforgraphsarederivedfromvariousgraphkernels(see[32]and
+references therein). There are also a number of recent neural network approaches to supervised
+learningovergraphstructures[7,10,21,31]. Ourapproachisconceptuallyinspiredbyanumberof
+thesealgorithms. However,whereasthesepreviousapproachesattempttoclassifyentiregraphs(or
+subgraphs),thefocusofthisworkisgeneratingusefulrepresentationsforindividualnodes.
+Graphconvolutionalnetworks. Inrecentyears,severalconvolutionalneuralnetworkarchitectures
+forlearningovergraphshavebeenproposed(e.g.,[4,9,8,17,24]). Themajorityofthesemethods
+donotscaletolargegraphsoraredesignedforwhole-graphclassification(orboth)[4,9,8,24].
+However,ourapproachiscloselyrelatedtothegraphconvolutionalnetwork(GCN),introducedby
+Kipfetal. [17,18]. TheoriginalGCNalgorithm[17]isdesignedforsemi-supervisedlearningina
+transductivesetting,andtheexactalgorithmrequiresthatthefullgraphLaplacianisknownduring
+training. AsimplevariantofouralgorithmcanbeviewedasanextensionoftheGCNframeworkto
+theinductivesetting,apointwhichwerevisitinSection3.3.
+3 Proposedmethod: GraphSAGE
+The key idea behind our approach is that we learn how to aggregate feature information from a
+node’slocalneighborhood(e.g.,thedegreesortextattributesofnearbynodes). Wefirstdescribe
+the GraphSAGE embedding generation (i.e., forward propagation) algorithm, which generates
+embeddingsfornodesassumingthattheGraphSAGEmodelparametersarealreadylearned(Section
+3.1). We then describe how the GraphSAGE model parameters can be learned using standard
+stochasticgradientdescentandbackpropagationtechniques(Section3.2).
+3.1 Embeddinggeneration(i.e.,forwardpropagation)algorithm
+Inthissection,wedescribetheembeddinggeneration,orforwardpropagationalgorithm(Algorithm
+1), which assumes that the model has already been trained and that the parameters are fixed. In
+particular, we assume that we have learned the parameters of K aggregator functions (denoted
+AGGREGATEk ,∀k ∈{1,...,K}),whichaggregateinformationfromnodeneighbors,aswellasaset
+ofweightmatricesWk,∀k ∈{1,...,K},whichareusedtopropagateinformationbetweendifferent
+layersofthemodelor“searchdepths”. Section3.2describeshowwetraintheseparameters.
+2InthetimebetweenthispapersoriginalsubmissiontoNIPS2017andthesubmissionofthefinal,accepted
+(i.e.,“camera-ready”)version,therehavebeenanumberofcloselyrelated(e.g.,follow-up)workspublishedon
+pre-printservers.Fortemporalclarity,wedonotrevieworcompareagainstthesepapersindetail.
+3
+
+Algorithm1:GraphSAGEembeddinggeneration(i.e.,forwardpropagation)algorithm
+Input : GraphG(V,E);inputfeatures{x ,∀v ∈V};depthK;weightmatrices
+v
+Wk,∀k ∈{1,...,K};non-linearityσ;differentiableaggregatorfunctions
+AGGREGATEk ,∀k ∈{1,...,K};neighborhoodfunctionN :v →2V
+Output: Vectorrepresentationsz forallv ∈V
+v
+1 h0 v ←x v ,∀v ∈V ;
+2 fork =1...K do
+3 forv ∈V do
+4 hk N(v) ← AGGREGATEk ({h u k−1,∀u∈N(v)});
+(cid:16) (cid:17)
+5 hk v ←σ Wk·CONCAT(h v k−1,hk N(v) )
+6 end
+7 hk v ←hk v /(cid:107)hk v (cid:107) 2 ,∀v ∈V
+8 end
+9 z v ←hK v ,∀v ∈V
+TheintuitionbehindAlgorithm1isthatateachiteration,orsearchdepth,nodesaggregateinformation
+fromtheirlocalneighbors, andasthisprocessiterates, nodesincrementallygainmoreandmore
+informationfromfurtherreachesofthegraph.
+Algorithm1describestheembeddinggenerationprocessinthecasewheretheentiregraph,G =
+(V,E),andfeaturesforallnodesx ,∀v ∈V,areprovidedasinput. Wedescribehowtogeneralize
+v
+thistotheminibatchsettingbelow. EachstepintheouterloopofAlgorithm1proceedsasfollows,
+wherekdenotesthecurrentstepintheouterloop(orthedepthofthesearch)andhkdenotesanode’s
+representationatthisstep: First,eachnodev ∈V aggregatestherepresentationsofthenodesinits
+immediateneighborhood,{hk−1,∀u∈N(v)},intoasinglevectorhk−1 . Notethatthisaggregation
+u N(v)
+stepdependsontherepresentationsgeneratedatthepreviousiterationoftheouterloop(i.e.,k−1),
+andthek =0(“basecase”)representationsaredefinedastheinputnodefeatures. Afteraggregating
+theneighboringfeaturevectors,GraphSAGEthenconcatenatesthenode’scurrentrepresentation,
+hk−1,withtheaggregatedneighborhoodvector,hk−1 ,andthisconcatenatedvectorisfedthrougha
+v N(v)
+fullyconnectedlayerwithnonlinearactivationfunctionσ,whichtransformstherepresentationsto
+beusedatthenextstepofthealgorithm(i.e.,hk,∀v ∈V). Fornotationalconvenience,wedenote
+v
+thefinalrepresentationsoutputatdepthK asz ≡ hK,∀v ∈ V. Theaggregationoftheneighbor
+v v
+representationscanbedonebyavarietyofaggregatorarchitectures(denotedbytheAGGREGATE
+placeholderinAlgorithm1),andwediscussdifferentarchitecturechoicesinSection3.3below.
+ToextendAlgorithm1totheminibatchsetting,givenasetofinputnodes,wefirstforwardsample
+therequiredneighborhoodsets(uptodepthK)andthenweruntheinnerloop(line3inAlgorithm
+1),butinsteadofiteratingoverallnodes,wecomputeonlytherepresentationsthatarenecessaryto
+satisfytherecursionateachdepth(AppendixAcontainscompleteminibatchpseudocode).
+RelationtotheWeisfeiler-LehmanIsomorphismTest.TheGraphSAGEalgorithmisconceptually
+inspiredbyaclassicalgorithmfortestinggraphisomorphism. If,inAlgorithm1,we(i)setK =|V|,
+(ii)settheweightmatricesastheidentity,and(iii)useanappropriatehashfunctionasanaggregator
+(withnonon-linearity),thenAlgorithm1isaninstanceoftheWeisfeiler-Lehman(WL)isomorphism
+test,alsoknownas“naivevertexrefinement”[32]. Ifthesetofrepresentations{z ,∀v ∈V}output
+v
+byAlgorithm1fortwosubgraphsareidenticalthentheWLtestdeclaresthetwosubgraphstobe
+isomorphic. Thistestisknowntofailinsomecases,butisvalidforabroadclassofgraphs[32].
+GraphSAGE is a continuous approximation to the WL test, where we replace the hash function
+withtrainableneuralnetworkaggregators. Ofcourse,weuseGraphSAGEtogenerateusefulnode
+representations–nottotestgraphisomorphism. Nevertheless,theconnectionbetweenGraphSAGE
+andtheclassicWLtestprovidestheoreticalcontextforouralgorithmdesigntolearnthetopological
+structureofnodeneighborhoods.
+Neighborhooddefinition.Inthiswork,weuniformlysampleafixed-sizesetofneighbors,insteadof
+usingfullneighborhoodsetsinAlgorithm1,inordertokeepthecomputationalfootprintofeachbatch
+4
+
+fixed.3 Thatis,usingoverloadednotation,wedefineN(v)asafixed-size,uniformdrawfromtheset
+{u ∈ V : (u,v) ∈ E},andwedrawdifferentuniformsamplesateachiteration,k,inAlgorithm1.
+Withoutthissamplingthememoryandexpectedruntimeofasinglebatchisunpredictableandin
+theworstcaseO(|V|). Incontrast,theper-batchspaceandtimecomplexityforGraphSAGEisfixed
+atO(
+(cid:81)K
+S ),whereS ,i ∈ {1,...,K}andK areuser-specifiedconstants. Practicallyspeaking
+i=1 i i
+wefoundthatourapproachcouldachievehighperformancewithK = 2andS ·S ≤ 500(see
+1 2
+Section4.4fordetails).
+3.2 LearningtheparametersofGraphSAGE
+In order to learn useful, predictive representations in a fully unsupervised setting, we apply a
+graph-basedlossfunctiontotheoutputrepresentations,z ,∀u∈V,andtunetheweightmatrices,
+u
+Wk,∀k ∈{1,...,K},andparametersoftheaggregatorfunctionsviastochasticgradientdescent.The
+graph-basedlossfunctionencouragesnearbynodestohavesimilarrepresentations,whileenforcing
+thattherepresentationsofdisparatenodesarehighlydistinct:
+J (z )=−log (cid:0) σ(z(cid:62)z ) (cid:1) −Q·E log (cid:0) σ(−z(cid:62)z ) (cid:1) , (1)
+G u u v vn∼Pn(v) u vn
+where v is a node that co-occurs near u on fixed-length random walk, σ is the sigmoid function,
+P isanegativesamplingdistribution,andQdefinesthenumberofnegativesamples. Importantly,
+n
+unlikepreviousembeddingapproaches,therepresentationsz thatwefeedintothislossfunction
+u
+aregeneratedfromthefeaturescontainedwithinanode’slocalneighborhood,ratherthantraininga
+uniqueembeddingforeachnode(viaanembeddinglook-up).
+This unsupervised setting emulates situations where node features are provided to downstream
+machinelearningapplications,asaserviceorinastaticrepository. Incaseswhererepresentations
+aretobeusedonlyonaspecificdownstreamtask,theunsupervisedloss(Equation1)cansimplybe
+replaced,oraugmented,byatask-specificobjective(e.g.,cross-entropyloss).
+3.3 AggregatorArchitectures
+Unlike machine learning over N-D lattices (e.g., sentences, images, or 3-D volumes), a node’s
+neighborshavenonaturalordering;thus,theaggregatorfunctionsinAlgorithm1mustoperateover
+anunorderedsetofvectors. Ideally,anaggregatorfunctionwouldbesymmetric(i.e.,invariantto
+permutationsofitsinputs)whilestillbeingtrainableandmaintaininghighrepresentationalcapacity.
+The symmetry property of the aggregation function ensures that our neural network model can
+betrainedandappliedtoarbitrarilyorderednodeneighborhoodfeaturesets. Weexaminedthree
+candidateaggregatorfunctions:
+Meanaggregator. Ourfirstcandidateaggregatorfunctionisthemeanoperator,wherewesimply
+taketheelementwisemeanofthevectorsin{hk−1,∀u ∈ N(v)}. Themeanaggregatorisnearly
+u
+equivalenttotheconvolutionalpropagationruleusedinthetransductiveGCNframework[17]. In
+particular, wecanderiveaninductivevariantoftheGCNapproachbyreplacinglines4and5in
+Algorithm1withthefollowing:4
+hk ←σ(W·MEAN({hk−1}∪{hk−1,∀u∈N(v)}). (2)
+v v u
+Wecallthismodifiedmean-basedaggregatorconvolutionalsinceitisarough,linearapproximationof
+alocalizedspectralconvolution[17]. Animportantdistinctionbetweenthisconvolutionalaggregator
+andourotherproposedaggregatorsisthatitdoesnotperformtheconcatenationoperationinline
+5 of Algorithm 1—i.e., the convolutional aggregator does concatenate the node’s previous layer
+representation hk−1 with the aggregated neighborhood vector hk . This concatenation can be
+v N(v)
+viewedasasimpleformofa“skipconnection”[13]betweenthedifferent“searchdepths”,or“layers”
+oftheGraphSAGEalgorithm,anditleadstosignificantgainsinperformance(Section4).
+LSTMaggregator. WealsoexaminedamorecomplexaggregatorbasedonanLSTMarchitecture
+[14]. Comparedtothemeanaggregator,LSTMshavetheadvantageoflargerexpressivecapability.
+However,itisimportanttonotethatLSTMsarenotinherentlysymmetric(i.e.,theyarenotpermuta-
+tioninvariant),sincetheyprocesstheirinputsinasequentialmanner. WeadaptLSTMstooperateon
+anunorderedsetbysimplyapplyingtheLSTMstoarandompermutationofthenode’sneighbors.
+3Exploringnon-uniformsamplersisanimportantdirectionforfuturework.
+4NotethatthisdiffersfromKipfetal’sexactequationbyaminornormalizationconstant[17].
+5
+
+Pooling aggregator. The final aggregator we examine is both symmetric and trainable. In this
+pooling approach, each neighbor’s vector is independently fed through a fully-connected neural
+network;followingthistransformation,anelementwisemax-poolingoperationisappliedtoaggregate
+informationacrosstheneighborset:
+AGGREGATE p k ool =max({σ (cid:0) W pool hk ui +b (cid:1) ,∀u i ∈N(v)}), (3)
+where max denotes the element-wise max operator and σ is a nonlinear activation function. In
+principle,thefunctionappliedbeforethemaxpoolingcanbeanarbitrarilydeepmulti-layerpercep-
+tron,butwefocusonsimplesingle-layerarchitecturesinthiswork. Thisapproachisinspiredby
+recentadvancementsinapplyingneuralnetworkarchitecturestolearnovergeneralpointsets[29].
+Intuitively,themulti-layerperceptroncanbethoughtofasasetoffunctionsthatcomputefeaturesfor
+eachofthenoderepresentationsintheneighborset. Byapplyingthemax-poolingoperatortoeachof
+thecomputedfeatures,themodeleffectivelycapturesdifferentaspectsoftheneighborhoodset. Note
+alsothat,inprinciple,anysymmetricvectorfunctioncouldbeusedinplaceofthemaxoperator
+(e.g.,anelement-wisemean). Wefoundnosignificantdifferencebetweenmax-andmean-poolingin
+developmentstestandthusfocusedonmax-poolingfortherestofourexperiments.
+4 Experiments
+WetesttheperformanceofGraphSAGEonthreebenchmarktasks: (i)classifyingacademicpapers
+into different subjects using the Web of Science citation dataset, (ii) classifying Reddit posts as
+belongingtodifferentcommunities,and(iii)classifyingproteinfunctionsacrossvariousbiological
+protein-protein interaction (PPI) graphs. Sections 4.1 and 4.2 summarize the datasets, and the
+supplementary material contains additional information. In all these experiments, we perform
+predictionsonnodesthatarenotseenduringtraining,and,inthecaseofthePPIdataset,weteston
+entirelyunseengraphs.
+Experimental set-up. To contextualize the empirical results on our inductive benchmarks, we
+compare against four baselines: a random classifer, a logistic regression feature-based classifier
+(thatignoresgraphstructure),theDeepWalkalgorithm[28]asarepresentativefactorization-based
+approach,andaconcatenationoftherawfeaturesandDeepWalkembeddings. Wealsocomparefour
+variantsofGraphSAGEthatusethedifferentaggregatorfunctions(Section3.3). Since,the“convo-
+lutional”variantofGraphSAGEisanextended,inductiveversionofKipfetal’ssemi-supervised
+GCN[17],wetermthisvariantGraphSAGE-GCN.WetestunsupervisedvariantsofGraphSAGE
+trainedaccordingtothelossinEquation(1),aswellassupervisedvariantsthataretraineddirectly
+onclassificationcross-entropyloss. ForalltheGraphSAGEvariantsweusedrectifiedlinearunitsas
+thenon-linearityandsetK =2withneighborhoodsamplesizesS =25andS =10(seeSection
+1 2
+4.4forsensitivityanalyses).
+FortheRedditandcitationdatasets,weuse“online”trainingforDeepWalkasdescribedinPerozziet
+al.[28],wherewerunanewroundofSGDoptimizationtoembedthenewtestnodesbeforemaking
+predictions(seetheAppendixfordetails). Inthemulti-graphsetting,wecannotapplyDeepWalk,
+since the embedding spaces generated by running the DeepWalk algorithm on different disjoint
+graphscanbearbitrarilyrotatedwithrespecttoeachother(AppendixD).
+AllmodelswereimplementedinTensorFlow[1]withtheAdamoptimizer[16](exceptDeepWalk,
+whichperformedbetterwiththevanillagradientdescentoptimizer). Wedesignedourexperiments
+withthegoalsof(i)verifyingtheimprovementofGraphSAGEoverthebaselineapproaches(i.e.,
+rawfeaturesandDeepWalk)and(ii)providingarigorouscomparisonofthedifferentGraphSAGE
+aggregatorarchitectures. Inordertoprovideafaircomparison,allmodelsshareanidenticalimple-
+mentationoftheirminibatchiterators,lossfunctionandneighborhoodsampler(whenapplicable).
+Moreover,inordertoguardagainstunintentional“hyperparameterhacking”inthecomparisonsbe-
+tweenGraphSAGEaggregators,wesweepoverthesamesetofhyperparametersforallGraphSAGE
+variants(choosingthebestsettingforeachvariantaccordingtoperformanceonavalidationset). The
+setofpossiblehyperparametervalueswasdeterminedonearlyvalidationtestsusingsubsetsofthe
+citationandRedditdatathatwethendiscardedfromouranalyses. Theappendixcontainsfurther
+implementationdetails.5
+5Codeandlinkstothedatasets:http://snap.stanford.edu/graphsage/
+6
+
+Table1: Predictionresultsforthethreedatasets(micro-averagedF1scores). Resultsforunsupervised
+andfullysupervisedGraphSAGEareshown. Analogoustrendsholdformacro-averagedscores.
+Citation Reddit PPI
+Name Unsup.F1 Sup.F1 Unsup.F1 Sup.F1 Unsup.F1 Sup.F1
+Random 0.206 0.206 0.043 0.042 0.396 0.396
+Rawfeatures 0.575 0.575 0.585 0.585 0.422 0.422
+DeepWalk 0.565 0.565 0.324 0.324 — —
+DeepWalk+features 0.701 0.701 0.691 0.691 — —
+GraphSAGE-GCN 0.742 0.772 0.908 0.930 0.465 0.500
+GraphSAGE-mean 0.778 0.820 0.897 0.950 0.486 0.598
+GraphSAGE-LSTM 0.788 0.832 0.907 0.954 0.482 0.612
+GraphSAGE-pool 0.798 0.839 0.892 0.948 0.502 0.600
+%gainoverfeat. 39% 46% 55% 63% 19% 45%
+Figure2: A:TimingexperimentsonRedditdata,withtrainingbatchesofsize512andinference
+onthefulltestset(79,534nodes). B:Modelperformancewithrespecttothesizeofthesampled
+neighborhood,wherethe“neighborhoodsamplesize”referstothenumberofneighborssampledat
+eachdepthforK =2withS =S (onthecitationdatausingGraphSAGE-mean).
+1 2
+4.1 Inductivelearningonevolvinggraphs: CitationandRedditdata
+Our first two experiments are on classifying nodes in evolving information graphs, a task that is
+especiallyrelevanttohigh-throughputproductionsystems,whichconstantlyencounterunseendata.
+Citationdata. Ourfirsttaskispredictingpapersubjectcategoriesonalargecitationdataset. We
+useanundirectedcitationgraphdatasetderivedfromtheThomsonReutersWebofScienceCore
+Collection,correspondingtoallpapersinsixbiology-relatedfieldsfortheyears2000-2005. The
+nodelabelsforthisdatasetcorrespondtothesixdifferentfieldlabels. Intotal,thisisdatasetcontains
+302,424nodeswithanaveragedegreeof9.15. Wetrainallthealgorithmsonthe2000-2004data
+andusethe2005datafortesting(with30%usedforvalidation). Forfeatures,weusednodedegrees
+andprocessedthepaperabstractsaccordingAroraetal.’s[2]sentenceembeddingapproach,with
+300-dimensionalwordvectorstrainedusingtheGenSimword2vecimplementation[30].
+Reddit data. In our second task, we predict which community different Reddit posts belong to.
+Redditisalargeonlinediscussionforumwhereuserspostandcommentoncontentindifferenttopical
+communities. WeconstructedagraphdatasetfromRedditpostsmadeinthemonthofSeptember,
+2014.Thenodelabelinthiscaseisthecommunity,or“subreddit”,thatapostbelongsto.Wesampled
+50largecommunitiesandbuiltapost-to-postgraph,connectingpostsifthesameusercomments
+onboth. Intotalthisdatasetcontains232,965postswithanaveragedegreeof492. Weusethefirst
+20daysfortrainingandtheremainingdaysfortesting(with30%usedforvalidation). Forfeatures,
+weuseoff-the-shelf300-dimensionalGloVeCommonCrawlwordvectors[27];foreachpost,we
+concatenated(i)theaverageembeddingoftheposttitle,(ii)theaverageembeddingofallthepost’s
+comments(iii)thepost’sscore,and(iv)thenumberofcommentsmadeonthepost.
+ThefirstfourcolumnsofTable1summarizetheperformanceofGraphSAGE aswellasthebaseline
+approaches on these two datasets. We find that GraphSAGE outperforms all the baselines by a
+significantmargin,andthetrainable,neuralnetworkaggregatorsprovidesignificantgainscompared
+7
+
+totheGCNapproach. Forexample, theunsupervisedvariantGraphSAGE-pooloutperformsthe
+concatenation of the DeepWalk embeddings and the raw features by 13.8% on the citation data
+and29.1%ontheRedditdata,whilethesupervisedversionprovidesagainof19.7%and37.2%,
+respectively. Interestingly,theLSTMbasedaggregatorshowsstrongperformance,despitethefact
+thatitisdesignedforsequentialdataandnotunorderedsets. Lastly,weseethattheperformanceof
+unsupervisedGraphSAGEisreasonablycompetitivewiththefullysupervisedversion,indicating
+thatourframeworkcanachievestrongperformancewithouttask-specificfine-tuning.
+4.2 Generalizingacrossgraphs: Protein-proteininteractions
+Wenowconsiderthetaskofgeneralizingacrossgraphs,whichrequireslearningaboutnoderoles
+ratherthancommunitystructure. Weclassifyproteinroles—intermsoftheircellularfunctionsfrom
+geneontology—invariousprotein-proteininteraction(PPI)graphs,witheachgraphcorresponding
+toadifferenthumantissue[41]. Weusepositionalgenesets,motifgenesetsandimmunological
+signaturesasfeaturesandgeneontologysetsaslabels(121intotal),collectedfromtheMolecular
+SignaturesDatabase[34]. Theaveragegraphcontains2373nodes,withanaveragedegreeof28.8.
+Wetrainallalgorithmson20graphsandthenaveragepredictionF1scoresontwotestgraphs(with
+twoothergraphsusedforvalidation).
+The final two columns of Table 1 summarize the accuracies of the various approaches on this
+data. AgainweseethatGraphSAGEsignificantlyoutperformsthebaselineapproaches,withthe
+LSTM-andpooling-basedaggregatorsprovidingsubstantialgainsoverthemean-andGCN-based
+aggregators.6
+4.3 Runtimeandparametersensitivity
+Figure2.Asummarizesthetrainingandtestruntimesforthedifferentapproaches. Thetrainingtime
+forthemethodsarecomparable(withGraphSAGE-LSTMbeingtheslowest). However,theneedto
+samplenewrandomwalksandrunnewroundsofSGDtoembedunseennodesmakesDeepWalk
+100-500×slowerattesttime.
+FortheGraphSAGEvariants,wefoundthatsettingK =2providedaconsistentboostinaccuracyof
+around10-15%,onaverage,comparedtoK =1;however,increasingK beyond2gavemarginal
+returnsinperformance(0-5%)whileincreasingtheruntimebyaprohibitivelylargefactorof10-100×,
+depending on the neighborhood sample size. We also found diminishing returns for sampling
+large neighborhoods (Figure 2.B). Thus, despite the higher variance induced by sub-sampling
+neighborhoods,GraphSAGEisstillabletomaintainstrongpredictiveaccuracy,whilesignificantly
+improvingtheruntime.
+4.4 Summarycomparisonbetweenthedifferentaggregatorarchitectures
+Overall,wefoundthattheLSTM-andpool-basedaggregatorsperformedthebest,intermsofboth
+average performance and number of experimental settings where they were the top-performing
+method (Table 1). To give more quantitative insight into these trends, we consider each of the
+sixdifferentexperimentalsettings(i.e.,(3datasets)×(unsupervisedvs.supervised))astrialsand
+considerwhatperformancetrendsarelikelytogeneralize. Inparticular,weusethenon-parametric
+WilcoxonSigned-RankTest[33]toquantifythedifferencesbetweenthedifferentaggregatorsacross
+trials,reportingtheT-statisticandp-valuewhereapplicable. Notethatthismethodisrank-basedand
+essentiallytestswhetherwewouldexpectoneparticularapproachtooutperformanotherinanew
+experimentalsetting. Givenoursmallsamplesizeofonly6differentsettings,thissignificancetestis
+somewhatunderpowered;nonetheless,theT-statisticandassociatedp-valuesareusefulquantitative
+measurestoassesstheaggregators’relativeperformances.
+WeseethatLSTM-,pool-andmean-basedaggregatorsallprovidestatisticallysignificantgainsover
+theGCN-basedapproach(T = 1.0,p = 0.02forallthree). However,thegainsoftheLSTMand
+poolapproachesoverthemean-basedaggregatoraremoremarginal(T =1.5,p=0.03,comparing
+6Notethatinveryrecentfollow-upworkChenandZhu[6]achievesuperiorperformancebyoptimizing
+theGraphSAGEhyperparametersspecificallyforthePPItaskandimplementingnewtrainingtechniques(e.g.,
+dropout,layernormalization,andanewsamplingscheme). Wereferthereadertotheirworkforthecurrent
+state-of-the-artnumbersonthePPIdatasetthatarepossibleusingavariantoftheGraphSAGEapproach.
+8
+
+LSTMtomean;T = 4.5,p = 0.10,comparingpooltomean). Thereisnosignificantdifference
+betweentheLSTMandpoolapproaches(T = 10.0,p = 0.46). However,GraphSAGE-LSTMis
+significantlyslowerthanGraphSAGE-pool(byafactorof≈2×),perhapsgivingthepooling-based
+aggregatoraslightedgeoverall.
+5 Theoreticalanalysis
+Inthissection,weprobetheexpressivecapabilitiesofGraphSAGEinordertoprovideinsightinto
+howGraphSAGEcanlearnaboutgraphstructure, eventhoughitisinherentlybasedonfeatures.
+Asacase-study,weconsiderwhetherGraphSAGEcanlearntopredicttheclusteringcoefficientof
+anode,i.e.,theproportionoftrianglesthatareclosedwithinthenode’s1-hopneighborhood[38].
+Theclusteringcoefficientisapopularmeasureofhowclusteredanode’slocalneighborhoodis,and
+itservesasabuildingblockformanymorecomplicatedstructuralmotifs[3]. Wecanshowthat
+Algorithm1iscapableofapproximatingclusteringcoefficientstoanarbitrarydegreeofprecision:
+Theorem1. Letx ∈ U,∀v ∈ V denotethefeatureinputsforAlgorithm1ongraphG = (V,E),
+v
+whereU isanycompactsubsetofRd. SupposethatthereexistsafixedpositiveconstantC ∈ R+
+suchthat(cid:107)x −x (cid:107) >C forallpairsofnodes. Thenwehavethat∀(cid:15)>0thereexistsaparameter
+v v(cid:48) 2
+settingΘ∗forAlgorithm1suchthatafterK =4iterations
+|z −c |<(cid:15),∀v ∈V,
+v v
+wherez ∈RarefinaloutputvaluesgeneratedbyAlgorithm1andc arenodeclusteringcoefficients.
+v v
+Theorem1statesthatforanygraphthereexistsaparametersettingforAlgorithm1suchthatitcan
+approximateclusteringcoefficientsinthatgraphtoanarbitraryprecision,ifthefeaturesforevery
+nodearedistinct(andifthemodelissufficientlyhigh-dimensional). ThefullproofofTheorem1is
+intheAppendix. NotethatasacorollaryofTheorem1,GraphSAGEcanlearnaboutlocalgraph
+structure, evenwhenthenodefeatureinputsaresampledfromanabsolutelycontinuousrandom
+distribution(seetheAppendixfordetails). Thebasicideabehindtheproofisthatifeachnodehasa
+uniquefeaturerepresentation,thenwecanlearntomapnodestoindicatorvectorsandidentifynode
+neighborhoods. TheproofofTheorem1reliesonsomepropertiesofthepoolingaggregator,which
+alsoprovidesinsightintowhyGraphSAGE-pooloutperformstheGCNandmean-basedaggregators.
+6 Conclusion
+Weintroducedanovelapproachthatallowsembeddingstobeefficientlygeneratedforunseennodes.
+GraphSAGEconsistentlyoutperformsstate-of-the-artbaselines,effectivelytradesoffperformance
+and runtime by sampling node neighborhoods, and our theoretical analysis provides insight into
+how our approach can learn about local graph structures. A number of extensions and potential
+improvementsarepossible,suchasextendingGraphSAGEtoincorporatedirectedormulti-modal
+graphs. Aparticularlyinterestingdirectionforfutureworkisexploringnon-uniformneighborhood
+samplingfunctions,andperhapsevenlearningthesefunctionsaspartoftheGraphSAGEoptimization.
+Acknowledgments
+TheauthorsthankAustinBenson,AdityaGrover,BryanHe,DanJurafsky,AlexRatner,Marinka
+Zitnik,andDanielSelsamfortheirhelpfuldiscussionsandcommentsonearlydrafts. Theauthors
+wouldalsoliketothankBenJohnsonforhismanyusefulquestionsandcommentsonourcodeand
+NikhilMehtaandYuhuiDingforcatchingsomeminorerrorsinapreviousversionoftheappendix.
+ThisresearchhasbeensupportedinpartbyNSFIIS-1149837,DARPASIMPLEX,StanfordData
+ScienceInitiative, Huawei, andChanZuckerbergBiohub. WLHwasalsosupportedbytheSAP
+StanfordGraduateFellowshipandanNSERCPGS-Dgrant. Theviewsandconclusionsexpressed
+inthismaterialarethoseoftheauthorsandshouldnotbeinterpretedasnecessarilyrepresenting
+theofficialpoliciesorendorsements, eitherexpressedorimplied, oftheabovefundingagencies,
+corporations,ortheU.S.andCanadiangovernments.
+9
+
+References
+[1] M. Abadi, A. Agarwal, P. Barham, E. Brevdo, Z. Chen, C. Citro, G. S. Corrado, A. Davis,
+J.Dean,M.Devin,etal.Tensorflow:Large-scalemachinelearningonheterogeneousdistributed
+systems. arXivpreprint,2016.
+[2] S.Arora,Y.Liang,andT.Ma. Asimplebuttough-to-beatbaselineforsentenceembeddings. In
+ICLR,2017.
+[3] A.R.Benson,D.F.Gleich,andJ.Leskovec. Higher-orderorganizationofcomplexnetworks.
+Science,353(6295):163–166,2016.
+[4] J. Bruna, W. Zaremba, A. Szlam, and Y. LeCun. Spectral networks and locally connected
+networksongraphs. InICLR,2014.
+[5] S. Cao, W. Lu, and Q. Xu. Grarep: Learning graph representations with global structural
+information. InKDD,2015.
+[6] J. Chen and J. Zhu. Stochastic training of graph convolutional networks. arXiv preprint
+arXiv:1710.10568,2017.
+[7] H.Dai,B.Dai,andL.Song. Discriminativeembeddingsoflatentvariablemodelsforstructured
+data. InICML,2016.
+[8] M.Defferrard,X.Bresson,andP.Vandergheynst. Convolutionalneuralnetworksongraphs
+withfastlocalizedspectralfiltering. InNIPS,2016.
+[9] D.K.Duvenaud,D.Maclaurin,J.Iparraguirre,R.Bombarell,T.Hirzel,A.Aspuru-Guzik,and
+R.P.Adams. Convolutionalnetworksongraphsforlearningmolecularfingerprints. InNIPS,
+2015.
+[10] M.Gori,G.Monfardini,andF.Scarselli. Anewmodelforlearningingraphdomains. InIEEE
+InternationalJointConferenceonNeuralNetworks,volume2,pages729–734,2005.
+[11] A.GroverandJ.Leskovec. node2vec: Scalablefeaturelearningfornetworks. InKDD,2016.
+[12] W.L.Hamilton,J.Leskovec,andD.Jurafsky. Diachronicwordembeddingsrevealstatistical
+lawsofsemanticchange. InACL,2016.
+[13] K.He,X.Zhang,S.Ren,andJ.Sun. Identitymappingsindeepresidualnetworks. InEACV,
+2016.
+[14] S.HochreiterandJ.Schmidhuber. Longshort-termmemory. NeuralComputation,9(8):1735–
+1780,1997.
+[15] K.Hornik. Approximationcapabilitiesofmultilayerfeedforwardnetworks. NeuralNetworks,
+4(2):251–257,1991.
+[16] D.KingmaandJ.Ba. Adam: Amethodforstochasticoptimization. InICLR,2015.
+[17] T.N.KipfandM.Welling. Semi-supervisedclassificationwithgraphconvolutionalnetworks.
+InICLR,2016.
+[18] T.N.KipfandM.Welling. Variationalgraphauto-encoders. InNIPSWorkshoponBayesian
+DeepLearning,2016.
+[19] J.B.Kruskal. Multidimensionalscalingbyoptimizinggoodnessoffittoanonmetrichypothesis.
+Psychometrika,29(1):1–27,1964.
+[20] O.LevyandY.Goldberg. Neuralwordembeddingasimplicitmatrixfactorization. InNIPS,
+2014.
+[21] Y.Li,D.Tarlow,M.Brockschmidt,andR.Zemel. Gatedgraphsequenceneuralnetworks. In
+ICLR,2015.
+[22] T.Mikolov,I.Sutskever,K.Chen,G.S.Corrado,andJ.Dean. Distributedrepresentationsof
+wordsandphrasesandtheircompositionality. InNIPS,2013.
+[23] A.Y.Ng,M.I.Jordan,Y.Weiss,etal. Onspectralclustering: Analysisandanalgorithm. In
+NIPS,2001.
+[24] M.Niepert,M.Ahmed,andK.Kutzkov. Learningconvolutionalneuralnetworksforgraphs. In
+ICML,2016.
+10
+
+[25] L.Page,S.Brin,R.Motwani,andT.Winograd. Thepagerankcitationranking: Bringingorder
+totheweb. Technicalreport,StanfordInfoLab,1999.
+[26] F. Pedregosa, G. Varoquaux, A. Gramfort, V. Michel, B. Thirion, O. Grisel, M. Blondel,
+P.Prettenhofer,R.Weiss,V.Dubourg,J.Vanderplas,A.Passos,D.Cournapeau,M.Brucher,
+M.Perrot,andE.Duchesnay. Scikit-learn: MachinelearninginPython. JournalofMachine
+LearningResearch,12:2825–2830,2011.
+[27] J.Pennington,R.Socher,andC.D.Manning. Glove: Globalvectorsforwordrepresentation.
+InEMNLP,2014.
+[28] B.Perozzi,R.Al-Rfou,andS.Skiena. Deepwalk: Onlinelearningofsocialrepresentations. In
+KDD,2014.
+[29] C. R. Qi, H. Su, K. Mo, and L. J. Guibas. Pointnet: Deep learning on point sets for 3d
+classificationandsegmentation. InCVPR,2017.
+[30] R.Rˇehu˚ˇrekandP.Sojka. SoftwareFrameworkforTopicModellingwithLargeCorpora. In
+LREC,2010.
+[31] F. Scarselli, M. Gori, A. C. Tsoi, M. Hagenbuchner, and G. Monfardini. The graph neural
+networkmodel. IEEETransactionsonNeuralNetworks,20(1):61–80,2009.
+[32] N.Shervashidze,P.Schweitzer,E.J.v.Leeuwen,K.Mehlhorn,andK.M.Borgwardt.Weisfeiler-
+lehmangraphkernels. JournalofMachineLearningResearch,12:2539–2561,2011.
+[33] S.Siegal. Nonparametricstatisticsforthebehavioralsciences. McGraw-hill,1956.
+[34] A. Subramanian, P. Tamayo, V. K. Mootha, S. Mukherjee, B. L. Ebert, M. A. Gillette,
+A.Paulovich,S.L.Pomeroy,T.R.Golub,E.S.Lander,etal. Genesetenrichmentanalysis: a
+knowledge-basedapproachforinterpretinggenome-wideexpressionprofiles. Proceedingsof
+theNationalAcademyofSciences,102(43):15545–15550,2005.
+[35] J.Tang,M.Qu,M.Wang,M.Zhang,J.Yan,andQ.Mei.Line:Large-scaleinformationnetwork
+embedding. InWWW,2015.
+[36] D.Wang,P.Cui,andW.Zhu. Structuraldeepnetworkembedding. InKDD,2016.
+[37] X. Wang, P. Cui, J. Wang, J. Pei, W. Zhu, and S. Yang. Community preserving network
+embedding. InAAAI,2017.
+[38] D. J. Watts and S. H. Strogatz. Collective dynamics of ‘small-world’ networks. Nature,
+393(6684):440–442,1998.
+[39] L.Xu,X.Wei,J.Cao,andP.S.Yu. Embeddingidentityandinterestforsocialnetworks. In
+WWW,2017.
+[40] Z.Yang, W.Cohen, andR.Salakhutdinov. Revisitingsemi-supervisedlearningwithgraph
+embeddings. InICML,2016.
+[41] M.ZitnikandJ.Leskovec.Predictingmulticellularfunctionthroughmulti-layertissuenetworks.
+Bioinformatics,33(14):190–198,2017.
+11
+
+Appendices
+A Minibatchpseudocode
+Inordertousestochasticgradientdescent,weadaptouralgorithmtoallowforwardandbackward
+propagationforminibatchesofnodesandedges.Herewefocusontheminibatchforwardpropagation
+algorithm,analogoustoAlgorithm1. IntheforwardpropagationofGraphSAGE theminibatchB
+containsnodesthatwewanttogeneraterepresentationsfor. Algorithm2givesthepseudocodefor
+theminibatchapproach.
+Algorithm2:GraphSAGEminibatchforwardpropagationalgorithm
+Input : GraphG(V,E);
+inputfeatures{x ,∀v ∈B};
+v
+depthK;weightmatricesWk,∀k ∈{1,...,K};
+non-linearityσ;
+differentiableaggregatorfunctionsAGGREGATEk ,∀k ∈{1,...,K};
+neighborhoodsamplingfunctions,N :v →2V,∀k ∈{1,...,K}
+k
+Output: Vectorrepresentationsz forallv ∈B
+v
+1 BK ←B;
+2 fork =K...1do
+3 Bk−1 ←Bk ;
+4 foru∈Bk do
+5 Bk−1 ←Bk−1∪N k (u);
+6 end
+7 end
+8 h0 u ←x v ,∀v ∈B0;
+9 fork =1...K do
+10 foru∈Bk do
+11 hk N(u) ← AGGREGATEk ({hk u − (cid:48) 1,∀u(cid:48) ∈N k (u)});
+(cid:16) (cid:17)
+12 hk u ←σ Wk·CONCAT(hk u −1,hk N(u) ) ;
+13 hk u ←hk u /(cid:107)hk u (cid:107) 2 ;
+14 end
+15 end
+16 z u ←hK u ,∀u∈B
+Themainideaistosampleallthenodesneededforthecomputationfirst. Lines2-7ofAlgorithm
+2 correspond to the sampling stage. Each set Bk contains the nodes that are needed to compute
+the representations of nodes v ∈ Bk+1, i.e., the nodes in the (k +1)-st iteration, or “layer”, of
+Algorithm1. Lines9-15correspondtotheaggregationstage,whichisalmostidenticaltothebatch
+inference algorithm. Note that in Lines 12 and 13, the representation at iteration k of any node
+in set Bk can be computed, because its representation at iteration k −1 and the representations
+ofitssampledneighborsatiterationk−1havealreadybeencomputedinthepreviousloop. The
+algorithmthusavoidscomputingtherepresentationsfornodesthatarenotinthecurrentminibatch
+andnotusedduringthecurrentiterationofstochasticgradientdescent. WeusethenotationN (u)to
+k
+denoteadeterministicfunctionwhichspecifiesarandomsampleofanode’sneighborhood(i.e.,the
+randomnessisassumedtobepre-computedinthemappings). Weindexthisfunctionbyktodenote
+thefactthattherandomsamplesareindependentacrossiterationsoverk. Weuseauniformsampling
+functioninthisworkandsamplewithreplacementincaseswherethesamplesizeislargerthanthe
+node’sdegree.
+NotethatthesamplingprocessinAlgorithm2isconceptuallyreversedcomparedtotheiterations
+over k in Algorithm 1: we start with the “layer-K” nodes (i.e., the nodes in B) that we want to
+generaterepresentationsfor;thenwesampletheirneighbors(i.e.,thenodesat“layer-K-1”ofthe
+algorithm)andsoon. Oneconsequenceofthisisthatthedefinitionofneighborhoodsamplingsizes
+canbesomewhatcounterintuitive. Inparticular,ifweuseK =2totaliterationswithsamplesizesS
+1
+12
+
+andS thenthismeansthatwesampleS nodesduringiterationk =1ofAlgorithm1andS nodes
+2 1 2
+duringiterationk =2,and—fromtheperspectiveofthe“target”nodesinBthatwewanttogenerate
+representationsforafteriterationk =2—thisamountstosamplingS oftheirimmediateneighbors
+2
+andS ·S oftheir2-hopneighbors.
+1 2
+B AdditionalDatasetDetails
+Inthissection,weprovidesomeadditional,relevantdatasetdetails. ThefullPPIandRedditdatasets
+areavailableat: http://snap.stanford.edu/graphsage/. TheWebofSciencedataset
+(WoS)islicensedbyThomsonReutersandcanbemadeavailabletogroupswithvalidWoSlicenses.
+Redditdata Tosamplecommunities,werankedcommunitiesbytheirtotalnumberofcommentsin
+2014andselectedthecommunitieswithranks[11,50](inclusive).Weomittedthelargestcommunities
+becausetheyarelarge,genericdefaultcommunitiesthatsubstantiallyskewtheclassdistribution. We
+selectedthelargestconnectedcomponentofthegraphdefinedovertheunionofthesecommunities.
+We performed early validation experiments and model development on data from October and
+November,2014.
+Details on the source of the Reddit data are at: https://archive.org/details/
+FullRedditSubmissionCorpus2006ThruAugust2015 and https://archive.
+org/details/2015_reddit_comments_corpus.
+WoSdata Weselectedthefollowingsubfieldsmanually,basedonthembeingofrelativelyequal
+size and all biology-related fields. We performed early validation and model development on
+the neuroscience subfield (code=RU, which is excluded from our final set). We did not run any
+experimentsonanyothersubsetsoftheWoSdata. Wetookthelargestconnectedcomponentofthe
+graphdefinedovertheunionofthesefields.
+• Immunology(code: NI,numberofdocuments: 77356)
+• Ecology(code: GU,numberofdocuments: 37935)
+• Biophysics(code: DA,numberofdocuments: 36688)
+• EndocrinologyandMetabolism(code: IA,numberofdocuments: 52225).
+• CellBiology(code: DR,numberofdocuments: 84231)
+• Biology(other)(code: CU,numberofdocuments: 13988)
+PPITissueData Fortraining,werandomlyselected20PPInetworksthathadatleast15,000edges.
+Fortestingandvalidation,weselected4largenetworks(2forvalidation,2fortesting,eachwithat
+least35,000edges). Allexperimentsformodeldesignanddevelopmentwereperformedonthesame
+2validationnetworks,andweusedthesamerandomtrainingsetinallexperiments.
+Weselectedfeaturesthatincludedatleast10%oftheproteinsthatappearinanyofthePPIgraphs.
+Notethatthefeaturedataisverysparsefordataset(42%ofnodeshavenonon-zerofeaturevalues),
+whichmakesleveragingneighborhoodinformationcritical.
+C DetailsontheExperimentalSetupandHyperparameterTuning
+Randomwalksfortheunsupervisedobjective Forallsettings,weran50randomwalksoflength
+5fromeachnodeinordertoobtainthepairsneededfortheunsupervisedloss(Equation1). Our
+implementationoftherandomwalksisinpurePythonandisbaseddirectlyonPythoncodeprovided
+byPerozzietal.[28].
+Logisticregressionmodel Forthefeatureonlymodelandtomakepredictionsontheembeddings
+outputfromtheunsupervisedmodels,weusedthelogisticSGDClassifierfromthescikit-learnPython
+package[26],withalldefaultsettings. Notethatthismodelisalwaysoptimizedonlyonthetraining
+nodesanditisnotfine-tunedontheembeddingsthataregeneratedforthetestdata.
+13
+
+Hyperparameterselection Inallsettings,weperformedhyperparameterselectiononthelearning
+rateandthemodeldimension. WiththeexceptionofDeepWalk,weperformedaparametersweepon
+initiallearningrates{0.01,0.001,0.0001}forthesupervisedmodelsand{2×10−6,2×10−7,2×
+10−8}fortheunsupervisedmodels.7 Whenapplicable, wetesteda“big”and“small”versionof
+eachmodel,wherewetriedtokeeptheoverallmodelsizescomparable. Forthepoolingaggregator,
+the“big”modelhadapoolingdimensionof1024,whilethe“small”modelhadadimensionof512.
+FortheLSTMaggregator,the“big”modelhadahiddendimensionof256,whilethe“small”model
+hadahiddendimensionof128;notethattheactualparametercountfortheLSTMisroughly4×
+thisnumber,duetoweightsforthedifferentgates. Inallexperimentsandforallmodelswespecify
+theoutputdimensionofthehk vectorsateverydepthkoftherecursiontobe256. Allmodelsuse
+i
+rectifiedlinearunitsasanon-linearactivationfunction. AlltheunsupervisedGraphSAGEmodels
+andDeepWalkused20negativesampleswithcontextdistributionsmoothingovernodedegreesusing
+asmoothingparameterof0.75,following[11,22,28]. InitialexperimentsrevealedthatDeepWalk
+performedmuchbetterwithlargelearningrates,sowesweptoverratesintheset{0.2,0.4,0.8}. For
+thesupervisedGraphSAGEmethods,weran10epochsforallmodels. AllmethodsexceptDeepWalk
+use batch sizes of 512. We found that DeepWalk achieved faster wall-clock convergence with a
+smallerbatchsizeof64.
+Hardware ExceptforDeepWalk,weranexperimentssingleamachinewith4NVIDIATitanX
+Pascal GPUs (12Gb of RAM at 10Gbps speed), 16 Intel Xeon CPUs (E5-2623 v4 @ 2.60GHz),
+and256GbofRAM.DeepWalkwasfasteronaCPUintensivemachinewith144IntelXeonCPUs
+(E7-8890v3@2.50GHz)and2TbofRAM.Overall,ourexperimentstookabout3daysinashared
+resourcesetting. Weexpectthataconsumer-gradesingle-GPUmachine(e.g.,withaTitanXGPU)
+couldcompleteourfullsetofexperimentsin4-7days,ifitsfullresourceswerededicated.
+NotesontheDeepWalkimplementation ExistingDeepWalkimplementations[28,11]aresimply
+wrappersarounddedicatedword2veccode,andtheydonoteasilysupportembeddingnewnodes
+andothervariations. Moreover,thismakesitdifficulttocompareruntimesandotherstatisticsfor
+theseapproaches. Forthisreason,wereimplementedDeepWalkinpureTensorFlow,usingthevector
+initializationsetcthataredescribedintheTensorFlowword2vectutorial.8
+We found that DeepWalk was much slower to converge than the other methods, and since it is
+2-5Xfasterattraining,wegaveit5passesovertherandomwalkdata,insteadofone. Toupdate
+the DeepWalk method on new data, we ran 50 random walks of length 5 (as described above)
+and performed updates on the embeddings for the new nodes while holding the already trained
+embeddingsfixed. Wealsotestedtwovariants,onewherewerestrictedthesampledrandomwalk
+“contextnodes”toonlybefromthesetofalreadytrainednodes(whichalleviatesstatisticaldrift)and
+anapproachwithoutthisrestriction. Wealwaysselectedthebetterperformingvariant. Notethat
+despiteDeepWalk’spoorperformanceontheinductivetask,itisfarmorecompetitivewhentested
+inthetransductivesetting,whereitcanbeextensivelytrainedonasingle,fixedgraph. (Thatsaid,
+Kipfetal[17][18]foundthatGCN-basedapproachconsistentlyoutperformedDeepWalk,evenin
+thetransductivesettingonlinkprediction,ataskthattheoreticallyfavorsDeepWalk.) Wedidobserve
+DeepWalk’sperformancecouldimprovewithfurthertraining,andinsomecasesitcouldbecome
+competitivewiththeunsupervisedGraphSAGEapproaches(butnotthesupervisedapproaches)ifwe
+letitrunfor>1000×longerthantheotherapproaches(intermsofwallclocktimeforpredictionon
+thetestset);however,wedidnotdeemthistobeameaningfulcomparisonfortheinductivetask.
+NotethatDeepWalkisalsoequivalenttothenode2vecmodel[11]withp=q =1.
+Notes on neighborhood sampling Due to the heavy-tailed nature of degree distributions we
+downsampletheedgesinallgraphsbeforefeedingthemintotheGraphSAGEalgorithm. Inparticular,
+wesubsampleedgessothatnonodehasdegreelargerthan128. Sinceweonlysampleatmost25
+neighborspernode,thisisareasonabletradeoff. Thisdownsamplingallowsustostoreneighborhood
+informationasdenseadjacencylists,whichdrasticallyimprovescomputationalefficiency. Forthe
+Redditdatawealsodownsampledtheedgesoftheoriginalgraphasapre-processingstep,sincethe
+7Notethatthesevaluesdifferfromourpreviousreportedpre-printvaluesbecausetheyarecorrectedtoaccount
+foranextraneousnormalizationbythebatchsize.WethankBenJohnsonforpointingoutthisdiscrepancy.
+8https://github.com/tensorflow/models/blob/master/tutorials/embedding/
+word2vec.py
+14
+
+originalgraphisextremelydense. Allexperimentsareonthedownsampledversion,butwerelease
+thefullversionontheprojectwebsiteforreference.
+D AlignmentIssuesandOrthogonalInvarianceforDeepWalkandRelated
+Approaches
+DeepWalk[28], node2vec[11], andotherrecentsuccessfulnodeembeddingapproachesemploy
+objectivefunctionsoftheform:
+(cid:88) (cid:88)
+α f(z(cid:62)z )+β g(z(cid:62)z ) (4)
+i j i j
+i,j∈A i,j∈B
+wheref,garesmooth,continuousfunctions,z arethenoderepresentationsthatarebeingdirectly
+i
+optimized(i.e.,viaembeddinglook-ups),andA,Baresetsofpairsofnodes. Notethatinmanycases,
+intheactualcodeimplementationsusedbytheauthorsoftheseapproaches,nodesareassociated
+withtwouniqueembeddingvectorsandtheargumentstothedotproductsinf andgaredrawnfor
+distinctembeddinglook-ups(e.g.,[11,28]);however,thisdoesnotfundamentallyalterthelearning
+algorithm. Themajorityofapproachesalsonormalizethelearnedembeddingstounitlength,sowe
+assumethispost-processingaswell.
+By connection to word embedding approaches and the arguments of [20], these approaches can
+alsobeviewedasstochastic, implicitmatrixfactorizationswherewearetryingtolearnamatrix
+Z∈R|V|×dsuchthat
+ZZ(cid:62) ≈M, (5)
+whereMissomematrixcontainingrandomwalkstatistics.
+Animportantconsequenceofthisstructureisthattheembeddingscanberotatedbyanarbitrary
+orthogonalmatrix,withoutimpactingtheobjective:
+ZQ(cid:62)QZ(cid:62) =ZZ(cid:62), (6)
+whereQ∈Rd×disanyorthogonalmatrix. Sincetheembeddingsareotherwiseunconstrainedand
+theonlyerrorsignalcomesfromtheorthogonally-invariantobjective(4),theentireembeddingspace
+isfreetoarbitrarilyrotateduringtraining.
+Twoclearconsequencesofthisare:
+1. Suppose we run an embedding approach based on (4) on two separate graphs A and B
+usingthesameoutputdimension. Withoutsomeexplicitpenaltyenforcingalignment,the
+learnedembeddingsspacesforthetwographswillbearbitrarilyrotatedwithrespecttoeach
+otheraftertraining. Thus,foranynodeclassificationmethodthatistrainedonindividual
+embeddings from graph A, inputting the embeddings from graph B will be essentially
+random. This fact is also simply true by virtue of the fact that the M matrices of these
+graphsarecompletelydisjoint. Ofcourse,ifwehadawaytomatch“similar”nodesbetween
+thegraphs,thenitcouldbepossibletouseanalignmentproceduretoshareinformation
+betweenthegraphs,suchastheprocedureproposedby[12]foraligningtheoutputofword
+embeddingalgorithms. Investigatingsuchalignmentproceduresisaninterestingdirection
+forfuturework;thoughtheseapproacheswillinevitablybeslowrunonnewdata,compared
+toapproacheslikeGraphSAGEthatcansimplygenerateembeddingsfornewnodeswithout
+anyadditionaltrainingoralignment.
+2. Supposethatwerunanembeddingapproachbasedon(4)ongraphCattimetandtrain
+aclassifieronthelearnedembeddings. Thenattimet+1weaddmorenodestoCand
+runanewroundofSGDandupdateallembeddings. Twoissuesarise: Firstbyanalogyto
+point1above,ifthenewnodesareonlyconnectedtoaverysmallnumberoftheoldnodes,
+thentheembeddingspaceforthenewnodescanessentiallybecomerotatedwithrespectto
+theoriginalembeddingspace. Moreover,ifweupdateallembeddingsduringtraining(not
+justforthenewnodes),assuggestedby[28]’sstreamingapproachtoDeepWalk,thenthe
+embeddingspacecanarbitrarilyrotatecomparedtotheembeddingspacethatwetrainedour
+classifieron,whichonlyfurtherexasperatestheproblem.
+15
+
+Note that this rotational invariance is not problematic for tasks that only rely on pairwise node
+distances(e.g.,linkpredictionviadotproducts). Moreover,somereasonableapproachestoalleviate
+thisissueofstatisticaldriftareto(1)notupdatethealreadytrainedembeddingswhenoptimizingthe
+embeddingsfornewtestnodesand(2)toonlykeepexistingnodesas“contextnodes”inthesampled
+randomwalks,i.e. toensurethateverydot-productintheskip-gramobjectiveistheproductofan
+already-trainednodeandanew/testnode. Wetriedbothoftheseapproachesinthisworkandalways
+selectedthebestperformingDeepWalkvariant.
+Also note that empirically DeepWalk performs better on the citation data than the Reddit data
+(Section4.1)becausethisstatisticaldriftisworseintheRedditdata,comparedtothecitationgraph.
+Inparticular,theRedditdatahasfeweredgesfromthetestsettothetrainset,whichhelpprevent
+mis-alignment: 96%ofthe2005citationlinksconnectbacktothe2000-2004data,whileonly73%
+ofedgesintheReddittestsetconnectbacktothetraindata.
+E ProofofTheorem1
+ToproveTheorem1,wefirstprovethreelemmas:
+• Lemma1statesthatthereexistsacontinuousfunctionthatisguaranteedtoonlybepositive
+inclosedballsaroundafixednumberofpoints,withsomenoisetolerance.
+• Lemma2notesthatwecanapproximatethefunctioninLemma1toanarbitraryprecision
+usingamultilayerperceptronwithasinglehiddenlayer.
+• Lemma3buildsofftheprecedingtwolemmastoprovethatthepoolingarchitecturecan
+learntomapnodestouniqueindicatorvectors,assumingthatalltheinputfeaturevectors
+aresufficientlydistinct.
+We also rely on fact that the max-pooling operator (with at least one hidden layer) is capable of
+approximatinganyHausdorffcontinuous,symmetricfunctiontoanarbitrary(cid:15)precision[29].
+Wenotethatallofthefollowingareessentiallyidentifiabilityarguments. Weshowthatthereexistsa
+parametersettingforwhichAlgorithm1canlearnnodesclusteringcoefficients,whichisnon-obvious
+giventhatitoperatesbyaggregatingfeatureinformation. Theefficientlearnabilityofthefunctions
+describedisthesubjectoffuturework. Wealsonotethattheseproofsareconservativeinthesense
+thatclusteringcoefficientsmaybeinfactidentifiableinfeweriterations,orwithlessrestrictions,
+thanweimpose. Moreover,duetoourrelianceontwouniversalapproximationtheorems[15,29],
+therequireddimensionalityisinprincipleO(|V|). Wecanprovideamoreinformativeboundonthe
+requiredoutputdimensionofsomeparticularlayers(e..g.,Lemma3);however,intheworstcase
+thisidentifiabilityargumentreliesonhavingadimensionofO(|V|). Itisworthnoting,however,that
+Kipfetal’s“featureless”GCNapproachhasparameterdimensionO(|V|),sothisrequirementisnot
+entirelyunreasonable[17,18].
+FollowingTheorem1,weletx ∈ U,∀v ∈ V denotethefeatureinputsforAlgorithm1ongraph
+v
+G =(V,E),whereU isanycompactsubsetofRd.
+Lemma1. LetC ∈R+beafixedpositiveconstant. Thenforanynon-emptyfinitesubsetofnodes
+D ⊆V,thereexistsacontinuousfunctiong :U →Rsuchthat
+(cid:26)
+g(x)>(cid:15), if(cid:107)x−x (cid:107) =0forsomev ∈D
+v 2 (7)
+g(x)≤−(cid:15), if(cid:107)x−x (cid:107) >C,∀v ∈D,
+v 2
+where(cid:15)<0.5isachosenerrortolerance.
+Proof. Manysuchfunctionsexist. Forconcreteness,weprovideoneconstructionthatsatisfiesthese
+criteria. Letx∈U denoteanarbitraryinputtog,letd =(cid:107)x−x (cid:107) ,∀v ∈D,andletgbedefined
+v v 2
+(cid:80)
+asg(x)= g (x)with
+v∈D v
+3|D|(cid:15)
+g (x)= −2(cid:15) (8)
+v bd2+1
+v
+whereb= 3|D|−1 >0. Byconstruction:
+C2
+1. g hasauniquemaximumof3|D|(cid:15)−2(cid:15)>2|D|(cid:15)atd =0.
+v v
+16
+
+(cid:16) (cid:17)
+2. lim 3|D|(cid:15) −2(cid:15) =−2(cid:15)
+dv→∞ bd2
+v
++1
+3. 3|D|(cid:15) −2(cid:15)≤−(cid:15)ifd ≥C.
+bd2+1 v
+v
+Notealsothatgiscontinuousonitsdomain(d ∈R+)sinceitisthesumoffinitesetofcontinuous
+v
+functions. Moreover,wehavethat,foragiveninputx ∈ U,ifd ≥ C forallpointsv ∈ D then
+v
+(cid:80)
+g(x)= g (a)≤−(cid:15)byproperty3above. And,ifd =0foranyv ∈D,thengispositiveby
+v∈D v v
+construction,byproperties1and2,sinceinthiscase,
+(cid:88)
+g (x)+ g (x)≥g (x)−(|D|−1)2(cid:15)
+v v(cid:48) v
+v(cid:48)∈D\v
+>g (x)−2(|D|)(cid:15)
+v
+>2(|D|)(cid:15)−2(|D|)(cid:15)
+>0,
+soweknowthatgispositivewheneverd =0foranynodeandnegativewheneverd >C forall
+v v
+nodes.
+Lemma2. Thefunctiong : U → Rcanbeapproximatedtoanarbitrarydegreeofprecisionby
+standardmultilayerperceptron(MLP)withleastonehiddenlayerandanon-constantmonotonically
+increasingactivationfunction(e.g.,arectifiedlinearunit). Inpreciseterms,ifweletf denotethis
+θσ
+MLPandθ itsparameters,wehavethat∀(cid:15),∃θ suchthat|f (x)−g(x)|<(cid:15)|,∀x∈U.
+σ σ θσ
+Proof. ThisisadirectconsequenceofTheorem2in[15].
+Lemma 3. Let A be the adjacency matrix of G, let N2(v) denote the 2-hop neighborhood of a
+node,v,anddefineχ(G4)asthechromaticnumberofthegraphwithadjacencymatrixA4(ignoring
+self-loops). SupposethatthereexistsafixedpositiveconstantC ∈R+suchthat(cid:107)x −x (cid:107) >C
+v v(cid:48) 2
+forallpairsofnodes. ThenwehavethatthereexistsaparametersettingforAlgorithm1, using
+apoolingaggregatoratdepthk = 1, wherethispoolingaggregatorhas≥ 2hiddenlayerswith
+rectifiednon-linearunits,suchthat
+h1 (cid:54)=h1 ,∀(v,v(cid:48))∈{(v,v(cid:48)):∃u∈V,v,v(cid:48) ∈N2(u)},h1,h1 ∈Eχ(G4)
+v v(cid:48) v v(cid:48) I
+whereEχ(G4)isthesetofone-hotindicatorvectorsofdimensionχ(G4).
+I
+Proof. Bythedefinitionofthechromaticnumber,weknowthatwecanlabeleverynodeinV using
+χ(G4)uniquecolors,suchthatnotwonodesthatco-occurinanynode’s2-hopneighborhoodare
+assigned the same color. Thus, with exactly χ(G4) dimensions we can assign a unique one-hot
+indicatorvectortoeverynode,wherenotwonodesthatco-occurinany2-hopneighborhoodhavethe
+samevector. Inotherwords,eachcolordefinesasubsetofnodesD ⊆V andthissubsetofnodescan
+allbemappedtothesameindicatorvectorwithoutintroducingconflicts.
+ByLemma1and2andtheassumptionthat(cid:107)x −x (cid:107) >C forallpairsofnodes,wecanchoose
+v v(cid:48) 2
+an(cid:15)<0.5andthereexistsasingle-layerMLP,f ,suchthatforanysubsetofnodesD ⊆V:
+θσ
+(cid:26)
+f (x )>0, ∀v ∈D
+θσ v (9)
+f (x )<0, ∀v ∈V \D.
+θσ v
+BymakingthisMLPonelayerdeeperandspecificallyusingarectifiedlinearactivationfunction,we
+canreturnapositivevalueonlyfornodesinthesubsetDandzerootherwise,and,sincewenormalize
+afterapplyingtheaggregatorlayer,thissinglepositivevaluecanbemappedtoanindicatorvector.
+Moreover,wecancreateχ(G4)suchMLPs,whereeachMLPcorrespondstoadifferentcolor/subset;
+equivalentlyeachMLPcorrespondstoadifferentmax-poolingdimensioninequation3ofthemain
+text.
+WenowrestateTheorem1andprovideaproof.
+17
+
+Theorem1. Letx ∈Rd,∀v ∈V denotethefeatureinputsforAlgorithm1ongraphG =(V,E),
+v
+whereU isanycompactsubsetofRd. SupposethatthereexistsafixedpositiveconstantC ∈ R+
+suchthat(cid:107)x −x (cid:107) >C forallpairsofnodes. Thenwehavethat∀(cid:15)>0thereexistsaparameter
+v v(cid:48) 2
+settingΘ∗forAlgorithm1suchthatafterK =4iterations
+|z −c |<(cid:15),∀v ∈V,
+v v
+wherez ∈RarefinaloutputvaluesgeneratedbyAlgorithm1andc arenodeclusteringcoefficients,
+v v
+asdefinedin[38].
+Proof. Without loss of generality, we describe how to compute the clustering coefficient for an
+arbitrarynodev. Fornotationalconvenienceweuse⊕todenotevectorconcatenationandd to
+v
+denote the degree of node v. This proof requires 4 iterations of Algorithm 1, where we use the
+poolingaggregatoratalldepths. Forclarityandweignoreissuesrelatedtovectornormalization
+andweusethefactthatthepoolingaggregatorcanapproximateanyHausdorffcontinuousfunction
+toanarbitrary(cid:15)precision[29]. Notethatwecanalwaysaccountfornormalizationconstants(line
+7 in Algorithm 1) by having aggregators prepend a unit value to all output representations; the
+normalizationconstantcanthenberecoveredatlaterlayersbytakingtheinverseofthisprepended
+value. Notealsothatalmostcertainlyexistsettingswherethesymmetricfunctionsdescribedbelow
+canbecomputedexactlybythepoolingaggregator(oravariantofit),butthesymmetricuniversal
+approximationtheoremof[29]alongwithLipschitzcontinuityargumentssufficeforthepurposes
+ofprovingidentifiabilityofclusteringcoefficients(uptoanarbitraryprecision). Inparticular,the
+functions described below, that we need approximate to compute clustering coefficients, are all
+Lipschitzcontinuousontheirdomains(assumingweonlyrunonnodeswithpositivedegrees)sothe
+errorsintroducedbyapproximationremainboundedbyfixedconstants(thatcanbemadearbitrarily
+small).
+We assume that the weight matrices, W1,W2 at depths k = 2 and k = 3 are the identity, and
+thatallnon-linearitiesarerectifiedlinearunits. Inaddition,forthefinaliteration(i.e,k = 4)we
+completelyignoreneighborhoodinformationandsimplytreatthislayersasanMLPwithasingle
+hiddenlayer. Theorem1canbeequivalentlystatedasrequiringK = 3iterationsofAlgorithm1,
+withtherepresentationsthenbeingfedtoasingle-layerMLP.
+ByLemma3,wecanassumethatatdepthk =1allnodesinv’s2-hopneighborhoodhaveunique,
+one-hotindicatorvectors,h1 ∈E . Thus,atdepthk =2inAlgorithm1,supposethatwesumthe
+v I
+unnormalizedrepresentationsoftheneighboringnodes. Thenwithoutlossofgenerality,wewillhave
+thath2 =h1⊕A whereAistheadjacencymatrixofthesubgraphcontainingallnodesconnected
+v v v
+tovinG4andA istherowoftheadjacencymatrixcorrespondingtov. Then,atdepthk =3,again
+v
+assumethatwesumtheneighboringrepresentations(withtheweightmatricesastheidentity),then
+wewillhavethat
+ 
+(cid:88)
+h3
+v
+=h1
+v
+⊕A
+v
+⊕ h1
+v
+⊕A v. (10)
+v∈N(v)
+Lettingmdenotethedimensionalityoftheh1 vectors(i.e.,m≡χ(G4)fromLemma3)andusing
+v
+squarebracketstodenotevectorindexing,wecanobservethat
+• a≡h3[0:m]isv’sone-hotindicatorvector.
+v
+• b≡h3[m:2m]isv’srowintheadjacencymatrix,A.
+v
+• c≡h3[3m:4m]isthesumoftheadjacencyrowsofv’sneighbors.
+v
+Thus,wehavethatb(cid:62)cisthenumberofedgesinthesubgraphcontainingonlyvandit’simmediate
+neighborsand
+(cid:80)m
+b[i]=d . Finallywecancompute
+i=0 v
+2(b(cid:62)c−d ) 2|{e :v,v(cid:48) ∈N(v),e ∈E}|
+v = v,v(cid:48) v,v(cid:48) (11)
+(d )(d −1) (d )(d −1)
+v v v v
+=c , (12)
+v
+andsincethisisacontinuousfunctionofh3,wecanapproximateittoanarbitrary(cid:15)precisionwith
+v
+a single-layer MLP (or equivalently, one more iteration of Algorithm 1, ignoring neighborhood
+information). Againthislaststepfollowsdirectlyfrom[15].
+18
+
+Figure3: Accuracy(inF1-score)fordifferentapproachesonthecitationdataasthefeaturematrixis
+incrementallyreplacedwithrandomGaussiannoise.
+Corollary2. Supposewesamplenodesfeaturesfromanyprobabilitydistributionµoverx ∈ U,
+where µ is absolutely continuous with respect to the Lebesgue measure. Then the conditions of
+Theorem1arealmostsurelysatisfiedwithfeatureinputsx ∼µ.
+v
+Corollary2isadirectconsequenceofTheorem1andthefactthat,foranyprobabilitydistribution
+thatisabsolutelycontinuousw.r.t. theLebesguemeasure,theprobabilityofsamplingtwoidentical
+points is zero. Empirically, we found that GraphSAGE-pool was in fact capable of maintaining
+modestperformancebyleveraginggraphstructure,evenwithcompletelyrandomfeatureinputs(see
+Figure3). However,theperformanceGraphSAGE-GCNwasnotsorobust,whichmakesintuitive
+sensegiventhattheLemmas1,2,and3relydirectlyontheuniversalexpressivecapabilityofthe
+poolingaggregator.
+Finally, wenotethatTheorem1andCorollary2areexpressedwithrespecttoaparticulargiven
+graphandarethussomewhattransductive. Fortheinductivesetting,wecanstate
+Corollary3. SupposethatforallgraphsG =(V,E)belongingtosomeclassofgraphsG∗,wehave
+that∃k,d≥0,k,d∈Zsuchthat
+hk (cid:54)=hk ,∀(v,v(cid:48))∈{(v,v(cid:48)):∃u∈V,v,v(cid:48) ∈N3(u)},hk,hk ∈Ed,
+v v(cid:48) v v(cid:48) I
+thenwecanapproximateclusteringcoefficientstoanarbitraryepsilonafterK =k+4iterationsof
+Algorithm1.
+Corollary3simplystatesthatifafterkiterationsofAlgorithm1,wecanlearntouniquelyidentify
+nodes for a class of graphs, then we can also approximate clustering coefficients to an arbitrary
+precisionforthisclassofgraphs.
+19

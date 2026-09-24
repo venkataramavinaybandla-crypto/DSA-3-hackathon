@@ -1,0 +1,6 @@
+Title: A Mathematical Theory of Communication
+Authors: Shannon
+Year: 1948
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'A Mathematical Theory of Communication' by Shannon (1948). Classic foundational literature published in original journal/conference proceedings.

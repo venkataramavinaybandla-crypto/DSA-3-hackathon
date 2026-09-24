@@ -1,0 +1,751 @@
+DEEP DOUBLE DESCENT:
+WHERE BIGGER MODELS AND MORE DATA HURT
+PreetumNakkiran∗ GalKaplun† YaminiBansal† TristanYang
+HarvardUniversity HarvardUniversity HarvardUniversity HarvardUniversity
+BoazBarak IlyaSutskever
+HarvardUniversity OpenAI
+ABSTRACT
+Weshowthatavarietyofmoderndeeplearningtasksexhibita“double-descent”
+phenomenonwhere,asweincreasemodelsize,performancefirstgetsworseand
+then gets better. Moreover, we show that double descent occurs not just as a
+function of model size, but also as a function of the number of training epochs.
+We unify the above phenomena by defining a new complexity measure we call
+the effective model complexity and conjecture a generalized double descent with
+respecttothismeasure.Furthermore,ournotionofmodelcomplexityallowsusto
+identifycertainregimeswhereincreasing(evenquadrupling)thenumberoftrain
+samplesactuallyhurtstestperformance.
+1 INTRODUCTION
+Figure 1: Left: Train and test error as a function of model size, for ResNet18s of varying width
+onCIFAR-10with15%labelnoise. Right: Testerror,shownforvaryingtrainepochs. Allmodels
+trainedusingAdamfor4Kepochs.Thelargestmodel(width64)correspondstostandardResNet18.
+The bias-variance trade-off is a fundamental concept in classical statistical learning theory (e.g.,
+Hastieetal.(2005)). Theideaisthatmodelsofhighercomplexityhavelowerbiasbuthighervari-
+ance. Accordingtothistheory,oncemodelcomplexitypassesacertainthreshold,models“overfit”
+withthevariancetermdominatingthetesterror,andhencefromthispointonward,increasingmodel
+complexity will only decrease performance (i.e., increase test error). Hence conventional wisdom
+inclassicalstatisticsisthat,oncewepassacertainthreshold,“largermodelsareworse.”
+However, modern neural networks exhibit no such phenomenon. Such networks have millions of
+parameters,morethanenoughtofitevenrandomlabels(Zhangetal.(2016)),andyettheyperform
+muchbetteronmanytasksthansmallermodels. Indeed,conventionalwisdomamongpractitioners
+is that “larger models are better’’ (Krizhevsky et al. (2012), Huang et al. (2018), Szegedy et al.
+∗WorkperformedinpartwhilePreetumNakkiranwasinterningatOpenAI,withIlyaSutskever. Weespe-
+ciallythankMikhailBelkinandChristopherOlahforhelpfuldiscussionsthroughoutthiswork.Correspondence
+Email:preetum@cs.harvard.edu
+†Equalcontribution
+1
+9102
+ceD
+4
+]GL.sc[
+1v29220.2191:viXra
+
+Figure2: Left: Testerrorasafunctionofmodelsizeandtrainepochs. Thehorizontallinecorre-
+spondstomodel-wisedoubledescent–varyingmodelsizewhiletrainingforaslongaspossible.The
+vertical line corresponds to epoch-wise double descent, with test error undergoing double-descent
+astraintimeincreases. RightTrainerrorofthecorrespondingmodels. AllmodelsareResnet18s
+trainedonCIFAR-10with15%labelnoise,data-augmentation,andAdamforupto4Kepochs.
+(2015),Radfordetal.(2019)). Theeffectoftrainingtimeontestperformanceisalsoupfordebate.
+Insomesettings,“earlystopping”improvestestperformance,whileinothersettingstrainingneu-
+ral networks to zero training error only improves performance. Finally, if there is one thing both
+classicalstatisticiansanddeeplearningpractitionersagreeonis“moredataisalwaysbetter”.
+In this paper, we present empirical evidence that both reconcile and challenge some of the above
+“conventional wisdoms.” We show that many deep learning settings have two different regimes.
+Intheunder-parameterized regime,wherethemodelcomplexityissmallcomparedtothenumber
+ofsamples, thetesterrorasafunctionofmodelcomplexityfollowstheU-likebehaviorpredicted
+by the classical bias/variance tradeoff. However, once model complexity is sufficiently large to
+interpolatei.e.,achieve(closeto)zerotrainingerror,thenincreasingcomplexityonlydecreasestest
+error,followingthemodernintuitionof“biggermodelsarebetter”.Similarbehaviorwaspreviously
+observed in Opper (1995; 2001), Advani & Saxe (2017), Spigler et al. (2018), and Geiger et al.
+(2019b). This phenomenon was first postulated in generality by Belkin et al. (2018) who named
+it “double descent”, and demonstrated it for decision trees, random features, and 2-layer neural
+networkswith(cid:96) loss,onavarietyoflearningtasksincludingMNISTandCIFAR-10.
+2
+Maincontributions. Weshowthatdoubledescentisarobustphenomenonthatoccursinavariety
+oftasks,architectures,andoptimizationmethods(seeFigure1andSection5; ourexperimentsare
+summarized in Table A). Moreover, we propose a much more general notion of “double descent”
+thatgoesbeyondvaryingthenumberofparameters.Wedefinetheeffectivemodelcomplexity(EMC)
+of a training procedure as the maximum number of samples on which it can achieve close to zero
+trainingerror.TheEMCdependsnotjustonthedatadistributionandthearchitectureoftheclassifier
+butalsoonthetrainingprocedure—andinparticularincreasingtrainingtimewillincreasetheEMC.
+We hypothesize that for many natural models and learning algorithms, double descent occurs as a
+functionoftheEMC.Indeedweobserve“epoch-wisedoubledescent”whenwekeepthemodelfixed
+andincreasethetrainingtime,withperformancefollowingaclassicalU-likecurveintheunderfitting
+stage(whentheEMCissmallerthanthenumberofsamples)andthenimprovingwithtrainingtime
+oncetheEMCissufficientlylargerthanthenumberofsamples(seeFigure2). Asacorollary,early
+stoppingonlyhelpsintherelativelynarrowparameterregimeofcriticallyparameterizedmodels.
+Sample non-monotonicity. Finally, our results shed light on test performance as a function of
+the number of train samples. Since the test error peaks around the point where EMC matches the
+numberofsamples(thetransitionfromtheunder-toover-parameterization),increasingthenumber
+of samples has the effect of shifting this peak to the right. While in most settings increasing the
+numberofsamplesdecreaseserror,thisshiftingeffectcansometimesresultinasettingwheremore
+dataisworse!Forexample,Figure3demonstratescasesinwhichincreasingthenumberofsamples
+byafactorof4.5resultsinworsetestperformance.
+2
+
+Figure3:Testloss(per-tokenperplexity)asa
+functionofTransformermodelsize(embed-
+ding dimension d ) on language trans-
+model
+lation (IWSLT‘14 German-to-English). The
+curvefor18ksamplesisgenerallylowerthan
+the one for 4k samples, but also shifted to
+the right, since fitting 18k samples requires
+a larger model. Thus, for some models, the
+performance for 18k samples is worse than
+for4ksamples.
+2 OUR RESULTS
+Tostateourhypothesismoreprecisely,wedefinethenotionofeffectivemodelcomplexity.Wedefine
+atrainingprocedureT tobeanyprocedurethattakesasinputasetS = {(x ,y ),...,(x ,y )}
+1 1 n n
+of labeled training samples and outputs a classifier T(S) mapping data to labels. We define the
+effectivemodelcomplexityofT (w.r.t. distributionD)tobethemaximumnumberofsamplesnon
+whichT achievesonaverage≈0trainingerror.
+Definition1(EffectiveModelComplexity) TheEffectiveModelComplexity(EMC)ofatraining
+procedureT,withrespecttodistributionDandparameter(cid:15)>0,isdefinedas:
+EMC (T):=max{n|E [Error (T(S))]≤(cid:15)}
+D,(cid:15) S∼Dn S
+whereError (M)isthemeanerrorofmodelM ontrainsamplesS.
+S
+Ourmainhypothesiscanbeinformallystatedasfollows:
+Hypothesis1(GeneralizedDoubleDescenthypothesis,informal) Foranynaturaldatadistribu-
+tion D, neural-network-based training procedure T, and small (cid:15) > 0, if we consider the task of
+predictinglabelsbasedonnsamplesfromDthen:
+Under-paremeterizedregime. IfEMC (T)issufficientlysmallerthann,anyperturbationofT
+D,(cid:15)
+thatincreasesitseffectivecomplexitywilldecreasethetesterror.
+Over-parameterizedregime. If EMC (T) is sufficiently larger than n, any perturbation of T
+D,(cid:15)
+thatincreasesitseffectivecomplexitywilldecreasethetesterror.
+Criticallyparameterizedregime. IfEMC (T)≈n,thenaperturbationofT thatincreasesits
+D,(cid:15)
+effectivecomplexitymightdecreaseorincreasethetesterror.
+Hypothesis1isinformalinseveralways. Wedonothaveaprincipledwaytochoosetheparameter
+(cid:15) (and currently heuristically use (cid:15) = 0.1). We also are yet to have a formal specification for
+“sufficiently smaller” and “sufficiently larger”. Our experiments suggest that there is a critical
+intervalaroundtheinterpolationthreshold whenEMC (T) = n: belowandabovethisinterval
+D,(cid:15)
+increasingcomplexityhelpsperformance, whilewithinthisintervalitmayhurtperformance. The
+widthofthecriticalintervaldependsonboththedistributionandthetrainingprocedureinwayswe
+donotyetcompletelyunderstand.
+WebelieveHypothesis1shedslightontheinteractionbetweenoptimizationalgorithms,modelsize,
+and test performance and helps reconcile some of the competing intuitions about them. The main
+resultofthispaperisanexperimentalvalidationofHypothesis1underavarietyofsettings,where
+we considered several natural choices of datasets, architectures, and optimization algorithms, and
+wechangedthe“interpolationthreshold”byvaryingthenumberofmodelparameters,thelengthof
+training,theamountoflabelnoiseinthedistribution,andthenumberoftrainsamples.
+Model-wise Double Descent. In Section 5, we study the test error of models of increasing size,
+forafixedlargenumberofoptimizationsteps. Weshowthat“model-wisedouble-descent”occurs
+for various modern datasets (CIFAR-10, CIFAR-100, IWSLT‘14 de-en, with varying amounts of
+labelnoise),modelarchitectures(CNNs,ResNets,Transformers),optimizers(SGD,Adam),number
+3
+
+of train samples, and training procedures (data-augmentation, and regularization). Moreover, the
+peakintesterrorsystematicallyoccursattheinterpolationthreshold. Inparticular,wedemonstrate
+realisticsettingsinwhichbiggermodelsareworse.
+Epoch-wiseDoubleDescent. InSection6,westudythetesterrorofafixed,largearchitectureover
+the course of training. We demonstrate, in similar settings as above, a corresponding peak in test
+performancewhenmodelsaretrainedjustlongenoughtoreach ≈0trainerror. Thetesterrorofa
+largemodelfirstdecreases(atthebeginningoftraining),thenincreases(aroundthecriticalregime),
+thendecreasesoncemore(attheendoftraining)—thatis,traininglongercancorrectoverfitting.
+Sample-wiseNon-monotonicity. InSection7,westudythetesterrorofafixedmodelandtraining
+procedure, for varying number of train samples. Consistent with our generalized double-descent
+hypothesis,weobservedistincttestbehaviorinthe“criticalregime”,whenthenumberofsamples
+isnearthemaximumthatthemodelcanfit. Thisoftenmanifestsasalongplateauregion,inwhich
+takingsignificantlymoredatamightnothelpwhentrainingtocompletion(asisthecaseforCNNson
+CIFAR-10). Moreover,weshowsettings(TransformersonIWSLT‘14en-de),wherethismanifests
+asapeak—andforafixedarchitectureandtrainingprocedure,moredataactuallyhurts.
+RemarksonLabelNoise. Weobserveallformsofdoubledescentmoststronglyinsettingswith
+labelnoiseinthetrainset(asisoftenthecasewhencollectingtraindatainthereal-world). How-
+ever,wealsoshowseveralrealisticsettingswithatest-errorpeakevenwithoutlabelnoise: ResNets
+(Figure4a)andCNNs(Figure20)onCIFAR-100; TransformersonIWSLT‘14 (Figure8). More-
+over,allourexperimentsdemonstratedistinctlydifferenttestbehaviorinthecriticalregime—often
+manifesting as a “plateau” in the test error in the noiseless case which develops into a peak with
+addedlabelnoise. SeeSection8forfurtherdiscussion.
+3 RELATED WORK
+Model-wise double descent was first proposed as a general phenomenon by Belkin et al. (2018).
+Similar behavior had been observed in Opper (1995; 2001), Advani & Saxe (2017), Spigler et al.
+(2018),andGeigeretal.(2019b). Subsequently,therehasbeenalargebodyofworkstudyingthe
+doubledescentphenomenon. Agrowinglistofpapersthattheoreticallyanalyzeitinthetractable
+settingoflinearleastsquaresregressionincludesBelkinetal.(2019);Hastieetal.(2019);Bartlett
+etal.(2019);Muthukumaretal.(2019);Bibasetal.(2019);Mitra(2019);Mei&Montanari(2019).
+Moreover,Geigeretal.(2019a)providepreliminaryresultsformodel-wisedoubledescentincon-
+volutional networks trained on CIFAR-10. Our work differs from the above papers in two crucial
+aspects: First, weextendtheideaofdouble-descentbeyondthenumberofparameterstoincorpo-
+ratethetrainingprocedureunderaunifiednotionof“EffectiveModelComplexity”,leadingtonovel
+insights like epoch-wise double descent and sample non-monotonicity. The notion that increasing
+traintimecorrespondstoincreasingcomplexitywasalsopresentedinNakkiranetal.(2019). Sec-
+ond, we provide an extensive and rigorous demonstration of double-descent for modern practices
+spanningavarietyofarchitectures,datasetsoptimizationprocedures. Anextendeddiscussionofthe
+relatedworkisprovidedinAppendixC.
+4 EXPERIMENTAL SETUP
+Webrieflydescribetheexperimentalsetuphere;fulldetailsareinAppendixB1.Weconsiderthree
+familiesofarchitectures: ResNets, standardCNNs, andTransformers. ResNets: Weparameterize
+a family of ResNet18s (He et al. (2016)) by scaling the width (number of filters) of convolutional
+layers. Specifically, we use layer widths [k,2k,4k,8k] for varying k. The standard ResNet18
+corresponds to k = 64. Standard CNNs: We consider a simple family of 5-layer CNNs, with
+4 convolutional layers of widths [k,2k,4k,8k] for varying k, and a fully-connected layer. For
+context, the CNN with width k = 64, can reach over 90% test accuracy on CIFAR-10 with data-
+augmentation. Transformers:Weconsiderthe6layerencoder-decoderfromVaswanietal.(2017),
+asimplementedbyOttetal.(2019). Wescalethesizeofthenetworkbymodifyingtheembedding
+dimensiond ,andsettingthewidthofthefully-connectedlayersproportionally(d =4·d ).
+model ff model
+1The raw data from our experiments are available at: https://gitlab.com/
+harvard-machine-learning/double-descent/tree/master
+4
+
+ForResNetsandCNNs,wetrainwithcross-entropyloss,andthefollowingoptimizers: (1)Adam
+withlearning-rate0.0001for4Kepochs;(2)SGDwithlearningrate∝ √1 for500Kgradientsteps.
+T
+WetrainTransformersfor80Kgradientsteps,with10%labelsmoothingandnodrop-out.
+LabelNoise. Inourexperiments,labelnoiseofprobabilitypreferstotrainingonasampleswhich
+have the correct label with probability (1−p), and a uniformly random incorrect label otherwise
+(labelnoiseissampledonlyonceandnotperepoch). Figure1plotstesterroronthenoisydistribu-
+tion,whiletheremainingfiguresplottesterrorwithrespecttothecleandistribution(thetwocurves
+arejustlinearrescalingofoneanother).
+5 MODEL-WISE DOUBLE DESCENT
+(a)CIFAR-100. Thereisapeakintesterroreven (b) CIFAR-10. There is a “plateau” in test error
+withnolabelnoise. around the interpolation point with no label noise,
+whichdevelopsintoapeakforaddedlabelnoise.
+Figure4: Model-wisedoubledescentforResNet18s. TrainedonCIFAR-100andCIFAR-10,with
+varyinglabelnoise. OptimizedusingAdamwithLR0.0001for4Kepochs,anddata-augmentation.
+In this section, we study the test error of models of increasing size, when training to completion
+(forafixedlargenumberofoptimizationsteps). Wedemonstratemodel-wisedoubledescentacross
+different architectures, datasets, optimizers, and training procedures. The critical region exhibits
+distinctlydifferenttestbehavioraroundtheinterpolationpointandthereisoftenapeakintesterror
+thatbecomesmoreprominentinsettingswithlabelnoise.
+Fortheexperimentsinthissection(Figures4,5,6,7,8),noticethatallmodificationswhichincrease
+theinterpolationthreshold(suchasaddinglabelnoise,usingdataaugmentation,andincreasingthe
+number of train samples) also correspondingly shift the peak in test error towards larger models.
+Additional plots showing the early-stopping behavior of these models, and additional experiments
+showing double descent in settings with no label noise (e.g. Figure 19) are in Appendix E.2. We
+alsoobservedmodel-wisedoubledescentforadversarialtraining,withaprominentrobusttesterror
+peakeveninsettingswithoutlabelnoise. SeeFigure26inAppendixE.2.
+Discussion. Fullyunderstandingthemechanismsbehindmodel-wisedoubledescentindeepneu-
+ralnetworksremainsanimportantopenquestion.However,ananalogofmodel-wisedoubledescent
+occurs even for linear models. A recent stream of theoretical works analyzes this setting (Bartlett
+etal.(2019);Muthukumaretal.(2019);Belkinetal.(2019);Mei&Montanari(2019);Hastieetal.
+(2019)). Webelievesimilarmechanismsmaybeatworkindeepneuralnetworks.
+Informally, our intuition is that for model-sizes at the interpolation threshold, there is effectively
+onlyonemodelthatfitsthetraindataandthisinterpolatingmodelisverysensitivetonoiseinthe
+5
+
+(a)Withoutdataaugmentation. (b)Withdataaugmentation.
+Figure 5: Effect of Data Augmentation. 5-layer CNNs on CIFAR10, with and without data-
+augmentation. Data-augmentation shifts the interpolation threshold to the right, shifting the test
+errorpeakaccordingly. OptimizedusingSGDfor500Ksteps. SeeFigure27forlargermodels.
+Figure6: SGDvs. Adam. 5-LayerCNNs Figure 7: Noiseless settings. 5-layer
+onCIFAR-10withnolabelnoise, andno CNNsonCIFAR-100withnolabelnoise;
+dataaugmentation. OptimizedusingSGD note the peak in test error. Trained with
+for500Kgradientsteps,andAdamfor4K SGDandnodataaugmentation. SeeFig-
+epochs. ure 20 for the early-stopping behavior of
+thesemodels.
+trainsetand/ormodelmis-specification. Thatis, sincethemodelisjustbarelyabletofitthetrain
+data,forcingittofitevenslightly-noisyormis-specifiedlabelswilldestroyitsglobalstructure,and
+resultinhightesterror. (SeeFigure28intheAppendixforanexperimentdemonstratingthisnoise
+sensitivity, by showing that ensembling helps significantly in the critically-parameterized regime).
+However for over-parameterized models, there are many interpolating models that fit the train set,
+andSGDisabletofindonethat“memorizes”(or“absorbs”)thenoisewhilestillperformingwell
+onthedistribution.
+The above intuition is theoretically justified for linear models. In general, this situation manifests
+even without label noise for linear models (Mei & Montanari (2019)), and occurs whenever there
+6
+
+Figure8:Transformersonlanguagetrans-
+lation tasks: Multi-head-attention encoder-
+decoder Transformer model trained for
+80k gradient steps with labeled smoothed
+cross-entropy loss on IWSLT‘14 German-
+to-English (160K sentences) and WMT‘14
+English-to-French(subsampledto200Ksen-
+tences)dataset. Testlossismeasuredasper-
+tokenperplexity.
+ismodelmis-specificationbetweenthestructureofthetruedistributionandthemodelfamily. We
+believethisintuitionextendstodeeplearningaswell,anditisconsistentwithourexperiments.
+6 EPOCH-WISE DOUBLE DESCENT
+In this section, we demonstrate a novel form of double-descent with respect to training epochs,
+whichisconsistentwithourunifiedviewofeffectivemodelcomplexity(EMC)andthegeneralized
+double descent hypothesis. Increasing the train time increases the EMC—and thus a sufficiently
+largemodeltransitionsfromunder-toover-parameterizedoverthecourseoftraining.
+Figure9:Left: Trainingdynamicsformodelsinthreeregimes.ModelsareResNet18sonCIFAR10
+with20%labelnoise,trainedusingAdamwithlearningrate0.0001,anddataaugmentation. Right:
+Testerrorover(Modelsize×Epochs). Threeslicesofthisplotareshownontheleft.
+AsillustratedinFigure9,sufficientlylargemodelscanundergoa“doubledescent”behaviorwhere
+testerrorfirstdecreasesthenincreasesneartheinterpolationthreshold,andthendecreasesagain. In
+contrast, for“mediumsized”models, forwhichtrainingtocompletionwillonlybarelyreach≈ 0
+error, the test error as a function of training time will follow a classical U-like curve where it is
+bettertostopearly. Modelsthataretoosmalltoreachtheapproximationthresholdwillremainin
+the “under parameterized” regime where increasing train time monotonically decreases test error.
+Ourexperiments(Figure10)showthatmanysettingsofdatasetandarchitectureexhibitepoch-wise
+doubledescent,inthepresenceoflabelnoise. Further,thisphenomenonisrobustacrossoptimizer
+variationsandlearningrateschedules(seeadditionalexperimentsinAppendixE.1). Asinmodel-
+wisedoubledescent,thetesterrorpeakisaccentuatedwithlabelnoise.
+Conventionalwisdomsuggeststhattrainingissplitintotwophases: (1)Inthefirstphase, thenet-
+work learns a function with a small generalization gap (2) In the second phase, the network starts
+toover-fitthedataleadingtoanincreaseintesterror. Ourexperimentssuggestthatthisisnotthe
+completepicture—insomeregimes,thetesterrordecreasesagainandmayachievealowervalueat
+theendoftrainingascomparedtothefirstminimum(seeFig10for10%labelnoise).
+7
+
+(a)ResNet18onCIFAR10. (b)ResNet18onCIFAR100. (c)5-layerCNNonCIFAR10.
+Figure10:Epoch-wisedoubledescentforResNet18andCNN(width=128).ResNetstrainedusing
+Adamwithlearningrate0.0001,andCNNstrainedwithSGDwithinverse-squarerootlearningrate.
+7 SAMPLE-WISE NON-MONOTONICITY
+Inthissection,weinvestigatetheeffectofvaryingthenumberoftrainsamples,forafixedmodeland
+trainingprocedure.Previously,inmodel-wiseandepoch-wisedoubledescent,weexploredbehavior
+inthecriticalregime,whereEMC (T) ≈ n,byvaryingtheEMC.Here,weexplorethecritical
+D,(cid:15)
+regimebyvaryingthenumberoftrainsamplesn. Byincreasingn,thesametrainingprocedureT
+canswitchfrombeingeffectivelyover-parameterizedtoeffectivelyunder-parameterized.
+Weshowthatincreasingthenumberofsampleshastwodifferenteffectsonthetesterrorvs. model
+complexitygraph.Ontheonehand,(asexpected)increasingthenumberofsamplesshrinksthearea
+underthecurve. Ontheotherhand,increasingthenumberofsamplesalsohastheeffectof“shifting
+thecurvetotheright”andincreasingthemodelcomplexityatwhichtesterrorpeaks.
+(a)Model-wisedoubledescentfor5-layerCNNs (b) Sample-wise non-monotonicity. Test loss
+on CIFAR-10, for varying dataset sizes. Top: (per-wordperplexity)asafunctionofnumberof
+There is a range of model sizes (shaded green) trainsamples,fortwotransformermodelstrained
+wheretrainingon2×moresamplesdoesnotim- to completion on IWSLT’14. For both model
+prove test error. Bottom: There is a range of sizes,thereisaregimewheremoresampleshurt
+model sizes (shaded red) where training on 4× performance.ComparetoFigure3,ofmodel-wise
+moresamplesdoesnotimprovetesterror. double-descentintheidenticalsetting.
+Figure11: Sample-wisenon-monotonicity.
+8
+
+These twin effects are shown in Figure 11a. Note that there is a range of model sizes where the
+effects “cancel out”—and having 4× more train samples does not help test performance when
+trainingtocompletion. Outsidethecritically-parameterizedregime,forsufficientlyunder-orover-
+parameterizedmodels,havingmoresampleshelps. ThisphenomenoniscorroboratedinFigure12,
+whichshowstesterrorasafunctionofbothmodelandsamplesize,inthesamesettingasFigure11a.
+Figure 12: Left: Test Error as a function of model size and number of train samples, for 5-layer
+CNNsonCIFAR-10+20%noise. Notetheridgeofhightesterroragainliesalongtheinterpolation
+threshold. Right: Three slices of the left plot, showing the effect of more data for models of
+differentsizes. Notethat,whentrainingtocompletion,moredatahelpsforsmallandlargemodels,
+butdoesnothelpfornear-critically-parameterizedmodels(green).
+Insomesettings,thesetwoeffectscombinetoyieldaregimeofmodelsizeswheremoredataactually
+hurtstestperformanceasinFigure3(seealsoFigure11b). Notethatthisphenomenonisnotunique
+toDNNs: moredatacanhurtevenforlinearmodels(seeAppendixD).
+8 CONCLUSION AND DISCUSSION
+Weintroduceageneralizeddoubledescenthypothesis:modelsandtrainingproceduresexhibitatyp-
+icalbehaviorwhentheirEffectiveModelComplexityiscomparabletothenumberoftrainsamples.
+Weprovideextensiveevidenceforourhypothesisinmoderndeeplearningsettings,andshowthat
+it is robust to choices of dataset, architecture, and training procedures. In particular, we demon-
+strate “model-wise double descent” for modern deep networks and characterize the regime where
+biggermodelscanperformworse. Wealsodemonstrate“epoch-wisedoubledescent,”which,tothe
+bestofourknowledge,hasnotbeenpreviouslyproposed. Finally,weshowthatthedoubledescent
+phenomenon can lead to a regime where training on more data leads to worse test performance.
+Preliminaryresultssuggestthatdoubledescentalsoholdsaswevarytheamountofregularization
+forafixedmodel(seeFigure22).
+We also believe our characterization of the critical regime provides a useful way of thinking for
+practitioners—if a model and training procedure are just barely able to fit the train set, then small
+changestothemodelortrainingproceduremayyieldunexpectedbehavior(e.g. makingthemodel
+slightlylargerorsmaller,changingregularization,etc. mayhurttestperformance).
+Earlystopping. Wenotethatmanyofthephenomenathatwehighlightoftendonotoccurwith
+optimalearly-stopping. However,thisisconsistentwithourgeneralizeddoubledescenthypothesis:
+ifearlystoppingpreventsmodelsfromreaching0trainerrorthenwewouldnotexpecttoseedouble-
+descent,sincetheEMCdoesnotreachthenumberoftrainsamples. Further,weshowatleastone
+9
+
+settingwheremodel-wisedoubledescentcanstilloccurevenwithoptimalearlystopping(ResNets
+onCIFAR-100withnolabelnoise,seeFigure19). Wehavenotobservedsettingswheremoredata
+hurts when optimal early-stopping is used. However, we are not aware of reasons which preclude
+this from occurring. We leave fully understanding the optimal early stopping behavior of double
+descentasanimportantopenquestionforfuturework.
+LabelNoise. Inourexperiments,weobservedoubledescentmoststronglyinsettingswithlabel
+noise. However, we believe this effect is not fundamentally about label noise, but rather about
+modelmis-specification. Forexample,considerasettingwherethelabelnoiseisnottrulyrandom,
+but rather pseudorandom (with respect to the family of classifiers being trained). In this setting,
+the performance of the Bayes optimal classifier would not change (since the pseudorandom noise
+is deterministic, and invertible), but we would observe an identical double descent as with truly
+random label noise. Thus, we view adding label noise as merely a proxy for making distributions
+“harder”—i.e. increasingtheamountofmodelmis-specification.
+Other Notions of Model Complexity. Our notion of Effective Model Complexity is related to
+classical complexity notions such as Rademacher complexity, but differs in several crucial ways:
+(1)EMCdependsonthetruelabelsofthedatadistribution, and(2)EMCdependsonthetraining
+procedure,notjustthemodelarchitecture.
+Othernotionsofmodelcomplexitywhichdonotincorporatefeatures(1)and(2)wouldnotsuffice
+to characterize the location of the double-descent peak. Rademacher complexity, for example, is
+determinedbytheabilityofamodelarchitecturetofitarandomly-labeledtrainset.ButRademacher
+complexity and VC dimension are both insufficient to determine the model-wise double descent
+peak location, since they do not depend on the distribution of labels— and our experiments show
+thataddinglabelnoiseshiftsthelocationofthepeak.
+Moreover, both Rademachercomplexity andVC dimension dependonly onthe modelfamily and
+datadistribution,andnotonthetrainingprocedureusedtofindmodels. Thus,theyarenotcapable
+ofcapturingtrain-timedouble-descenteffects,suchas“epoch-wise”doubledescent,andtheeffect
+ofdata-augmentationonthepeaklocation.
+ACKNOWLEDGMENTS
+We thank Mikhail Belkin for extremely useful discussions in the early stages of this work. We
+thank Christopher Olah for suggesting the Model Size × Epoch visualization, which led to the
+investigationofepoch-wisedoubledescent,aswellasforusefuldiscussionandfeedback. Wealso
+thankAlecRadford,JacobSteinhardt,andVaishaalShankarforhelpfuldiscussionandsuggestions.
+P.N.thanksOpenAI,theSimonsInstitute,andtheHarvardTheoryGroupforaresearchenvironment
+thatenabledthiskindofwork.
+We thank Dimitris Kalimeris, Benjamin L. Edelman, and Sharon Qian, and Aditya Ramesh for
+commentsonanearlydraftofthiswork.
+ThisworksupportedinpartbyNSFgrantCAREERCCF1452961,BSFgrant2014389,NSFUS-
+ICCSproposal1540428,aGoogleResearchaward,aFacebookresearchaward,aSimonsInvestiga-
+torAward,aSimonsInvestigatorFellowship,andNSFAwardsCCF1715187,CCF1565264,CCF
+1301976,IIS1409097,andCNS1618026. Y.B.wouldliketothanktheMIT-IBMWatsonAILab
+forcontributingcomputationalresourcesforexperiments.
+REFERENCES
+MadhuSAdvaniandAndrewMSaxe.High-dimensionaldynamicsofgeneralizationerrorinneural
+networks. arXivpreprintarXiv:1710.03667,2017.
+PeterLBartlett,PhilipMLong,Ga´borLugosi,andAlexanderTsigler. Benignoverfittinginlinear
+regression. arXivpreprintarXiv:1906.11300,2019.
+MikhailBelkin,DanielHsu,SiyuanMa,andSoumikMandal.Reconcilingmodernmachinelearning
+andthebias-variancetrade-off. arXivpreprintarXiv:1812.11118,2018.
+10
+
+Mikhail Belkin, Daniel Hsu, and Ji Xu. Two models of double descent for weak features. arXiv
+preprintarXiv:1903.07571,2019.
+Koby Bibas, Yaniv Fogel, and Meir Feder. A new look at an old problem: A universal learning
+approachtolinearregression. arXivpreprintarXiv:1905.04708,2019.
+MauroCettolo,ChristianGirardi,andMarcelloFederico. Wit3: Webinventoryoftranscribedand
+translatedtalks. InProceedingsofthe16thConferenceoftheEuropeanAssociationforMachine
+Translation(EAMT),pp.261–268,Trento,Italy,May2012.
+Mario Geiger, Arthur Jacot, Stefano Spigler, Franck Gabriel, Levent Sagun, Ste´phane d’Ascoli,
+GiulioBiroli,Cle´mentHongler,andMatthieuWyart. Scalingdescriptionofgeneralizationwith
+numberofparametersindeeplearning. arXivpreprintarXiv:1901.01608,2019a.
+Mario Geiger, Stefano Spigler, Ste´phane d’Ascoli, Levent Sagun, Marco Baity-Jesi, GiulioBiroli,
+andMatthieuWyart. Jammingtransitionasaparadigmtounderstandthelosslandscapeofdeep
+neuralnetworks. PhysicalReviewE,100(1):012115,2019b.
+IanJGoodfellow, JonathonShlens, andChristianSzegedy. Explainingandharnessingadversarial
+examples. arXivpreprintarXiv:1412.6572,2014.
+TrevorHastie,RobertTibshirani,JeromeFriedman,andJamesFranklin. Theelementsofstatistical
+learning: data mining, inference and prediction. The Mathematical Intelligencer, 27(2):83–85,
+2005.
+Trevor Hastie, Andrea Montanari, Saharon Rosset, and Ryan J Tibshirani. Surprises in high-
+dimensionalridgelessleastsquaresinterpolation. arXivpreprintarXiv:1903.08560,2019.
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Identity mappings in deep residual
+networks. InEuropeanconferenceoncomputervision,pp.630–645.Springer,2016.
+YanpingHuang,YonglongCheng,DehaoChen,HyoukJoongLee,JiquanNgiam,QuocV.Le,and
+Zhifeng Chen. Gpipe: Efficient training of giant neural networks using pipeline parallelism.
+CoRR,abs/1811.06965,2018. URLhttp://arxiv.org/abs/1811.06965.
+AlexKrizhevsky. Learningmultiplelayersoffeaturesfromtinyimages. Technicalreport,2009.
+AlexKrizhevsky,IlyaSutskever,andGeoffreyEHinton. Imagenetclassificationwithdeepconvo-
+lutionalneuralnetworks. InAdvancesinneuralinformationprocessingsystems,pp.1097–1105,
+2012.
+Aleksander Madry, Aleksandar Makelov, Ludwig Schmidt, Dimitris Tsipras, and Adrian Vladu.
+Towardsdeeplearningmodelsresistanttoadversarialattacks. arXivpreprintarXiv:1706.06083,
+2017.
+SongMeiandAndreaMontanari. Thegeneralizationerrorofrandomfeaturesregression: Precise
+asymptoticsanddoubledescentcurve. arXivpreprintarXiv:1908.05355,2019.
+ParthaP.Mitra. Understandingoverfittingpeaksingeneralizationerror: Analyticalriskcurvesfor
+l2andl1penalizedinterpolation. ArXiv,abs/1906.03667,2019.
+Vidya Muthukumar, Kailas Vodrahalli, and Anant Sahai. Harmless interpolation of noisy data in
+regression. arXivpreprintarXiv:1903.09139,2019.
+Preetum Nakkiran, Gal Kaplun, Dimitris Kalimeris, Tristan Yang, Benjamin L Edelman, Fred
+Zhang,andBoazBarak. Sgdonneuralnetworkslearnsfunctionsofincreasingcomplexity. arXiv
+preprintarXiv:1905.11604,2019.
+ManfredOpper. Statisticalmechanicsoflearning: Generalization. TheHandbookofBrainTheory
+andNeuralNetworks,922-925.,1995.
+ManfredOpper. Learningtogeneralize. FrontiersofLife,3(part2),pp.763-775.,2001.
+11
+
+Myle Ott, Sergey Edunov, Alexei Baevski, Angela Fan, Sam Gross, Nathan Ng, David Grangier,
+and Michael Auli. fairseq: A fast, extensible toolkit for sequence modeling. In Proceedings of
+NAACL-HLT2019: Demonstrations,2019.
+David Page. How to train your resnet. https://myrtle.ai/
+how-to-train-your-resnet-4-architecture/,2018.
+Adam Paszke, Sam Gross, Soumith Chintala, Gregory Chanan, Edward Yang, Zachary DeVito,
+Zeming Lin, Alban Desmaison, Luca Antiga, and Adam Lerer. Automatic differentiation in
+PyTorch. InNeurIPSAutodiffWorkshop,2017.
+Alec Radford, Jeff Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. Language
+modelsareunsupervisedmultitasklearners. 2019.
+AliRahimiandBenjaminRecht. Randomfeaturesforlarge-scalekernelmachines. InAdvancesin
+neuralinformationprocessingsystems,pp.1177–1184,2008.
+RicoSennrich,BarryHaddow,andAlexandraBirch. Neuralmachinetranslationofrarewordswith
+subwordunits. ArXiv,abs/1508.07909,2015.
+StefanoSpigler,MarioGeiger,Ste´phaned’Ascoli,LeventSagun,GiulioBiroli,andMatthieuWyart.
+A jamming transition from under-to over-parametrization affects loss landscape and generaliza-
+tion. arXivpreprintarXiv:1810.09665,2018.
+Christian Szegedy, Wei Liu, Yangqing Jia, Pierre Sermanet, Scott Reed, Dragomir Anguelov, Du-
+mitruErhan,VincentVanhoucke,andAndrewRabinovich. Goingdeeperwithconvolutions. In
+Computer Vision and Pattern Recognition (CVPR), 2015. URL http://arxiv.org/abs/
+1409.4842.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez,
+LukaszKaiser,andIlliaPolosukhin. Attentionisallyouneed. CoRR,abs/1706.03762,2017.
+Chiyuan Zhang, Samy Bengio, Moritz Hardt, Benjamin Recht, and Oriol Vinyals. Understanding
+deeplearningrequiresrethinkinggeneralization. ICLR,abs/1611.03530,2016.
+12
+
+A SUMMARY TABLE OF EXPERIMENTAL RESULTS
+Double-Descent
+Dataset Architecture Opt. Aug. %Noise Model Epoch Figure(s)
+CIFAR10 CNN SGD (cid:88) 0 (cid:55) (cid:55) 5,27
+(cid:88) 10 (cid:88) (cid:88) 5,27,6
+(cid:88) 20 (cid:88) (cid:88) 5,27
+0 (cid:55) (cid:55) 5,25
+10 (cid:88) (cid:88) 5
+20 (cid:88) (cid:88) 5
+SGD+w.d. (cid:88) 20 (cid:88) (cid:88) 21
+Adam 0 (cid:88) – 25
+ResNet Adam (cid:88) 0 (cid:55) (cid:55) 4,10
+(cid:88) 5 (cid:88) – 4
+(cid:88) 10 (cid:88) (cid:88) 4,10
+(cid:88) 15 (cid:88) (cid:88) 4,2
+(cid:88) 20 (cid:88) (cid:88) 4,9,10
+Various (cid:88) 20 – (cid:88) 16,17,18
+(subsampled) CNN SGD (cid:88) 10 (cid:88) – 11a
+SGD (cid:88) 20 (cid:88) – 11a,12
+(adversarial) ResNet SGD 0 Robusterr. – 26
+CIFAR100 ResNet Adam (cid:88) 0 (cid:88) (cid:55) 4,19,10
+(cid:88) 10 (cid:88) (cid:88) 4,10
+(cid:88) 20 (cid:88) (cid:88) 4,10
+CNN SGD 0 (cid:88) (cid:55) 20
+IWSLT’14de-en Transformer Adam 0 (cid:88) (cid:55) 8,24
+(subsampled) Transformer Adam 0 (cid:88) (cid:55) 11b,23
+WMT’14en-fr Transformer Adam 0 (cid:88) (cid:55) 8,24
+B APPENDIX: EXPERIMENTAL DETAILS
+B.1 MODELS
+We use the following families of architectures. The PyTorch Paszke et al. (2017)
+specification of our ResNets and CNNs are available at https://gitlab.com/
+harvard-machine-learning/double-descent/tree/master.
+ResNets. We define a family of ResNet18s of increasing size as follows. We follow the Preac-
+tivation ResNet18 architecture of He et al. (2016), using 4 ResNet blocks, each consisting of two
+BatchNorm-ReLU-Convolution layers. The layer widths for the 4 blocks are [k,2k,4k,8k] for
+varyingk ∈ Nandthestridesare[1,2,2,2]. ThestandardResNet18correspondstok = 64con-
+volutionalchannelsinthefirstlayer. ThescalingofmodelsizewithkisshowninFigure13b. Our
+implementationisadaptedfromhttps://github.com/kuangliu/pytorch-cifar.
+Standard CNNs. We consider a simple family of 5-layer CNNs, with four Conv-BatchNorm-
+ReLU-MaxPool layers and a fully-connected output layer. We scale the four convolutional layer
+widths as [k,2k,4k,8k]. The MaxPool is [1, 2, 2, 8]. For all the convolution layers, the kernel
+size=3,stride=1andpadding=1. Thisarchitectureisbasedonthe“backbone”architecturefrom
+Page(2018). Fork =64,thisCNNhas1558026parametersandcanreach>90%testaccuracyon
+CIFAR-10(Krizhevsky(2009))withdata-augmentation. Thescalingofmodelsizewithkisshown
+inFigure13a.
+Transformers. Weconsidertheencoder-decoderTransformermodelfromVaswanietal.(2017)
+with6layersand8attentionheadsperlayer,asimplementedbyfairseqOttetal.(2019). Wescale
+thesizeofthenetworkbymodifyingtheembeddingdimension(d ),andscalethewidthofthe
+model
+fully-connected layers proportionally (d = 4d ). We train with 10% label smoothing and no
+ff model
+drop-out,for80gradientsteps.
+13
+
+(a)5-layerCNNs (b)ResNet18s (c)Transformers
+Figure13: Scalingofmodelsizewithourparameterizationofwidth&embeddingdimension.
+B.2 IMAGECLASSIFICATION: EXPERIMENTALSETUP
+WedescribethedetailsoftrainingforCNNsandResNetsbelow.
+Lossfunction: Unlessstatedotherwise,weusethecross-entropylossforalltheexperiments.
+Data-augmentation: In experiments where data-augmentation was used, we apply
+RandomCrop(32, padding=4) and RandomHorizontalFlip. In experiments with
+added label noise, the label for all augmentations of a given training sample are given the same
+label.
+Regularization: Noexplicitregularizationlikeweightdecayordropoutwasappliedunlessexplic-
+itlystated.
+Initialization: WeusethedefaultinitializationprovidedbyPyTorchforallthelayers.
+Optimization:
+• Adam: Unlessspecifiedotherwise,learningratewassetatconstantto1e−4andallother
+parametersweresettotheirdefaultPyTorchvalues.
+• SGD: Unless specified otherwise, learning rate schedule inverse-square root (defined be-
+low)wasusedwithinitiallearningrateγ =0.1andupdateseveryL=512gradientsteps.
+0
+Nomomentumwasused.
+We found our results are robust to various other natural choices of optimizers and learning rate
+schedule. We used the above settings because (1) they optimize well, and (2) they do not require
+experiment-specifichyperparametertuning,andallowustousethesameoptimizationacrossmany
+experiments.
+Batchsize: Allexperimentsuseabatchsizeof128.
+Learningratescheduledescriptions:
+• Inverse-square root (γ ,L): At gradient step t, the learning rate is set to γ(t) :=
+0
+√ γ0 . Wesetlearning-ratewithrespecttonumberofgradientsteps,andnotepochs,
+1+(cid:98)t/512(cid:99)
+inordertoallowcomparisonbetweenexperimentswithvaryingtrain-setsizes.
+• Dynamicdrop(γ ,drop,patience): Startswithaninitiallearningrateofγ anddropsby
+0 0
+afactorof’drop’ifthetraininglosshasremainedconstantorbecomeworsefor’patience’
+numberofgradientsteps.
+B.3 NEURALMACHINETRANSLATION: EXPERIMENTALSETUP
+Herewedescribetheexperimentalsetupfortheneuralmachinetranslationexperiments.
+Trainingprocedure.
+14
+
+Inthissetting,thedistributionDconsistsoftriples
+(x,y,i) : x∈V∗ , y ∈V∗ , i∈{0,...,|y|}
+src tgt
+whereV andV arethesourceandtargetvocabularies,thestringxisasentenceinthesource
+src tgt
+language,yisitstranslationinthetargetlanguage,andiistheindexofthetokentobepredictedby
+themodel. Weassumethati|x,yisdistributeduniformlyon{0,...,|y|}.
+Astandardprobabilisticmodeldefinesanautoregressivefactorizationofthelikelihood:
+|y|
+(cid:89)
+p (y|x)= p (y |y ,x).
+M M i <i
+i=1
+GivenasetoftrainingsamplesS,wedefine
+1 (cid:88)
+Error (M)= −logp (y |y ,x).
+S |S| M i <i
+(x,y,i)∈S
+In practice, S is not constructed from independent samples from D, but rather by first sampling
+(x,y)andthenincludingall(x,y,0),...,(x,y,|y|)inS.
+Fortrainingtransformers,wereplicatetheoptimizationprocedurespecifiedinVaswanietal.(2017)
+section5.3,wherethelearningratescheduleconsistsofa“warmup”phasewithlinearlyincreasing
+learningratefollowedbyaphasewithinversesquare-rootdecay. Wepreprocessthedatausingbyte
+pairencoding(BPE)asdescribedinSennrichetal.(2015). Weusetheimplementationprovidedby
+fairseq(https://github.com/pytorch/fairseq).
+Datasets. TheIWSLT’14GermantoEnglishdatasetcontainsTEDTalksasdescribedinCettolo
+et al. (2012). The WMT ’14 English to French dataset is taken from http://www.statmt.
+org/wmt14/translation-task.html.
+B.4 PER-SECTIONEXPERIMENTALDETAILS
+Hereweprovidefulldetailsforexperimentsinthebody,whennototherwiseprovided.
+Introduction: ExperimentalDetailsFigure1: AllmodelsweretrainedusingAdamwithlearning-
+rate0.0001for4Kepochs.Plottingmeansandstandarddeviationsfor5trials,withrandomnetwork
+initialization.
+Model-wiseDoubleDescent: ExperimentalDetailsFigure7: Plottingmeansandstandarddevia-
+tionsfor5trials,withrandomnetworkinitialization.
+Sample-wise Nonmonotonicity: Experimental Details Figure 11a: All models are trained with
+SGD for 500K epochs, and data-augmentation. Bottom: Means and standard deviations from 5
+trialswithrandominitialization,andrandomsubsamplingofthetrainset.
+15
+
+C EXTENDED DISCUSSION OF RELATED WORK
+Belkinetal.(2018): Thispaperproposed, inverygeneralterms, thattheapparentcontradiction
+between traditional notions of the bias-variance trade-off and empirically successful practices in
+deeplearningcanbereconciledunderadouble-descentcurve—asmodelcomplexityincreases,the
+testerrorfollowsthetraditional“U-shapedcurve”, butbeyondthepointofinterpolation, theerror
+starts to decrease. This work provides empirical evidence for the double-descent curve with fully
+connectednetworkstrainedonsubsetsofMNIST,CIFAR10,SVHNandTIMITdatasets. Theyuse
+thel lossfortheirexperiments. Theydemonstratethatneuralnetworksarenotanaberrationinthis
+2
+regard—double-descent is a general phenomenon observed also in linear regression with random
+featuresandrandomforests.
+Theoreticalworksonlinearleastsquaresregression: Avarietyofpapershaveattemptedtothe-
+oreticallyanalyzethisbehaviorinrestrictedsettings,particularlythecaseofleastsquaresregression
+undervariousassumptionsonthetrainingdata,featurespacesandregularizationmethod.
+1. Advani & Saxe (2017); Hastie et al. (2019) both consider the linear regression problem
+stated above and analyze the generalization behavior in the asymptotic limit N,D → ∞
+using random matrix theory. Hastie et al. (2019) highlight that when the model is mis-
+specified,theminimumoftrainingerrorcanoccurforover-parameterizedmodels
+2. Belkin et al. (2019) Linear least squares regression for two data models, where the input
+dataissampledfromaGaussianandaFourierseriesmodelforfunctionsonacircle. They
+provideafinite-sampleanalysisforthesetwocases
+3. Bartlettetal.(2019)providesgeneralizationboundsfortheminimuml -norminterpolant
+2
+forGaussianfeatures
+4. Muthukumaretal.(2019)characterizethefundamentallimitofofanyinterpolatingsolu-
+tioninthepresenceofnoiseandprovidesomeinterestingFourier-theoreticinterpretations.
+5. Mei&Montanari(2019):Thisworkprovidesasymptoticanalysisforridgeregressionover
+randomfeatures
+SimilardoubledescentbehaviorwasinvestigatedinOpper(1995;2001)
+Geigeretal.(2019b)showedthatdeepfullyconnectednetworkstrainedontheMNISTdatasetwith
+hingelossexhibita“jammingtransition”whenthenumberofparametersexceedsathresholdthat
+allowstrainingtonear-zerotrainloss. Geigeretal.(2019a)providefurtherexperimentsonCIFAR-
+10withaconvolutionalnetwork. Theyalsohighlightinterestingbehaviorwithensemblingaround
+thecriticalregime,whichisconsistentwithourinformalintuitionsinSection5andourexperiments
+inFigures28,29.
+Advani & Saxe (2017); Geiger et al. (2019b;a) also point out that double-descent is not observed
+whenoptimalearly-stoppingisused.
+16
+
+D RANDOM FEATURES: A CASE STUDY
+Figure 14: Random Fourier Features on the Fashion MNIST dataset. The setting is equivalent
+to two-layerneural networkwith e−ix activation, with randomly-initializedfirst layerthat isfixed
+throughouttraining. Thesecondlayeristrainedusinggradientflow.
+In this section, for completeness sake, we show that both the model- and sample-wise double de-
+scentphenomenaarenotuniquetodeepneuralnetworks—theyexisteveninthesettingofRandom
+FourierFeaturesofRahimi&Recht(2008). Thissettingisequivalenttoatwo-layerneuralnetwork
+with e−ix activation. The first layer is initialized with a N(0,1) Gaussian distribution and then
+d
+fixed throughout training. The width (or embedding dimension) d of the first layer parameterizes
+themodelsize. Thesecondlayerisinitializedwith0sandtrainedwithMSEloss.
+Figure14showsthegridofTestErrorasafunctionofbothnumberofsamplesnandmodelsized.
+NotethatinthissettingEMC = d(theembeddingdimension). Asaresult,asdemonstratedinthe
+figure,thepeakfollowsthepathofn=d. Bothmodel-wiseandsample-wise(seefigure15)double
+descentphenomenaarecaptured,byhorizontallyandverticallycrossingthegrid,respectively.
+Figure15: Sample-wisedouble-descentsliceforRandomFourierFeaturesontheFashionMNIST
+dataset. Inthisfiguretheembeddingdimension(numberofrandomfeatures)is1000.
+17
+
+E APPENDIX: ADDITIONAL EXPERIMENTS
+E.1 EPOCH-WISEDOUBLEDESCENT: ADDITIONALRESULTS
+Here,weprovidearigorousevaluationofepoch-wisedoubledescentforavarietyofoptimizersand
+learning rate schedules. We train ResNet18 on CIFAR-10 with data-augmentation and 20% label
+noisewiththreedifferentoptimizers—Adam,SGD,SGD+Momentum(momentumsetto0.9)and
+three different learning rate schedules—constant, inverse-square root, dynamic drop for differnet
+valuesofinitiallearningrate. Weobservethatdouble-descentoccursreliablyforalloptimizersand
+learningrateschedulesandthepeakofthedoubledescentcurveshiftswiththeinterpolationpoint.
+(a)Constantlearningrate (b) Inverse-square root learning (c)Dynamiclearningrate
+rate
+Figure16: Epoch-wisedoubledescentforResNet18trainedwithAdamandmultiplelearningrate
+schedules
+Apracticalrecommendationresultingfromepoch-wisedoubledescentisthatstoppingthetraining
+whenthetesterrorstartstoincreasemaynotalwaysbethebeststrategy.Insomecases,thetesterror
+maydecreaseagainafterreachingamaximum,andthefinalvaluemaybelowerthantheminimum
+earlierintraining.
+(a)Constantlearningrate (b) Inverse-square root learning (c)Dynamiclearningrate
+rate
+Figure17: Epoch-wisedoubledescentforResNet18trainedwithSGDandmultiplelearningrate
+schedules
+18
+
+(a)Constantlearningrate (b) Inverse-square root learning (c)Dynamiclearningrate
+rate
+Figure18: Epoch-wisedoubledescentforResNet18trainedwithSGD+Momentumandmultiple
+learningrateschedules
+E.2 MODEL-WISEDOUBLEDESCENT: ADDITIONALRESULTS
+E.2.1 CLEANSETTINGSWITHMODEL-WISEDOUBLEDESCENT
+CIFAR100,ResNet18
+Figure 19: Top: Train and test performance as a function of both model size and train epochs.
+Bottom: Test error dynamics of the same model (ResNet18, on CIFAR-100 with no label noise,
+data-augmentationandAdamoptimizertrainedfor4kepochswithlearningrate0.0001). Notethat
+evenwithoptimalearlystoppingthissettingexhibitsdoubledescent.
+19
+
+CIFAR100,StandardCNN
+Figure 20: Top: Train and test performance as a function of both model size and train epochs.
+Bottom: Testerrordynamicsofthesamemodels. 5-LayerCNNs,CIFAR-100withnolabelnoise,
+nodata-augmentationTrainedwithSGDfor1e6steps. SameexperimentasFigure7.
+20
+
+E.2.2 WEIGHTDECAY
+Figure 21: Left: Test error dynamics with weight decay of 5e-4 (bottom left) and without weight
+decay (top left). Right: Test and train error and test loss for models with varying amounts of
+weight decay. All models are 5-Layer CNNs on CIFAR-10 with 10% label noise, trained with
+data-augmentationandSGDfor500Ksteps.
+Here,wenowstudytheeffectofvaryingthelevelofregularizationontesterror. WetrainCIFAR10
+with data-augmentation and 20% label noise on ResNet18 for weight decay co-efficients λ rang-
+ing from 0 to 0.1. We train the networks using SGD + inverse-square root learning rate. Figure
+below shows a picture qualitatively very similar to that observed for model-wise double descent
+wherein”modelcomplexity”isnowcontrolledbytheregularizationparameter. Thisconfirmsour
+generalizeddoubledescenthypothesisalongyetanotheraxisofEffectiveModelComplexity.
+(a)TestError (b)TrainLoss
+Figure 22: Generalized double descent for weight decay. We found that using the same initial
+learningrateforallweightdecayvaluesledtotraininginstabilities. Thisresultedinsomenoisein
+theTestError(WeightDecay×Epochs)plotshownabove.
+21
+
+E.2.3 EARLYSTOPPINGDOESNOTEXHIBITDOUBLEDESCENT
+Languagemodels
+Figure23: Model-wisetesterrordynamicsforasubsampledIWSLT‘14dataset. Left: 4ksamples,
+Right: 18ksamples. Notethatwithoptimalearly-stopping,moresamplesisalwaysbetter.
+Figure24: Model-wisetesterrordynamicsforaIWSLT‘14de-enandsubsampledWMT‘14en-fr
+datasets. Left: IWSLT‘14, Right: subsampled (200k samples) WMT‘14. Note that with optimal
+early-stopping,thetesterrorismuchlowerforthistask.
+CIFAR10,10%noise,SGD
+Figure 25: Top: Train and test performance as a function of both model size and train epochs.
+Bottom: Testerrordynamicsofthesamemodel(CNN,onCIFAR-10with10%labelnoise,data-
+√
+augmentationandSGDoptimizerwithlearningrate∝1/ T).
+22
+
+E.2.4 TRAININGPROCEDURE
+Figure 26: Model-wise double descent for adversarial training ResNet18s on CIFAR-10 (sub-
+sampledto25ktrainsamples)withnolabelnoise. WetrainforL2robustnessofradius(cid:15)=0.5and
+(cid:15) = 1.0, using 10-step PGD (Goodfellow et al. (2014); Madry et al. (2017)). Trained using SGD
+(batchsize128)withlearningrate0.1for400epochs,then0.01for400epochs.
+Figure27
+23
+
+E.3 ENSEMBLING
+Figure 28: Effect of Ensembling (ResNets, 15% label noise). Test error of an ensemble of 5
+models,comparedtothebasemodels. Theensembledclassifierisdeterminedbypluralityvoteover
+the 5 base models. Note that emsembling helps most around the critical regime. All models are
+ResNet18s trained on CIFAR-10 with 15% label noise, using Adam for 4K epochs (same setting
+asFigure1). Testerrorismeasuredagainsttheoriginal(notnoisy)testset,andeachmodelinthe
+ensembleistrainedusingatrainsetwithindependently-sampled15%labelnoise.
+Figure29: EffectofEnsembling(CNNs,nolabelnoise). Testerrorofanensembleof5models,
+compared to the base models. All models are 5-layer CNNs trained on CIFAR-10 with no label
+noise,usingSGDandnodataaugmentation. (samesettingasFigure7).
+24

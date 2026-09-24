@@ -1,0 +1,858 @@
+Mask R-CNN
+KaimingHe GeorgiaGkioxari PiotrDolla´r RossGirshick
+FacebookAIResearch(FAIR)
+Abstract
+We present a conceptually simple, flexible, and general class
+box
+frameworkforobjectinstancesegmentation. Ourapproach
+efficientlydetectsobjectsinanimagewhilesimultaneously
+RRooIIAAlliiggnn
+generating a high-quality segmentation mask for each in-
+ccoonnvv ccoonnvv
+stance. The method, called Mask R-CNN, extends Faster
+R-CNNbyaddingabranchforpredictinganobjectmaskin
+parallelwiththeexistingbranchforboundingboxrecogni-
+tion. MaskR-CNNissimpletotrainandaddsonlyasmall
+Figure1.TheMaskR-CNNframeworkforinstancesegmentation.
+overhead to Faster R-CNN, running at 5 fps. Moreover,
+Mask R-CNN is easy to generalize to other tasks, e.g., al-
+segmentation, where the goal is to classify each pixel into
+lowingustoestimatehumanposesinthesameframework.
+a fixed set of categories without differentiating object in-
+We show top results in all three tracks of the COCO suite
+stances.1 Given this, one might expect a complex method
+of challenges, including instance segmentation, bounding-
+isrequiredtoachievegoodresults. However,weshowthat
+boxobjectdetection, andpersonkeypointdetection. With-
+asurprisinglysimple,flexible, andfastsystemcansurpass out bells and whistles, Mask R-CNN outperforms all ex-
+priorstate-of-the-artinstancesegmentationresults.
+isting, single-model entries on every task, including the
+COCO 2016 challenge winners. We hope our simple and
+Ourmethod,calledMaskR-CNN,extendsFasterR-CNN
+effective approach will serve as a solid baseline and help [36]byaddingabranchforpredictingsegmentationmasks
+ease future research in instance-level recognition. Code on each Region of Interest (RoI), in parallel with the ex-
+has been made available at: https://github.com/ isting branch for classification and bounding box regres-
+facebookresearch/Detectron. sion (Figure 1). The mask branch is a small FCN applied
+to each RoI, predicting a segmentation mask in a pixel-to-
+pixel manner. Mask R-CNN is simple to implement and
+1.Introduction traingiventheFasterR-CNNframework,whichfacilitates
+awiderangeofflexiblearchitecturedesigns. Additionally,
+The vision community has rapidly improved object de- themaskbranchonlyaddsasmallcomputationaloverhead,
+tection and semantic segmentation results over a short pe- enablingafastsystemandrapidexperimentation.
+riodoftime. Inlargepart,theseadvanceshavebeendriven In principle Mask R-CNN is an intuitive extension of
+by powerful baseline systems, such as the Fast/Faster R- Faster R-CNN, yet constructing the mask branch properly
+CNN[12,36]andFullyConvolutionalNetwork(FCN)[30] is critical for good results. Most importantly, Faster R-
+frameworks for object detection and semantic segmenta- CNN was not designed for pixel-to-pixel alignment be-
+tion,respectively. Thesemethodsareconceptuallyintuitive tween network inputs and outputs. This is most evident in
+andofferflexibilityandrobustness,togetherwithfasttrain- how RoIPool [18, 12], the de facto core operation for at-
+ingandinferencetime.Ourgoalinthisworkistodevelopa tending to instances, performs coarse spatial quantization
+comparablyenablingframeworkforinstancesegmentation. for feature extraction. To fix the misalignment, we pro-
+Instancesegmentationischallengingbecauseitrequires poseasimple,quantization-freelayer,calledRoIAlign,that
+the correct detection of all objects in an image while also faithfully preserves exact spatial locations. Despite being
+precisely segmenting each instance. It therefore combines
+elements from the classical computer vision tasks of ob- 1Following common terminology, we use object detection to denote
+detectionviaboundingboxes, notmasks, andsemanticsegmentationto
+ject detection, where the goal is to classify individual ob-
+denote per-pixel classification without differentiating instances. Yet we
+jectsandlocalizeeachusingaboundingbox,andsemantic notethatinstancesegmentationisbothsemanticandaformofdetection.
+1
+8102
+naJ
+42
+]VC.sc[
+3v07860.3071:viXra
+
+umbrella.98 bus.99
+umbrella.98 person1.00
+person1.00 backpack1.00 person1.00 person.99 person1.00
+person1.00 person1.00 person1.00 person1.00person.94person1.00 person1.00 handbag.96 person1.00persopne.8rsp9oenrs.9o5n1.00 personp.e9r8son1.00 person1.00 person.99
+person1.00 backpack.99 backpack.93 sheep1.00
+s
+s
+h
+h
+e
+s e
+e
+h e
+p
+e p
+.
+e
+9
+.
+s
+9 p
+6h
+. 6 9
+e
+9
+ep.
+s
+9
+h
+9
+eep.99 sheep.99shee
+s
+p
+h
+.
+e
+9
+e
+3
+p1.00
+sheep.91sheep.s8h2esheepe.9p5.8s6heep.9sh6eep.9s6heep1.00
+sheep.99
+dining table.96 bottle.99 person.99
+bottle.99 bottle.99
+person1.00 person.99person1.00 traffic light.96 tv.99
+chaidr.i9n0ing table.99chair.98 chair.86 bot c tl h e a .9 ir 9 . w 9 i 6 ne glabsosw.9l3.85 wine glas w s i . n 9 e 7 glass c 1 h . a 0 i 0 r.9 c 9 hair.99
+elephant1.00 person1.00 chair.96 wine glass1.00 wcihnaei rg.9la9ss.99 fork.95
+person1.00 person1.00 traffic light.95 bowl.81
+motorcycle1.00 motorcycle1.00 persponer.9spo8enr.9so0n.99perpseorpnse.o9prns1e.o9prns6eo.pr8nse3o.r9ns2o.9n61.00 pertsro t u r nc a 1k f . f 10 i . c 00 0 light.92 pecrasro1.n0.807 car.99 car.9c9ar.9mp2eortsoorncc.y9ac9rl.e9.935 traffic light.84 p p e e r r s s o o n n 1 .9 .0 9 0person.85
+knife.83
+person.96
+Figure 2. Mask R-CNN results on the COCO test set. These results are based on ResNet-101 [19], achieving a mask AP of 35.7 and
+runningat5fps.Masksareshownincolor,andboundingbox,category,andconfidencesarealsoshown.
+aseeminglyminorchange,RoIAlignhasalargeimpact: it 2.RelatedWork
+improvesmaskaccuracybyrelative10%to50%, showing
+R-CNN: TheRegion-basedCNN(R-CNN)approach[13]
+biggergainsunderstricterlocalizationmetrics. Second,we
+tobounding-boxobjectdetectionistoattendtoamanage-
+founditessentialtodecouplemaskandclassprediction:we
+ablenumberofcandidateobjectregions[42,20]andevalu-
+predictabinarymaskforeachclassindependently,without
+ateconvolutionalnetworks[25,24]independentlyoneach
+competition among classes, and rely on the network’s RoI
+RoI. R-CNN was extended [18, 12] to allow attending to
+classification branch to predict the category. In contrast,
+RoIs on feature maps using RoIPool, leading to fast speed
+FCNsusuallyperformper-pixelmulti-classcategorization,
+and better accuracy. Faster R-CNN [36] advanced this
+which couples segmentation and classification, and based
+streambylearningtheattentionmechanismwithaRegion
+onourexperimentsworkspoorlyforinstancesegmentation.
+ProposalNetwork(RPN).FasterR-CNNisflexibleandro-
+Without bells and whistles, Mask R-CNN surpasses all
+bust to many follow-up improvements (e.g., [38, 27, 21]),
+previousstate-of-the-artsingle-modelresultsontheCOCO
+andisthecurrentleadingframeworkinseveralbenchmarks.
+instance segmentation task [28], including the heavily-
+InstanceSegmentation: DrivenbytheeffectivenessofR-
+engineered entries from the 2016 competition winner. As
+CNN,manyapproachestoinstancesegmentationarebased
+a by-product, our method also excels on the COCO object
+on segment proposals. Earlier methods [13, 15, 16, 9] re-
+detectiontask. Inablationexperiments,weevaluatemulti-
+sortedtobottom-upsegments[42,2]. DeepMask[33]and
+plebasicinstantiations,whichallowsustodemonstrateits
+following works [34, 8] learn to propose segment candi-
+robustnessandanalyzetheeffectsofcorefactors.
+dates, which are then classified by Fast R-CNN. In these
+Ourmodelscanrunatabout200msperframeonaGPU,
+methods,segmentationprecedesrecognition,whichisslow
+and training on COCO takes one to two days on a single
+andlessaccurate.Likewise,Daietal.[10]proposedacom-
+8-GPUmachine. Webelievethefasttrainandtestspeeds,
+plexmultiple-stagecascadethatpredictssegmentproposals
+togetherwiththeframework’sflexibilityandaccuracy,will
+from bounding-box proposals, followed by classification.
+benefitandeasefutureresearchoninstancesegmentation.
+Instead,ourmethodisbasedonparallelpredictionofmasks
+Finally, we showcase the generality of our framework andclasslabels,whichissimplerandmoreflexible.
+via the task of human pose estimation on the COCO key- Mostrecently,Lietal.[26]combinedthesegmentpro-
+point dataset [28]. By viewing each keypoint as a one-hot posalsystemin[8]andobjectdetectionsystemin[11]for
+binarymask,withminimalmodificationMaskR-CNNcan “fully convolutional instance segmentation” (FCIS). The
+beappliedtodetectinstance-specificposes. MaskR-CNN common idea in [8, 11, 26] is to predict a set of position-
+surpasses the winner of the 2016 COCO keypoint compe- sensitive output channels fully convolutionally. These
+tition, and at the same time runs at 5 fps. Mask R-CNN, channelssimultaneouslyaddressobjectclasses,boxes,and
+therefore,canbeseenmorebroadlyasaflexibleframework masks,makingthesystemfast. ButFCISexhibitssystem-
+for instance-level recognition and can be readily extended atic errors on overlapping instances and creates spurious
+tomorecomplextasks. edges (Figure 6), showing that it is challenged by the fun-
+Wehavereleasedcodetofacilitatefutureresearch. damentaldifficultiesofsegmentinginstances.
+2
+
+Anotherfamilyofsolutions[23,4,3,29]toinstanceseg- Figure 3. RoIAlign: Thedashedgridrep-
+mentation are driven by the success of semantic segmen- resentsafeaturemap,thesolidlinesanRoI
+(with2×2binsinthisexample),andthedots
+tation. Starting from per-pixel classification results (e.g.,
+the4samplingpointsineachbin. RoIAlign
+FCN outputs), these methods attempt to cut the pixels of computes the value of each sampling point
+thesamecategoryintodifferentinstances. Incontrasttothe bybilinearinterpolationfromthenearbygrid
+pointsonthefeaturemap.Noquantizationis
+segmentation-firststrategyofthesemethods,MaskR-CNN
+performedonanycoordinatesinvolvedinthe
+isbasedonaninstance-firststrategy.Weexpectadeeperin-
+RoI,itsbins,orthesamplingpoints.
+corporationofbothstrategieswillbestudiedinthefuture.
+class label used to select the output mask. This decouples
+3.MaskR-CNN mask and class prediction. This is different from common
+practice when applying FCNs [30] to semantic segmenta-
+MaskR-CNNisconceptuallysimple:FasterR-CNNhas tion,whichtypicallyusesaper-pixelsoftmaxandamultino-
+two outputs for each candidate object, a class label and a mial cross-entropy loss. In that case, masks across classes
+bounding-boxoffset;tothisweaddathirdbranchthatout- compete;inourcase,withaper-pixelsigmoidandabinary
+putstheobjectmask. MaskR-CNNisthusanaturalandin- loss,theydonot. Weshowbyexperimentsthatthisformu-
+tuitiveidea. Buttheadditionalmaskoutputisdistinctfrom lationiskeyforgoodinstancesegmentationresults.
+theclassandboxoutputs,requiringextractionofmuchfiner
+Mask Representation: A mask encodes an input object’s
+spatiallayoutofanobject. Next,weintroducethekeyele-
+spatial layout. Thus, unlike class labels or box offsets
+mentsofMaskR-CNN,includingpixel-to-pixelalignment,
+that are inevitably collapsed into short output vectors by
+whichisthemainmissingpieceofFast/FasterR-CNN.
+fully-connected (fc) layers, extracting the spatial structure
+Faster R-CNN: We begin by briefly reviewing the Faster of masks can be addressed naturally by the pixel-to-pixel
+R-CNNdetector[36].FasterR-CNNconsistsoftwostages. correspondenceprovidedbyconvolutions.
+The first stage, called a Region Proposal Network (RPN), Specifically,wepredictanm×mmaskfromeachRoI
+proposes candidate object bounding boxes. The second using an FCN [30]. This allows each layer in the mask
+stage, which is in essence Fast R-CNN [12], extracts fea- branch to maintain the explicit m×m object spatial lay-
+turesusingRoIPoolfromeachcandidateboxandperforms out without collapsing it into a vector representation that
+classification and bounding-box regression. The features lacksspatialdimensions. Unlikepreviousmethodsthatre-
+usedbybothstagescanbesharedforfasterinference. We sort to fc layers for mask prediction [33, 34, 10], our fully
+referreadersto[21]forlatest,comprehensivecomparisons convolutionalrepresentationrequiresfewerparameters,and
+betweenFasterR-CNNandotherframeworks. ismoreaccurateasdemonstratedbyexperiments.
+This pixel-to-pixel behavior requires our RoI features,
+Mask R-CNN: Mask R-CNN adopts the same two-stage
+whichthemselvesaresmallfeaturemaps,tobewellaligned
+procedure, with an identical first stage (which is RPN). In
+to faithfully preserve the explicit per-pixel spatial corre-
+thesecondstage,inparalleltopredictingtheclassandbox
+spondence. This motivated us to develop the following
+offset, Mask R-CNN also outputs a binary mask for each
+RoIAlignlayerthatplaysakeyroleinmaskprediction.
+RoI.Thisisincontrasttomostrecentsystems,whereclas-
+sification depends on mask predictions (e.g. [33, 10, 26]). RoIAlign: RoIPool[12]isastandardoperationforextract-
+Our approach follows the spirit of Fast R-CNN [12] that ingasmallfeaturemap(e.g.,7×7)fromeachRoI.RoIPool
+applies bounding-box classification and regression in par- firstquantizesafloating-numberRoItothediscretegranu-
+allel (which turned out to largely simplify the multi-stage larity of the feature map, this quantized RoI is then subdi-
+pipelineoforiginalR-CNN[13]). videdintospatialbinswhicharethemselvesquantized,and
+Formally,duringtraining,wedefineamulti-tasklosson finally feature values covered by each bin are aggregated
+eachsampledRoIasL=L +L +L . Theclas- (usuallybymaxpooling). Quantizationisperformed, e.g.,
+cls box mask
+sificationlossL andbounding-boxlossL areidenti- on a continuous coordinate x by computing [x/16], where
+cls box
+calasthosedefinedin[12]. ThemaskbranchhasaKm2- 16isafeaturemapstrideand[·]isrounding;likewise,quan-
+dimensionaloutputforeachRoI,whichencodesK binary tization is performed when dividing into bins (e.g., 7×7).
+masksofresolutionm×m,oneforeachoftheK classes. These quantizations introduce misalignments between the
+Tothisweapplyaper-pixelsigmoid, anddefineL as RoIandtheextractedfeatures. While thismaynotimpact
+mask
+theaveragebinarycross-entropyloss.ForanRoIassociated classification,whichisrobusttosmalltranslations,ithasa
+withground-truthclassk,L isonlydefinedonthek-th largenegativeeffectonpredictingpixel-accuratemasks.
+mask
+mask(othermaskoutputsdonotcontributetotheloss). To address this, we propose an RoIAlign layer that re-
+OurdefinitionofL allowsthenetworktogenerate movestheharshquantizationofRoIPool,properlyaligning
+mask
+masks for every class without competition among classes; theextractedfeatureswiththeinput. Ourproposedchange
+werelyonthededicatedclassificationbranchtopredictthe issimple: weavoidanyquantizationoftheRoIboundaries
+3
+
+or bins (i.e., we use x/16 instead of [x/16]). We use bi- FasterR-CNN FasterR-CNN
+w/ResNet[19] w/FPN[27]
+linearinterpolation[22]tocomputetheexactvaluesofthe 7×7 7×7 ave class 7×7 class
+RoI ×1024res5 ×2048 2048 box RoI ×256 1024 1024 box
+input features at four regularly sampled locations in each
+RoI bin, and aggregate the result (using max or average),
+seeFigure3fordetails.Wenotethattheresultsarenotsen- 1 × 4 2 × 5 1 6 4 14 × × 8 1 0 4 RoI 1 × 4 2 × 5 1 6 4 ×4 1 × 4 2 × 5 1 6 4 2 × 8 2 × 5 2 6 8 2 × 8× 80 28
+sitive to the exact sampling locations, or how many points
+mask mask
+aresampled,aslongasnoquantizationisperformed.
+Figure4.HeadArchitecture: WeextendtwoexistingFasterR-
+RoIAlign leads to large improvements as we show in CNN heads [19, 27]. Left/Right panels show the heads for the
+§4.2. WealsocomparetotheRoIWarpoperationproposed ResNetC4andFPNbackbones,from[19]and[27],respectively,
+in [10]. Unlike RoIAlign, RoIWarp overlooked the align- towhichamaskbranchisadded. Numbersdenotespatialresolu-
+mentissueandwasimplementedin[10]asquantizingRoI tionandchannels.Arrowsdenoteeitherconv,deconv,orfclayers
+just like RoIPool. So even though RoIWarp also adopts ascanbeinferredfromcontext(convpreservesspatialdimension
+bilinear resampling motivated by [22], it performs on par whiledeconvincreasesit). Allconvsare3×3,excepttheoutput
+conv which is 1×1, deconvs are 2×2 with stride 2, and we use
+withRoIPoolasshownbyexperiments(moredetailsinTa-
+ReLU [31] in hidden layers. Left: ‘res5’ denotes ResNet’s fifth
+ble2c),demonstratingthecrucialroleofalignment.
+stage,whichforsimplicitywealteredsothatthefirstconvoper-
+Network Architecture: To demonstrate the generality of atesona7×7RoIwithstride1(insteadof14×14/stride2asin
+our approach, we instantiate Mask R-CNN with multiple [19]).Right:‘×4’denotesastackoffourconsecutiveconvs.
+architectures. For clarity, we differentiate between: (i) the
+3.1.ImplementationDetails
+convolutional backbone architecture used for feature ex-
+traction over an entire image, and (ii) the network head We set hyper-parameters following existing Fast/Faster
+forbounding-boxrecognition(classificationandregression) R-CNN work [12, 36, 27]. Although these decisions were
+andmaskpredictionthatisappliedseparatelytoeachRoI. madeforobjectdetectioninoriginalpapers[12,36,27],we
+We denote the backbone architecture using the nomen- foundourinstancesegmentationsystemisrobusttothem.
+clature network-depth-features. We evaluate ResNet [19]
+Training: AsinFastR-CNN,anRoIisconsideredpositive
+andResNeXt[45]networksofdepth50or101layers. The
+if it has IoU with a ground-truth box of at least 0.5 and
+original implementation of Faster R-CNN with ResNets
+negativeotherwise.ThemasklossL isdefinedonlyon
+[19] extracted features from the final convolutional layer mask
+positive RoIs. The mask target is the intersection between
+of the 4-th stage, which we call C4. This backbone with
+anRoIanditsassociatedground-truthmask.
+ResNet-50,forexample,isdenotedbyResNet-50-C4. This
+Weadoptimage-centrictraining[12].Imagesareresized
+isacommonchoiceusedin[19,10,21,39].
+suchthattheirscale(shorteredge)is800pixels[27]. Each
+We also explore another more effective backbone re-
+mini-batch has 2 images per GPU and each image has N
+cently proposed by Lin et al. [27], called a Feature Pyra-
+sampled RoIs, with a ratio of 1:3 of positive to negatives
+midNetwork(FPN).FPNusesatop-downarchitecturewith
+[12]. N is64fortheC4backbone(asin[12,36])and512
+lateral connections to build an in-network feature pyramid
+forFPN(asin[27]).Wetrainon8GPUs(soeffectivemini-
+fromasingle-scaleinput.FasterR-CNNwithanFPNback-
+batchsizeis16)for160kiterations,withalearningrateof
+bone extracts RoI features from different levels of the fea-
+0.02 which is decreased by 10 at the 120k iteration. We
+ture pyramid according to their scale, but otherwise the
+useaweightdecayof0.0001andmomentumof0.9. With
+rest of the approach is similar to vanilla ResNet. Using a
+ResNeXt[45],wetrainwith1imageperGPUandthesame
+ResNet-FPNbackboneforfeatureextractionwithMaskR-
+numberofiterations,withastartinglearningrateof0.01.
+CNNgivesexcellentgainsinbothaccuracyandspeed. For
+TheRPNanchorsspan5scalesand3aspectratios,fol-
+furtherdetailsonFPN,wereferreadersto[27].
+lowing [27]. For convenient ablation, RPN is trained sep-
+For the network head we closely follow architectures
+aratelyanddoesnotsharefeatureswithMaskR-CNN,un-
+presented in previous work to which we add a fully con-
+lessspecified. Foreveryentryinthispaper,RPNandMask
+volutional mask prediction branch. Specifically, we ex-
+R-CNNhavethesamebackbonesandsotheyareshareable.
+tend the Faster R-CNN box heads from the ResNet [19]
+and FPN [27] papers. Details are shown in Figure 4. The Inference: Attesttime,theproposalnumberis300forthe
+headontheResNet-C4backboneincludesthe5-thstageof C4backbone(asin[36])and1000forFPN(asin[27]). We
+ResNet(namely,the9-layer‘res5’[19]),whichiscompute- runtheboxpredictionbranchontheseproposals,followed
+intensive. ForFPN,thebackbonealreadyincludesres5and by non-maximum suppression [14]. The mask branch is
+thusallowsforamoreefficientheadthatusesfewerfilters. thenappliedtothehighestscoring100detectionboxes. Al-
+We note that our mask branches have a straightforward though this differs from the parallel computation used in
+structure. More complex designs have the potential to im- training,itspeedsupinferenceandimprovesaccuracy(due
+proveperformancebutarenotthefocusofthiswork. totheuseoffewer,moreaccurateRoIs). Themaskbranch
+4
+
+person1.00person1.00 person1.00
+ben p c e h r . s 7 o 6 n1.00 person1.00 perso p n e 1 r . s 0 o 0 n.99 per s s k o a n t . e 9 b 9p o e a r r s d o .9 n 1 1.0 h 0 andbag.81 u up m mer b bs r ro e epn l le l l. a a9rs . .9 9 8o 7 9n p u. e 9m r 9 s b o r n e . l 9 l b a 8 . a p 9 p c e 7 e k r p rss a oo c nn k 1.u . .8 9 0m9p 5 0berresollanp 11 b pe .. a 0 e0r c 0 sr0ps k ooe p nnr a .s9. c 8o5 k n0 h .9 1 a . 6 0 n u d 0m b b a r g e . p 8 llea 5 r1s.0o0n1 u .0 m 0pb her a ernsll d aob .n9 a16.g0p u .09e m 7r b so re n l 1 la .0 .9 0u 9 pmeb brsa roe c lnk la p1.. a 90c 80k.98 person1.0 p 0 erson1.00 person1.00 person1.00 baseball bat.99 surfboa p rd e 1 r . s 0 o 0 n1.0p0 seursrfob pno.e a9r r1s d o 1 n .0 1. 0 00 s p u e r r f s b o o n a 1 r . d 0 . 0 98s p u e r r fb so o n a 1 rd .0s 1 0 . u 0 r 0 fbpoearrsdo1n.0.908 person.74 horse1.00horse1.00horse1.00 person p .9 e p r 8 s e o r n so . p 9 n e 3 .9 rs 5 on.93 person1.00person1.00 person.99
+skateboard.83
+bicycle.93 baseball bat.98dog1.00 baseball bat.85 skateboard.82
+zzeebbrraa.19.000 zebra.99zezberbar.a7.499 zebra.99 zebra. z 9 e 6 braz.e z8b e8r b a r . a 9 1 6 .00 zzeebbrara1..7060 per f p s r e i o s r n b s . e o 8 e n 0 1 .9 .0 9 0 person.99 p p e e r r s s o o n n .8 1. 2 00 person1.00 p c cd h h e i a a rp n s i i e c r ri o n . .u r 8 9 n g s p . 7 5 po 9 . t c9 en a 5 u c r. 8 p b 9s p h e l o7 e .w a r 7 n . s i 7i r 1 . n o . 9 8 9 e np9 7 . g e7 p c l r2 e ca s h r us os a ps no i .. r . 8 np 8 . 7 9 0 .e 3 78 8 r6spoenrs.9o7pn c .ep9 h re9s a ro w i s p r pno i . d n e 9 e.n i 8r e n r 4 . s1s 9 i g n o po c c 8 p l g n en h h a c e. r. a a s h 9 t 9s d r a i i s a s cr 8 o r 2 c i b . p . n .i o h n 8 rc 9 h 7l i e n .a p e . n u 0a 8 98 9r . i. e g p i r 8 s 58 r 5 . c r c . o . 8 8c1 t s 7 9 u h n a c u9 o 9 2 p ab . p h p n8 . il a e r 9 . p. e 2 9 9 . i r 6 e 8. r s 3 4 9 c . d r 3 w 8 o c s 1 h i n 5 n u o i a n . i p n i n 9 e r p . . . g 4 9 8 e 9 g 1 9p rt 9 wl p s a a e i c o e b sn r u s n r s l e e p sp . p o . 9 9. o e g e . n 97 1 1 n r c pr l . 6 a s s 5 8 . h e8 o s p o 8 a r s 8 ne ns i . r .r o. 9 . 8 9 s c9 n 3 3o 6 u8 .9 pn p .e 6 . 9 7 r p 7 1 s e c o w r h n s i a . o nw 9p p i d w n r e 7e i e . i n . 9 n i r9 g r ne s s i 5 l 9 n e a p o po g cg p s n e en gl h e sa r . r. t l 7 a a 9 sr . s a s8 s i 7 s o o9 b s r o 3s n . . n l9 9 e n . . . 9 8 8 6. 4 . 7 9 4 7 6 5 9 k p it e e r . ps 9 eo 7k rns i . t o9 e n4 .8 .p9 p 2 e5 errssoon k np. i 19 t pe k . e 90 er i . t s 9 r 0 e k os k 9 . i on 9 itte n. e 8 9 . . .7 96 8 p 2 4 9 eprespro k p s k enp i o e i t r. t e e ns r 9 e s ro . .8 . s 8 9 o 8 n p po 1 8 n 4 . e en7 1r r.7 .s 7s 0o o2p p0n ne e1 k .r r 7 . s s i 0 t 8o o e 0 n n 1 . 1 . p 8 0 .e0 7 0 p r0s e po r e s n k pr k o k s. i i e9 t i t n o t e r e 8 e . ns . 7 . . 7 8 o. 9 1 9p 3 n 6 m 3 e91 k r o .s0 i k t t o o e 0 i k t n r . e i p h k kk 9 c t p.p .k i e i 9e a i y 9 8 t tt ee i . n r e e 9 e c t p 8 8 rsr e . d . l . sse 8 p e 8 8 o 9 . b oor 9 . en 9 45 ps 7n a pn p 5 r.eo 2 g .8es p 1pe7rn. po . r2 eser 02 8 s.nesro8r0o 0 k so.r sn48n so i on t .o11 n9 e n. . 8n. . 901 8 9 9. .0 9 0 0 8 8 0 ska p t e e r b p s o o e a n rs r p 1 d o . e 0 . nr 9 0 sp1 9 o.e0nr0s.9o9n.p9e9rson p . e 9 r 1 son.98pe c r o s s o u k n c a h 1 te . p. 0 8 b e 0 2 o r p s a o e rd n rs . . 9 9 o 8 9 np p 1epp p e .r0ee e r sr s 0r r oss o s noo o n 1nn n 1 ... . 0 . 98 0 9 090 0 0 c c c a a a r r r . . 9 . 8 9 c c 7 7 a 9 c a r a r . . 9 r 9 c . 9 c c 9 c a 9 c a a a 8 r a . r r r 9 tr . . 1 r 9 . 9 c 3 . 7u 0 5 9 a 8c c 0 r k . a 9 . r 8 p t 5 . r e 9 8 b a r 5u f s t f s r o ic 1 u n c . c 0 l . ai 9 k g 0 r c . 9 h. 8 9 a t 6 r 3.7 .9 3 c 7 a c r. a b 8 r u 2 .9 s c 1 8 . a 0 r 0 .93 car.98
+traffic light.87 person1.00 tv.98tv.84 person.88 potted plant.92 person1 p .0 e 0 rson.86persboanc1k.0p0acphkpea.er8 p nsr8 e sdoo r bn s na. o 71g n p.60. . e9 9 0r1p 8 seorns.o7n8.9p8erson.78 car. c 9 a c6 r a .9 r. c 8 9 a 1 r c . a 7 r 8 .94
+e e l l e e p p h h a a n n t t 1 .9 .0 9 0 elephant1.00 elephant1.00 elephant.97 ppeerrssoonn.19p.20ep0rpespreoesrnross.on8on.7n9.178 t .4 i 0 e 0 .85 person pp. e 9er 9rssoon t n r .p. a 79ep f 3 f 9re i sp c roes l nor ig s.n8o h p10 h n t .e . 0p1 a 9 r0.eps n 9 0ro d e0snr b os. a n9o g 15n . .. 8 09p 8 0 t 5e ra rs ff op ic ne 1 h l r i .s g a 0po n h 0en d t r . . b s 7 9o a 1 8n g pp1 .9 e.e0r 9 rs0spoopenner..s9r9so99onpn.e9.r95s9onp h .e a 9r n 5pps d eeo b rrnss a .oo9 g nn . 5 8 ..99 8 87 person1.00 dining w i t n a e b l g e l . a 9 s 5 s1.00 bot w tle in . e 9 7 glass1 w .0 in 0 e g p l e a r s s s o .9 n 9 1.00 benc b h i . r 9 d 7 .93 cell cplhoocnk.e7 h .37 a 7 ndbag.73 perso p n e . r p 9 s e 6 o r n s . o 7 n 7 .9p0erson p . e p 8p r e 1e s r r po s s en o o r. n n 9sp . . o9 8 e 9 nr 7 7 s.7o1n. c 9 ch 4 hacaichrirh.a9. c ai9cr9 h ic.3h r9 c a p h. a 9h i 4c e a ri 9a rh. i r c 8 r . c s i a9 .h r 3 h o 9. i2c a r c 9a n 7 c.h i h 3 9 i r . h r a 9 . a 8 . 8 ai 8 8i rcri 1 .r 1 .h8.79a1 11ir.80 stop sign.88 suitcase.98suitcase1.00
+chair.73 suitcsauseit.c7a2se.93 suitcase.96
+person1.00
+person.98person1.00
+suitcassueit.8ca8se1.00
+suitcase.99
+percsaocrn c . c a9. a 9 a r5 r .9 r 9 ..99 6 76car c .9 a 7 r. c 9 a 9 r. c b 9 p a t i 5 c r e rc a y . r 9ca f cs f a8r lo i . e c rc 8 n . . 8a 8 1 . li 8 r g 9 6 c. 7 h 9ac t 1ra . . 9 r9. 9 c 49a4cra.9r.7c9a5r1.c0a0rc.a9r8c.9ar7.9c9ar.97car1.00 traffi p c a l r i k g i h n t g 1 . m 00 eter.98 d d d o o o d n n n o u u u t n t t . . . u d 8 9 9 t o 9 5 4 . n 9 d u 6 o t d n .9 o u n 9 t d . u d 9 o t o d 7 n . n 9 o u d u n 8 t o . t u 9 1 n d t . 9 . u 0 o 9 t dn 0 d 0 . o 9 u o nt 8 n .u9 u t t 51 .9 .0 d5 0 on d u d o t o n .8 n ud d 9 u to o. t 8n n .9 u9ud d d 0 t to . . o o 9 8n n n 6 6u u u d t t t o . . . d9 8 9 n o5 6 u 3d n t o . u 9 n t 8d . u 9 o t 8 . n 9 d u 9 o d t n o .9 u n 8 t u 1d t .o . 0 9 n0 6 u d t o .8 nu 1 t.89donut.89 tbruusc.k9.09b3us.99 truck.97truck.99 truck.96 truck.92 truck.99 cow.93 horse.77 pe p r e so rs n o 1 pn .0 e.9r 0 s6on.h9 p o7 e r r s s pe o e. n 9r 1 s7 . o 0 n 0 .p9e8rs p oh e no rs .r9 o s6e n . . 9 9 9 9 tennis racket1.00 sports ball.99
+car.97 donut.88 donut1.00
+car.86
+Figure5.MoreresultsofMaskR-CNNonCOCOtestimages,usingResNet-101-FPNandrunningat5fps,with35.7maskAP(Table1).
+backbone AP AP50 AP75 APS APM APL
+MNC[10] ResNet-101-C4 24.6 44.3 24.8 4.7 25.9 43.6
+FCIS[26]+OHEM ResNet-101-C5-dilated 29.2 49.5 - 7.1 31.3 50.0
+FCIS+++[26]+OHEM ResNet-101-C5-dilated 33.6 54.5 - - - -
+MaskR-CNN ResNet-101-C4 33.1 54.9 34.8 12.1 35.6 51.1
+MaskR-CNN ResNet-101-FPN 35.7 58.0 37.8 15.5 38.1 52.4
+MaskR-CNN ResNeXt-101-FPN 37.1 60.0 39.4 16.9 39.9 53.5
+Table1.InstancesegmentationmaskAPonCOCOtest-dev.MNC[10]andFCIS[26]arethewinnersoftheCOCO2015and2016
+segmentationchallenges,respectively.Withoutbellsandwhistles,MaskR-CNNoutperformsthemorecomplexFCIS+++,whichincludes
+multi-scaletrain/test,horizontalfliptest,andOHEM[38].Allentriesaresingle-modelresults.
+canpredictKmasksperRoI,butweonlyusethek-thmask, 4.1.MainResults
+where k is the predicted class by the classification branch.
+We compare Mask R-CNN to the state-of-the-art meth-
+The m×m floating-number mask output is then resized to
+ods in instance segmentation in Table 1. All instantia-
+theRoIsize,andbinarizedatathresholdof0.5.
+tions of our model outperform baseline variants of pre-
+Note that since we only compute masks on the top 100
+vious state-of-the-art models. This includes MNC [10]
+detectionboxes,MaskR-CNNaddsasmalloverheadtoits
+and FCIS [26], the winners of the COCO 2015 and 2016
+FasterR-CNNcounterpart(e.g.,∼20%ontypicalmodels).
+segmentation challenges, respectively. Without bells and
+whistles, Mask R-CNN with ResNet-101-FPN backbone
+4.Experiments: InstanceSegmentation
+outperforms FCIS+++ [26], which includes multi-scale
+WeperformathoroughcomparisonofMaskR-CNNto train/test,horizontalfliptest,andonlinehardexamplemin-
+the state of the art along with comprehensive ablations on ing(OHEM)[38].Whileoutsidethescopeofthiswork,we
+theCOCOdataset[28].WereportthestandardCOCOmet- expectmanysuchimprovementstobeapplicabletoours.
+rics including AP (averaged over IoU thresholds), AP , MaskR-CNNoutputsarevisualizedinFigures2and5.
+50
+AP , and AP , AP , AP (AP at different scales). Un- Mask R-CNN achieves good results even under challeng-
+75 S M L
+lessnoted,APisevaluatingusingmaskIoU.Asinprevious ingconditions. InFigure6wecompareourMaskR-CNN
+work [5, 27], we train using the union of 80k train images baseline and FCIS+++ [26]. FCIS+++ exhibits systematic
+and a 35k subset of val images (trainval35k), and re- artifactsonoverlappinginstances,suggestingthatitischal-
+portablationsontheremaining5kvalimages(minival). lengedbythefundamentaldifficultyofinstancesegmenta-
+Wealsoreportresultsontest-dev[28]. tion. MaskR-CNNshowsnosuchartifacts.
+5
+
+umbrella.99 umbrella1.00 person1.00person1.00
+person1.00 person1.00 person1.00 person1.00 person1.00 person1.00
+person1.00 person1.00 car.99car.93 giraffe1.00 giraffe1.00 person1.00
+person.95
+sports ball.98 tie.95 tie1.00
+sports ball1.00
+SICF
+NNC-R
+ksaM
+perspoenr.s9o9n1.00person1. p 0 e 0 rsopne.9rs9on1.0p0erson1.00person1.00person1.00 train tr . a 8 i 0 n.99 train1.00
+skateboarhda.n9d8bag.93
+skateboard.99
+Figure6.FCIS+++[26](top)vs.MaskR-CNN(bottom,ResNet-101-FPN).FCISexhibitssystematicartifactsonoverlappingobjects.
+net-depth-features AP AP50 AP75 AP AP50 AP75 align? bilinear? agg. AP AP50 AP75
+ResNet-50-C4 30.3 51.2 31.5 softmax 24.8 44.1 25.1 RoIPool[12] max 26.9 48.8 26.4
+ResNet-101-C4 32.7 54.2 34.3 sigmoid 30.3 51.2 31.5 (cid:88) max 27.2 49.2 27.1
+RoIWarp[10]
+ResNet-50-FPN 33.6 55.2 35.3 +5.5 +7.1 +6.4 (cid:88) ave 27.1 48.9 27.1
+ResNet-101-FPN 35.4 57.3 37.5 (cid:88) (cid:88) max 30.2 51.0 31.8
+RoIAlign
+ResNeXt-101-FPN 36.7 59.5 38.9 (cid:88) (cid:88) ave 30.3 51.2 31.5
+(a) Backbone Architecture: Better back- (b)Multinomialvs.IndependentMasks (c)RoIAlign(ResNet-50-C4): MaskresultswithvariousRoI
+bonesbringexpectedgains:deepernetworks (ResNet-50-C4): Decoupling via per- layers. Our RoIAlign layer improves AP by ∼3 points and
+dobetter,FPNoutperformsC4features,and classbinarymasks(sigmoid)giveslarge AP75 by∼5points. Usingproperalignmentistheonlyfac-
+ResNeXtimprovesonResNet. gainsovermultinomialmasks(softmax). torthatcontributestothelargegapbetweenRoIlayers.
+AP AP50 AP75 APbb APb
+5
+b
+0
+APb
+7
+b
+5
+maskbranch AP AP50 AP75
+RoIPool 23.6 46.5 21.6 28.2 52.7 26.9 MLP fc:1024→1024→80·282 31.5 53.7 32.8
+RoIAlign 30.9 51.8 32.1 34.0 55.3 36.4 MLP fc:1024→1024→1024→80·282 31.5 54.0 32.6
++7.3 +5.3 +10.5 +5.8 +2.6 +9.5 FCN conv:256→256→256→256→256→80 33.6 55.2 35.3
+(d)RoIAlign(ResNet-50-C5,stride32): Mask-levelandbox-level (e) Mask Branch (ResNet-50-FPN): Fully convolutional networks (FCN) vs.
+APusinglarge-stridefeatures. Misalignmentsaremoreseverethan multi-layerperceptrons(MLP,fully-connected)formaskprediction. FCNsim-
+withstride-16features(Table2c),resultinginbigaccuracygaps. proveresultsastheytakeadvantageofexplicitlyencodingspatiallayout.
+Table2.Ablations.Wetrainontrainval35k,testonminival,andreportmaskAPunlessotherwisenoted.
+4.2.AblationExperiments mask per class. Interestingly, Mask R-CNN with class-
+agnostic masks (i.e., predicting a single m×m output re-
+WerunanumberofablationstoanalyzeMaskR-CNN.
+gardlessofclass)isnearlyaseffective:ithas29.7maskAP
+ResultsareshowninTable2anddiscussedindetailnext.
+vs.30.3fortheclass-specificcounterpartonResNet-50-C4.
+Architecture: Table 2a shows Mask R-CNN with various Thisfurtherhighlightsthedivisionoflaborinourapproach
+backbones. It benefits from deeper networks (50 vs. 101) whichlargelydecouplesclassificationandsegmentation.
+and advanced designs including FPN and ResNeXt. We
+note that not all frameworks automatically benefit from RoIAlign: AnevaluationofourproposedRoIAlignlayeris
+showninTable2c. ForthisexperimentweusetheResNet-
+deeperoradvancednetworks(seebenchmarkingin[21]).
+50-C4 backbone, which has stride 16. RoIAlign improves
+Multinomial vs. Independent Masks: Mask R-CNN de-
+APbyabout3pointsoverRoIPool,withmuchofthegain
+couples mask and class prediction: as the existing box
+coming at high IoU (AP ). RoIAlign is insensitive to
+75
+branchpredictstheclasslabel,wegenerateamaskforeach
+max/averagepool;weuseaverageintherestofthepaper.
+classwithoutcompetitionamongclasses(byaper-pixelsig-
+Additionally, we compare with RoIWarp proposed in
+moid and a binary loss). In Table 2b, we compare this to
+MNC[10]thatalsoadoptbilinearsampling. Asdiscussed
+using a per-pixel softmax and a multinomial loss (as com-
+in §3, RoIWarp still quantizes the RoI, losing alignment
+monlyusedinFCN[30]). Thisalternativecouplesthetasks
+with the input. As can be seen in Table 2c, RoIWarp per-
+of mask and class prediction, and results in a severe loss
+formsonparwithRoIPoolandmuchworsethanRoIAlign.
+in mask AP (5.5 points). This suggests that once the in-
+Thishighlightsthatproperalignmentiskey.
+stance has been classified as a whole (by the box branch),
+We also evaluate RoIAlign with a ResNet-50-C5 back-
+itissufficienttopredictabinarymaskwithoutconcernfor
+bone,whichhasanevenlargerstrideof32pixels. Weuse
+thecategories,whichmakesthemodeleasiertotrain.
+thesameheadasinFigure4(right),astheres5headisnot
+Class-Specificvs.Class-AgnosticMasks: Ourdefaultin- applicable. Table 2d shows that RoIAlign improves mask
+stantiation predicts class-specific masks, i.e., one m×m APbyamassive7.3points,andmaskAP by10.5points
+75
+6
+
+backbone APbb APbb APbb APbb APbb APbb
+50 75 S M L
+FasterR-CNN+++[19] ResNet-101-C4 34.9 55.7 37.4 15.6 38.7 50.9
+FasterR-CNNwFPN[27] ResNet-101-FPN 36.2 59.1 39.0 18.2 39.0 48.2
+FasterR-CNNbyG-RMI[21] Inception-ResNet-v2[41] 34.7 55.5 36.7 13.5 38.1 52.0
+FasterR-CNNwTDM[39] Inception-ResNet-v2-TDM 36.8 57.7 39.2 16.2 39.8 52.1
+FasterR-CNN,RoIAlign ResNet-101-FPN 37.3 59.6 40.3 19.8 40.2 48.8
+MaskR-CNN ResNet-101-FPN 38.2 60.3 41.7 20.1 41.1 50.2
+MaskR-CNN ResNeXt-101-FPN 39.8 62.3 43.4 22.1 43.2 51.2
+Table3.Objectdetectionsingle-modelresults(boundingboxAP),vs.state-of-the-artontest-dev. MaskR-CNNusingResNet-101-
+FPNoutperformsthebasevariantsofallpreviousstate-of-the-artmodels(themaskoutputisignoredintheseexperiments). Thegainsof
+MaskR-CNNover[27]comefromusingRoIAlign(+1.1APbb),multitasktraining(+0.9APbb),andResNeXt-101(+1.6APbb).
+(50% relative improvement). Moreover, we note that with 4.4.Timing
+RoIAlign,usingstride-32C5features(30.9AP)ismoreac-
+Inference: We train a ResNet-101-FPN model that shares
+curatethanusingstride-16C4features(30.3AP,Table2c).
+featuresbetweentheRPNandMaskR-CNNstages,follow-
+RoIAlign largely resolves the long-standing challenge of
+ing the 4-step training of Faster R-CNN [36]. This model
+usinglarge-stridefeaturesfordetectionandsegmentation.
+runsat195msperimageonanNvidiaTeslaM40GPU(plus
+Finally,RoIAlignshowsagainof1.5maskAPand0.5
+15msCPUtimeresizingtheoutputstotheoriginalresolu-
+box AP when used with FPN, which has finer multi-level
+tion), and achieves statistically the same mask AP as the
+strides.Forkeypointdetectionthatrequiresfineralignment,
+unsharedone. WealsoreportthattheResNet-101-C4vari-
+RoIAlignshowslargegainsevenwithFPN(Table6).
+anttakes∼400msasithasaheavierboxhead(Figure4),so
+Mask Branch: Segmentation is a pixel-to-pixel task and wedonotrecommendusingtheC4variantinpractice.
+we exploit the spatial layout of masks by using an FCN. AlthoughMaskR-CNNisfast, wenotethatourdesign
+In Table 2e, we compare multi-layer perceptrons (MLP) isnotoptimizedforspeed,andbetterspeed/accuracytrade-
+andFCNs,usingaResNet-50-FPNbackbone. UsingFCNs offscouldbeachieved[21],e.g.,byvaryingimagesizesand
+gives a 2.1 mask AP gain over MLPs. We note that we proposalnumbers,whichisbeyondthescopeofthispaper.
+choose this backbone so that the conv layers of the FCN
+Training: MaskR-CNNisalsofasttotrain. Trainingwith
+headarenotpre-trained,forafaircomparisonwithMLP.
+ResNet-50-FPNonCOCOtrainval35ktakes32hours
+inoursynchronized8-GPUimplementation(0.72sper16-
+4.3.BoundingBoxDetectionResults
+imagemini-batch),and44hourswithResNet-101-FPN.In
+WecompareMaskR-CNNtothestate-of-the-artCOCO fact,fastprototypingcanbecompletedinlessthanoneday
+bounding-box object detection in Table 3. For this result, whentrainingonthetrainset. Wehopesuchrapidtrain-
+even though the full Mask R-CNN model is trained, only ing will remove a major hurdle in this area and encourage
+theclassificationandboxoutputsareusedatinference(the morepeopletoperformresearchonthischallengingtopic.
+maskoutputisignored). MaskR-CNNusingResNet-101-
+FPNoutperformsthebasevariantsofallpreviousstate-of- 5.MaskR-CNNforHumanPoseEstimation
+the-art models, including the single-model variant of G-
+Our framework can easily be extended to human pose
+RMI [21], the winner of the COCO 2016 Detection Chal-
+estimation. We model a keypoint’s location as a one-hot
+lenge. UsingResNeXt-101-FPN,MaskR-CNNfurtherim-
+mask,andadoptMaskR-CNNtopredictK masks,onefor
+proves results, with a margin of 3.0 points box AP over
+eachofK keypointtypes(e.g., leftshoulder, rightelbow).
+thebestprevioussinglemodelentryfrom[39](whichused
+ThistaskhelpsdemonstratetheflexibilityofMaskR-CNN.
+Inception-ResNet-v2-TDM).
+Wenotethatminimaldomainknowledgeforhumanpose
+As a further comparison, we trained a version of Mask
+isexploitedbyoursystem,astheexperimentsaremainlyto
+R-CNN but without the mask branch, denoted by “Faster
+demonstratethegeneralityoftheMaskR-CNNframework.
+R-CNN,RoIAlign”inTable3. Thismodelperformsbetter
+We expect that domain knowledge (e.g., modeling struc-
+than the model presented in [27] due to RoIAlign. On the
+tures[6])willbecomplementarytooursimpleapproach.
+otherhand,itis0.9pointsboxAPlowerthanMaskR-CNN.
+ThisgapofMaskR-CNNonboxdetectionisthereforedue ImplementationDetails: Wemakeminormodificationsto
+solelytothebenefitsofmulti-tasktraining. the segmentation system when adapting it for keypoints.
+Lastly, we note that Mask R-CNN attains a small gap For each of the K keypoints of an instance, the training
+betweenitsmaskandboxAP:e.g.,2.7pointsbetween37.1 targetisaone-hotm×mbinarymaskwhereonlyasingle
+(mask,Table1)and39.8(box,Table3). Thisindicatesthat pixelislabeledasforeground.Duringtraining,foreachvis-
+our approach largely closes the gap between object detec- ible ground-truth keypoint, we minimize the cross-entropy
+tionandthemorechallenginginstancesegmentationtask. loss over an m2-way softmax output (which encourages a
+7
+
+Figure7.KeypointdetectionresultsonCOCOtestusingMaskR-CNN(ResNet-50-FPN),withpersonsegmentationmaskspredicted
+fromthesamemodel.ThismodelhasakeypointAPof63.1andrunsat5fps.
+APkp APk
+5
+p
+0
+APk
+7
+p
+5
+APk
+M
+p APk
+L
+p APb
+p
+b
+erson
+APm
+pe
+a
+r
+s
+s
+k
+on
+APkp
+CMU-Pose+++[6] 61.8 84.9 67.5 57.1 68.2 FasterR-CNN 52.5 - -
+G-RMI[32]† 62.4 84.0 68.5 59.1 68.1 MaskR-CNN,mask-only 53.6 45.8 -
+MaskR-CNN,keypoint-only 50.7 - 64.2
+MaskR-CNN,keypoint-only 62.7 87.0 68.4 57.4 71.1
+MaskR-CNN,keypoint&mask 52.0 45.1 64.7
+MaskR-CNN,keypoint&mask 63.1 87.3 68.7 57.8 71.4
+Table5.Multi-tasklearningofbox,mask,andkeypointaboutthe
+Table4.KeypointdetectionAPonCOCOtest-dev.Oursisa
+personcategory, evaluatedonminival. Allentriesaretrained
+singlemodel(ResNet-50-FPN)thatrunsat5fps. CMU-Pose+++
+onthesamedataforfaircomparisons. ThebackboneisResNet-
+[6] is the 2016 competition winner that uses multi-scale testing,
+50-FPN. The entries with 64.2 and 64.7 AP on minival have
+post-processingwithCPM[44],andfilteringwithanobjectdetec-
+test-devAPof62.7and63.1,respectively(seeTable4).
+tor,addingacumulative∼5points(clarifiedinpersonalcommu-
+nication).†:G-RMIwastrainedonCOCOplusMPII[1](25kim- APkp APkp APkp APkp APkp
+50 75 M L
+ages), usingtwomodels(Inception-ResNet-v2forboundingbox
+RoIPool 59.8 86.2 66.7 55.1 67.4
+detectionandResNet-101forkeypoints).
+RoIAlign 64.2 86.6 69.7 58.7 73.0
+Table 6. RoIAlign vs. RoIPool for keypoint detection on
+singlepointtobedetected). Wenotethatasininstanceseg- minival.ThebackboneisResNet-50-FPN.
+mentation,theK keypointsarestilltreatedindependently.
+WeadopttheResNet-FPNvariant,andthekeypointhead
+multaneouslypredictboxes,segments,andkeypointswhile
+architecture is similar to that in Figure 4 (right). The key-
+running at 5 fps. Adding a segment branch (for the per-
+pointheadconsistsofastackofeight3×3512-dconvlay-
+son category) improves the APkp to 63.1 (Table 4) on
+ers,followedbyadeconvlayerand2×bilinearupscaling,
+test-dev. More ablations of multi-task learning on
+producing an output resolution of 56×56. We found that
+minival are in Table 5. Adding the mask branch to the
+a relatively high resolution output (compared to masks) is
+box-only (i.e., Faster R-CNN) or keypoint-only versions
+requiredforkeypoint-levellocalizationaccuracy.
+consistently improves these tasks. However, adding the
+Models are trained on all COCO trainval35k im-
+keypointbranchreducesthebox/maskAPslightly,suggest-
+ages that contain annotated keypoints. To reduce overfit-
+ing that while keypoint detection benefits from multitask
+ting, as this training set is smaller, we train using image
+training, itdoesnotinturnhelptheothertasks. Neverthe-
+scalesrandomlysampledfrom[640,800]pixels;inference
+less,learningallthreetasksjointlyenablesaunifiedsystem
+isonasinglescaleof800pixels.Wetrainfor90kiterations,
+toefficientlypredictalloutputssimultaneously(Figure7).
+startingfromalearningrateof0.02andreducingitby10at
+We also investigate the effect of RoIAlign on keypoint
+60kand80kiterations. Weusebounding-boxNMSwitha
+detection(Table6). ThoughthisResNet-50-FPNbackbone
+thresholdof0.5. Otherdetailsareidenticalasin§3.1.
+hasfinerstrides(e.g.,4pixelsonthefinestlevel),RoIAlign
+MainResultsandAblations: Weevaluatethepersonkey- still shows significant improvement over RoIPool and in-
+point AP (APkp) and experiment with a ResNet-50-FPN creasesAPkp by4.4points. Thisisbecausekeypointdetec-
+backbone;morebackboneswillbestudiedintheappendix. tionsaremoresensitivetolocalizationaccuracy. Thisagain
+Table4showsthatourresult(62.7APkp)is0.9pointshigher indicatesthatalignmentisessentialforpixel-levellocaliza-
+than the COCO 2016 keypoint detection winner [6] that tion,includingmasksandkeypoints.
+uses a multi-stage processing pipeline (see caption of Ta- Given the effectiveness of Mask R-CNN for extracting
+ble4). Ourmethodisconsiderablysimplerandfaster. objectboundingboxes,masks,andkeypoints,weexpectit
+More importantly, we have a unified model that can si- beaneffectiveframeworkforotherinstance-leveltasks.
+8
+
+trainingdata AP[val] AP AP50 person rider car truck bus train mcycle bicycle
+InstanceCut[23] fine+coarse 15.8 13.0 27.9 10.0 8.0 23.7 14.0 19.5 15.2 9.3 4.7
+DWT[4] fine 19.8 15.6 30.0 15.1 11.7 32.9 17.1 20.4 15.0 7.9 4.9
+SAIS[17] fine - 17.4 36.7 14.6 12.9 35.7 16.0 23.2 19.0 10.3 7.8
+DIN[3] fine+coarse - 20.0 38.8 16.5 16.7 25.7 20.6 30.0 23.4 17.1 10.1
+SGN[29] fine+coarse 29.2 25.0 44.9 21.8 20.1 39.4 24.8 33.2 30.8 17.7 12.4
+MaskR-CNN fine 31.5 26.2 49.9 30.5 23.7 46.9 22.8 32.2 18.6 19.1 16.0
+MaskR-CNN fine+COCO 36.4 32.0 58.1 34.8 27.0 49.1 30.1 40.9 30.9 24.1 18.7
+Table7.ResultsonCityscapesval(‘AP[val]’column)andtest(remainingcolumns)sets.OurmethodusesResNet-50-FPN.
+AppendixA:ExperimentsonCityscapes
+We further report instance segmentation results on the pe p r e s r o s n o : n 0 :p.p1 9ee. 9 0rrpss0oeo pnrnse pr::0o i0 r ed s.n.r5e6 o: sr 09 p6 n o: . e0 : n 60 r.: 7 5s . 0 8 o9.7 2 n9:1.00person c : a 1 r .0 :0 0 .81 person:1.00bpuesrs:1o.n0p:0e1.r0s0on:0.c9caa9rr::00..9988tbruupsc:ek0pr:.0se9po.r56psen6oer:0snrcos.:90aonc8r.n:a9:00:r04.:.919.94.5080 person:1.00 peprseoprnseo:r0snp.o:90en9.r:90so8.7n3:1.00persopne:r1s.o0n0:1.00persopne:1r.s0o0n:p1e.0rp0seornsc:o0a pn.r e9::0 r08s ..5 o82 n2:1.00 person:0.99 person:1.00 person:1.00 carc:0a.r5:07.95 bipceyrcscloeanr:0::00.cc8..a6a93r8r2::01c..5a0r20:0.c6a8r:1.00car:0.64 car:0.99cpaerpr:1se.or0sn0o:0n.:802.63car:1.0 c 0 ar:1.00 car:1.c0a0cr:a0r.:60c9.a9cr5:a0r.:91.500prebidriscecoyran:c0r:l:e0.16:..0708.2056car:1.00 perspoenr:s0po.pe9ner:7sr0pso.eo9nrn:3ps0:eo0.8rnp.s94:eo08rn.sp9:o0e9pnr.e9s:0rpo9s.en9or:p1n0s:eo.07rn.s27:op02ne.8:r0sp6op.e9ppner9ese:r0srorsso.n9oon:80nn:0:.:170..93.09809
+Cityscapes [7] dataset. This dataset has fine annota-
+tions for 2975 train, 500 val, and 1525 test images. It has
+20kcoarsetrainingimageswithoutinstanceannotations,
+which we do not use. All images are 2048×1024 pixels.
+Theinstancesegmentationtaskinvolves8objectcategories, car:1.0p0ercsaornp:1:e0.0r.s70o3n:0.p9ce3arsr:o1n.0:00.8c5ar:1.00car:c1.a0r0:1.00car:1c.a0r0c:0a.r9:18.00ca p r e :0 rs .8 o 8 n:1. c 0 a 0 rp:0ecc.r7aasr2ro::0n0c.:.a707r2.6:908.97 pepresrosnpo:en0r:.c0s7ao8.5rn:8:11..0000 car:1.00ccaar:r0:1..6050ccaar:r0:1.5.000car:1.00car:1.00car:1.00 car:1.00 car:1.00 car:1.00 car:1.00 car:1.00car:1.00car:0.8b9ucsa:0r:.17.500caccra:a0rr: c .:061 a ..7 r 90 :1 90 .00 person:0.82 person:1.00person:1.00 person:1.0p0erson:1.00
+whosenumbersofinstancesonthefinetrainingsetare:
+person rider car truck bus train mcycle bicycle
+17.9k 1.8k 26.9k 0.5k 0.4k 0.2k 0.7k 3.7k
+Instancesegmentationperformanceonthistaskismeasured
+by the COCO-style mask AP (averaged over IoU thresh- person:1.00 person:1.00 person:1.00person:1.0pp0eerrssoonn:0:p1.e.70r0s0opne:1r.s0o0pne:p1r.es0ro0sno:n1.:01p.00e0rpsoenrs:0o.np9:e19.r0sp0oepnre:s1ro.s0no0:n0p:.0e5r.99so9n:0.p9e8rson:1.00personp:e1r.0so0pne:1r.s0o0np:e1pr.0seor0sno:0n.:91p.70ep0resrosno:n0:1.9.02p0erson:1.00personp:1e.0rs0o p n e :1 r . s 0 o 0 n:0.96 persopne:1r.s0o0n:1.00 ppeerrsspooennr::s01o..0n7 c 0:50 ar .9 :1 3 .00 car:0.99 person:1.00person:1.00 capr:e0r.s8o9np:e0r.s8o8nb:i0c.y8c9l r e i : d 0 e .9 r: 9 0.94 persopne:1r.s0o b 0n ic :1 y .0 cl 0 ec:0apr. e 9:r17 s.0o0n:0.96
+olds);AP (i.e.,maskAPatanIoUof0.5)isalsoreported.
+50
+person:0.91
+Implementation: WeapplyourMaskR-CNNmodelswith
+the ResNet-FPN-50 backbone; we found the 101-layer Figure 8. Mask R-CNN results on Cityscapes test (32.0 AP).
+counterpartperformssimilarlyduetothesmalldatasetsize. Thebottom-rightimageshowsafailureprediction.
+Wetrainwithimagescale(shorterside)randomlysampled
+ingsampleseach. Topartiallyremedythisissue,wefurther
+from[800,1024],whichreducesoverfitting;inferenceison
+reportaresultusingCOCOpre-training. Todothis,weini-
+a single scale of 1024 pixels. We use a mini-batch size of
+tializethecorresponding7categoriesinCityscapesfroma
+1 image per GPU (so 8 on 8 GPUs) and train the model
+pre-trained COCO Mask R-CNN model (rider being ran-
+for24kiterations,startingfromalearningrateof0.01and
+domlyinitialized). Wefine-tunethismodelfor4kiterations
+reducing it to 0.001 at 18k iterations. It takes ∼4 hours of
+inwhichthelearningrateisreducedat3kiterations,which
+trainingonasingle8-GPUmachineunderthissetting.
+takes∼1hourfortraininggiventheCOCOmodel.
+Results: Table 7 compares our results to the state of the The COCO pre-trained Mask R-CNN model achieves
+artonthevalandtestsets. Withoutusingthecoarse 32.0 AP on test, almost a 6 point improvement over the
+trainingset,ourmethodachieves26.2APontest,which fine-only counterpart. This indicates the important role
+isover30%relativeimprovementoverthepreviousbesten- the amount of training data plays. It also suggests that
+try(DIN[3]),andisalsobetterthantheconcurrentworkof methods on Cityscapes might be influenced by their low-
+SGN’s25.0[29].BothDINandSGNusefine+coarse shotlearningperformance. WeshowthatusingCOCOpre-
+data. Compared to the best entry using fine data only trainingisaneffectivestrategyonthisdataset.
+(17.4AP),weachievea∼50%improvement. Finally,weobservedabiasbetweenthevalandtest
+Forthepersonandcarcategories,theCityscapesdataset AP,asisalsoobservedfromtheresultsof[23,4,29]. We
+exhibits a large number of within-category overlapping in- found that this bias is mainly caused by the truck, bus,
+stances (on average 6 people and 9 cars per image). We and train categories, with the fine-only model having
+arguethatwithin-categoryoverlapisacoredifficultyofin- val/test AP of 28.8/22.8, 53.5/32.2, and 33.0/18.6, re-
+stancesegmentation. Ourmethodshowsmassiveimprove- spectively. This suggests that there is a domain shift on
+mentonthesetwocategoriesovertheotherbestentries(rel- thesecategories,whichalsohavelittletrainingdata.COCO
+ative∼40%improvementonpersonfrom21.8to30.5and pre-traininghelpstoimproveresultsthemostonthesecat-
+∼20%improvementoncarfrom39.4to46.9),eventhough egories; however, the domain shift persists with 38.0/30.1,
+ourmethoddoesnotexploitthecoarsedata. 57.5/40.9,and41.2/30.9val/testAP,respectively. Note
+A main challenge of the Cityscapes dataset is training that for the person and car categories we do not see any
+modelsinalow-dataregime,particularlyforthecategories suchbias(val/testAParewithin±1point).
+of truck, bus, and train, which have about 200-500 train- ExampleresultsonCityscapesareshowninFigure8.
+9
+
+description backbone AP AP50 AP75 APbb APb 5 b 0 APb 7 b 5 description backbone APkp APk 5 p 0 APk 7 p 5 APk M p APk L p
+originalbaseline X-101-FPN 36.7 59.5 38.9 39.6 61.5 43.2 originalbaseline R-50-FPN 64.2 86.6 69.7 58.7 73.0
++updatedbaseline X-101-FPN 37.0 59.7 39.0 40.5 63.0 43.7 +updatedbaseline R-50-FPN 65.1 86.6 70.9 59.9 73.6
++e2etraining X-101-FPN 37.6 60.4 39.9 41.7 64.1 45.2 +deeper R-101-FPN 66.1 87.7 71.7 60.5 75.0
++ImageNet-5k X-101-FPN 38.6 61.7 40.9 42.7 65.1 46.6 +ResNeXt X-101-FPN 67.3 88.0 73.3 62.2 75.6
++train-timeaugm. X-101-FPN 39.2 62.5 41.6 43.5 65.9 47.2
++datadistillation[35] X-101-FPN 69.1 88.9 75.3 64.1 77.1
++deeper X-152-FPN 39.7 63.2 42.2 44.1 66.4 48.4
++test-timeaugm. X-101-FPN 70.4 89.3 76.8 65.8 78.1
++Non-local[43] X-152-FPN-NL 40.3 64.4 42.8 45.0 67.8 48.9
++test-timeaugm. X-152-FPN-NL 41.8 66.0 44.8 47.3 69.3 51.5 Table9.EnhancedkeypointresultsofMaskR-CNNonCOCO
+Table8.EnhanceddetectionresultsofMaskR-CNNonCOCO minival. Eachrowaddsanextracomponenttotheaboverow.
+minival. Eachrowaddsanextracomponenttotheaboverow. Hereweuseonlykeypointannotationsbutnomaskannotations.
+WedenoteResNeXtmodelby‘X’fornotationalbrevity. WedenoteResNetby‘R’andResNeXtby‘X’forbrevity.
+AppendixB:EnhancedResultsonCOCO Train-time augmentation: Scale augmentation at train
+timefurtherimprovesresults.Duringtraining,werandomly
+As a general framework, Mask R-CNN is compat- sample a scale from [640, 800] pixels and we increase the
+ible with complementary techniques developed for de- numberofiterationsto260k(withthelearningratereduced
+tection/segmentation, including improvements made to by 10 at 200k and 240k iterations). Train-time augmenta-
+Fast/Faster R-CNN and FCNs. In this appendix we de- tionimprovesmaskAPby0.6andboxAPby0.8.
+scribe some techniques that improve over our original re- Model architecture: By upgrading the 101-layer
+sults. Thankstoitsgeneralityandflexibility,MaskR-CNN ResNeXt to its 152-layer counterpart [19], we observe an
+was used as the framework by the three winning teams in increase of 0.5 mask AP and 0.6 box AP. This shows a
+theCOCO2017instancesegmentationcompetition,which deepermodelcanstillimproveresultsonCOCO.
+allsignificantlyoutperformedthepreviousstateoftheart. Usingtherecentlyproposednon-local(NL)model[43],
+we achieve 40.3 mask AP and 45.0 box AP. This result is
+InstanceSegmentationandObjectDetection
+withouttest-timeaugmentation,andthemethodrunsat3fps
+WereportsomeenhancedresultsofMaskR-CNNinTa- onanNvidiaTeslaP100GPUattesttime.
+ble 8. Overall, the improvements increase mask AP 5.1 Test-time augmentation: We combine the model results
+points(from36.7to41.8)andboxAP7.7points(from39.6 evaluated using scales of [400, 1200] pixels with a step of
+to47.3). EachmodelimprovementincreasesbothmaskAP 100 and on their horizontal flips. This gives us a single-
+and box AP consistently, showing good generalization of modelresultof41.8maskAPand47.3boxAP.
+theMaskR-CNNframework. Wedetailtheimprovements Theabove resultisthe foundationofoursubmission to
+next.Theseresults,alongwithfutureupdates,canberepro- theCOCO2017competition(whichalsousedanensemble,
+ducedbyourreleasedcodeathttps://github.com/ not discussed here). The first three winning teams for the
+facebookresearch/Detectron, and can serve as instancesegmentationtaskwereallreportedlybasedonan
+higherbaselinesforfutureresearch. extensionoftheMaskR-CNNframework.
+Updated baseline: We start with an updated baseline
+KeypointDetection
+with a different set of hyper-parameters. We lengthen the
+trainingto180kiterations,inwhichthelearningrateisre- WereportenhancedresultsofkeypointdetectioninTa-
+duced by 10 at 120k and 160k iterations. We also change ble9.Asanupdatedbaseline,weextendthetrainingsched-
+theNMSthresholdto0.5(fromadefaultvalueof0.3). The uleto130kiterationsinwhichthelearningrateisreduced
+updatedbaselinehas37.0maskAPand40.5boxAP. by10at100kand120kiterations. ThisimprovesAPkp by
+End-to-end training: All previous results used stage- about 1 point. Replacing ResNet-50 with ResNet-101 and
+wisetraining,i.e.,trainingRPNasthefirststageandMask ResNeXt-101increasesAPkpto66.1and67.3,respectively.
+R-CNN as the second. Following [37], we evaluate end- Witharecentmethodcalleddatadistillation[35],weare
+to-end(‘e2e’)trainingthatjointlytrainsRPNandMaskR- able to exploit the additional 120k unlabeled images pro-
+CNN.Weadoptthe‘approximate’versionin[37]thatonly videdbyCOCO.Inbrief,datadistillationisaself-training
+computes partial gradients in the RoIAlign layer by ignor- strategy that uses a model trained on labeled data to pre-
+ing the gradient w.r.t. RoI coordinates. Table 8 shows that dict annotations on unlabeled images, and in turn updates
+e2etrainingimprovesmaskAPby0.6andboxAPby1.2. the model with these new annotations. Mask R-CNN pro-
+ImageNet-5k pre-training: Following [45], we experi- vides an effective framework for such a self-training strat-
+ment with models pre-trained on a 5k-class subset of Ima- egy. Withdatadistillation,MaskR-CNNAPkp improveby
+geNet(incontrasttothestandard1k-classsubset). This5× 1.8pointsto69.1. WeobservethatMaskR-CNNcanben-
+increaseinpre-trainingdataimprovesbothmaskandbox1 efitfromextradata,evenifthatdataisunlabeled.
+AP.Asareference,[40]used∼250×moreimages(300M) By using the same test-time augmentation as used for
+andreporteda2-3boxAPimprovementontheirbaselines. instancesegmentation,wefurtherboostAPkpto70.4.
+10
+
+Acknowledgements: We would like to acknowledge Ilija [21] J. Huang, V. Rathod, C. Sun, M. Zhu, A. Korattikara,
+Radosavovicforcontributionstocodereleaseandenhanced A.Fathi,I.Fischer,Z.Wojna,Y.Song,S.Guadarrama,etal.
+results,andtheCaffe2teamforengineeringsupport. Speed/accuracy trade-offs for modern convolutional object
+detectors. InCVPR,2017. 2,3,4,6,7
+References [22] M. Jaderberg, K. Simonyan, A. Zisserman, and
+K. Kavukcuoglu. Spatial transformer networks. In
+[1] M.Andriluka,L.Pishchulin,P.Gehler,andB.Schiele. 2D NIPS,2015. 4
+humanposeestimation: Newbenchmarkandstateoftheart [23] A. Kirillov, E. Levinkov, B. Andres, B. Savchynskyy, and
+analysis. InCVPR,2014. 8 C.Rother. Instancecut: fromedgestoinstanceswithmulti-
+[2] P. Arbela´ez, J. Pont-Tuset, J. T. Barron, F. Marques, and cut. InCVPR,2017. 3,9
+J. Malik. Multiscale combinatorial grouping. In CVPR, [24] A.Krizhevsky,I.Sutskever,andG.Hinton. ImageNetclas-
+2014. 2 sificationwithdeepconvolutionalneuralnetworks.InNIPS,
+[3] A. Arnab and P. H. Torr. Pixelwise instance segmentation 2012. 2
+withadynamicallyinstantiatednetwork. InCVPR,2017. 3, [25] Y. LeCun, B. Boser, J. S. Denker, D. Henderson, R. E.
+9 Howard, W. Hubbard, and L. D. Jackel. Backpropagation
+[4] M. Bai and R. Urtasun. Deep watershed transform for in- appliedtohandwrittenzipcoderecognition. Neuralcompu-
+stancesegmentation. InCVPR,2017. 3,9 tation,1989. 2
+[5] S. Bell, C. L. Zitnick, K. Bala, and R. Girshick. Inside- [26] Y.Li,H.Qi,J.Dai,X.Ji,andY.Wei. Fullyconvolutional
+outsidenet: Detectingobjectsincontextwithskippooling instance-awaresemanticsegmentation. InCVPR,2017. 2,
+andrecurrentneuralnetworks. InCVPR,2016. 5 3,5,6
+[6] Z.Cao,T.Simon,S.-E.Wei,andY.Sheikh. Realtimemulti- [27] T.-Y. Lin, P. Dolla´r, R. Girshick, K. He, B. Hariharan, and
+person2dposeestimationusingpartaffinityfields.InCVPR, S.Belongie. Featurepyramidnetworksforobjectdetection.
+2017. 7,8 InCVPR,2017. 2,4,5,7
+[7] M.Cordts,M.Omran,S.Ramos,T.Rehfeld,M.Enzweiler, [28] T.-Y.Lin,M.Maire,S.Belongie,J.Hays,P.Perona,D.Ra-
+R. Benenson, U. Franke, S. Roth, and B. Schiele. The
+manan,P.Dolla´r,andC.L.Zitnick.MicrosoftCOCO:Com-
+Cityscapesdatasetforsemanticurbansceneunderstanding. monobjectsincontext. InECCV,2014. 2,5
+InCVPR,2016. 9 [29] S. Liu, J. Jia, S. Fidler, and R. Urtasun. SGN: Sequen-
+tialgroupingnetworksforinstancesegmentation. InICCV,
+[8] J.Dai,K.He,Y.Li,S.Ren,andJ.Sun. Instance-sensitive
+2017. 3,9
+fullyconvolutionalnetworks. InECCV,2016. 2
+[30] J.Long, E.Shelhamer, andT.Darrell. Fullyconvolutional
+[9] J.Dai,K.He,andJ.Sun. Convolutionalfeaturemaskingfor
+networksforsemanticsegmentation. InCVPR,2015. 1,3,6
+jointobjectandstuffsegmentation. InCVPR,2015. 2
+[31] V.NairandG.E.Hinton. Rectifiedlinearunitsimprovere-
+[10] J.Dai,K.He,andJ.Sun. Instance-awaresemanticsegmen-
+strictedboltzmannmachines. InICML,2010. 4
+tationviamulti-tasknetworkcascades.InCVPR,2016.2,3,
+[32] G.Papandreou,T.Zhu,N.Kanazawa,A.Toshev,J.Tomp-
+4,5,6
+son, C. Bregler, and K. Murphy. Towards accurate multi-
+[11] J.Dai,Y.Li,K.He,andJ.Sun.R-FCN:Objectdetectionvia
+personposeestimationinthewild. InCVPR,2017. 8
+region-basedfullyconvolutionalnetworks.InNIPS,2016.2
+[33] P.O.Pinheiro,R.Collobert,andP.Dollar. Learningtoseg-
+[12] R.Girshick. FastR-CNN. InICCV,2015. 1,2,3,4,6
+mentobjectcandidates. InNIPS,2015. 2,3
+[13] R.Girshick,J.Donahue,T.Darrell,andJ.Malik. Richfea-
+[34] P.O.Pinheiro,T.-Y.Lin,R.Collobert,andP.Dolla´r. Learn-
+ture hierarchies for accurate object detection and semantic
+ingtorefineobjectsegments. InECCV,2016. 2,3
+segmentation. InCVPR,2014. 2,3
+[35] I. Radosavovic, P. Dolla´r, R. Girshick, G. Gkioxari, and
+[14] R.Girshick,F.Iandola,T.Darrell,andJ.Malik.Deformable
+K.He. Datadistillation:Towardsomni-supervisedlearning.
+part models are convolutional neural networks. In CVPR,
+arXiv:1712.04440,2017. 10
+2015. 4
+[36] S.Ren,K.He,R.Girshick,andJ.Sun. FasterR-CNN:To-
+[15] B.Hariharan,P.Arbela´ez,R.Girshick,andJ.Malik. Simul-
+wards real-time object detection with region proposal net-
+taneousdetectionandsegmentation. InECCV.2014. 2 works. InNIPS,2015. 1,2,3,4,7
+[16] B.Hariharan,P.Arbela´ez,R.Girshick,andJ.Malik. Hyper- [37] S.Ren,K.He,R.Girshick,andJ.Sun. FasterR-CNN:To-
+columns for object segmentation and fine-grained localiza- wards real-time object detection with region proposal net-
+tion. InCVPR,2015. 2 works. InTPAMI,2017. 10
+[17] Z.Hayder,X.He,andM.Salzmann. Shape-awareinstance [38] A.Shrivastava,A.Gupta,andR.Girshick. Trainingregion-
+segmentation. InCVPR,2017. 9 basedobjectdetectorswithonlinehardexamplemining. In
+[18] K.He,X.Zhang,S.Ren,andJ.Sun.Spatialpyramidpooling CVPR,2016. 2,5
+in deep convolutional networks for visual recognition. In [39] A.Shrivastava,R.Sukthankar,J.Malik,andA.Gupta. Be-
+ECCV.2014. 1,2 yondskipconnections:Top-downmodulationforobjectde-
+[19] K.He,X.Zhang,S.Ren,andJ.Sun. Deepresiduallearning tection. arXiv:1612.06851,2016. 4,7
+forimagerecognition. InCVPR,2016. 2,4,7,10 [40] C.Sun,A.Shrivastava,S.Singh,andA.Gupta. Revisiting
+[20] J. Hosang, R. Benenson, P. Dolla´r, and B. Schiele. What unreasonableeffectivenessofdataindeeplearningera. In
+makesforeffectivedetectionproposals? PAMI,2015. 2 ICCV,2017. 10
+11
+
+[41] C. Szegedy, S. Ioffe, and V. Vanhoucke. Inception-v4,
+inception-resnet and the impact of residual connections on
+learning. InICLRWorkshop,2016. 7
+[42] J. R. Uijlings, K. E. van de Sande, T. Gevers, and A. W.
+Smeulders. Selective search for object recognition. IJCV,
+2013. 2
+[43] X.Wang,R.Girshick,A.Gupta,andK.He.Non-localneural
+networks. arXiv:1711.07971,2017. 10
+[44] S.-E.Wei,V.Ramakrishna,T.Kanade,andY.Sheikh. Con-
+volutionalposemachines. InCVPR,2016. 8
+[45] S.Xie,R.Girshick,P.Dolla´r,Z.Tu,andK.He. Aggregated
+residualtransformationsfordeepneuralnetworks.InCVPR,
+2017. 4,10
+12

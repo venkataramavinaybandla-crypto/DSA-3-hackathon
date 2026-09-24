@@ -1,0 +1,1952 @@
+Chain-of-Thought Prompting Elicits Reasoning
+in Large Language Models
+JasonWei XuezhiWang DaleSchuurmans MaartenBosma
+BrianIchter FeiXia EdH.Chi QuocV.Le DennyZhou
+GoogleResearch,BrainTeam
+{jasonwei,dennyzhou}@google.com
+Abstract
+Weexplorehowgeneratingachainofthought—aseriesofintermediatereasoning
+steps—significantly improves the ability of large language models to perform
+complexreasoning. Inparticular,weshowhowsuchreasoningabilitiesemerge
+naturallyinsufficientlylargelanguagemodelsviaasimplemethodcalledchain-of-
+thoughtprompting,whereafewchainofthoughtdemonstrationsareprovidedas
+exemplarsinprompting.
+Experimentsonthreelargelanguagemodelsshowthatchain-of-thoughtprompting
+improves performance on a range of arithmetic, commonsense, and symbolic
+reasoningtasks. Theempiricalgainscanbestriking. Forinstance,promptinga
+PaLM540Bwithjusteightchain-of-thoughtexemplarsachievesstate-of-the-art
+accuracy on the GSM8K benchmark of math word problems, surpassing even
+finetunedGPT-3withaverifier.
+Standard Prompting Chain-of-Thought Prompting
+Model Input Model Input
+Q: Roger has 5 tennis balls. He buys 2 more cans of Q: Roger has 5 tennis balls. He buys 2 more cans of
+tennis balls. Each can has 3 tennis balls. How many tennis balls. Each can has 3 tennis balls. How many
+tennis balls does he have now? tennis balls does he have now?
+A: The answer is 11. A: Roger started with 5 balls. 2 cans of 3 tennis balls
+each is 6 tennis balls. 5 + 6 = 11. The answer is 11.
+Q: The cafeteria had 23 apples. If they used 20 to
+make lunch and bought 6 more, how many apples Q: The cafeteria had 23 apples. If they used 20 to
+do they have? make lunch and bought 6 more, how many apples
+do they have?
+Model Output Model Output
+A: The cafeteria had 23 apples originally. They used
+A: The answer is 27.
+20 to make lunch. So they had 23 - 20 = 3. They
+bought 6 more apples, so they have 3 + 6 = 9. The
+answer is 9.
+Figure1: Chain-of-thoughtpromptingenableslargelanguagemodelstotacklecomplexarithmetic,
+commonsense,andsymbolicreasoningtasks. Chain-of-thoughtreasoningprocessesarehighlighted.
+36thConferenceonNeuralInformationProcessingSystems(NeurIPS2022).
+3202
+naJ
+01
+]LC.sc[
+6v30911.1022:viXra
+
+1 Introduction
+100
+80
+60 55 57
+40 33
+18
+20
+0
+MathWordProblems(GSM8K)
+)%(etarevloS
+TheNLPlandscapehasrecentlybeenrevolutionizedby FinetunedGPT-3175B
+languagemodels(Petersetal.,2018;Devlinetal.,2019;
+Priorbest
+Brownetal.,2020,interalia). Scalingupthesizeoflan-
+PaLM540B:standardprompting
+guagemodelshasbeenshowntoconferarangeofbenefits,
+PaLM540B:chain-of-thoughtprompting
+suchasimprovedperformanceandsampleefficiency(Ka-
+planetal.,2020;Brownetal.,2020,interalia). However,
+scalingupmodelsizealonehasnotprovedsufficientfor
+achievinghighperformanceonchallengingtaskssuchas
+arithmetic,commonsense,andsymbolicreasoning(Rae
+etal.,2021).
+This work explores how the reasoning ability of large
+language models can be unlocked by a simple method
+motivatedbytwoideas. First,techniquesforarithmetic
+reasoning can benefit from generating natural language
+rationales that lead to the final answer. Prior work has
+givenmodelstheabilitytogeneratenaturallanguageinter- Figure 2: PaLM 540B uses chain-of-
+mediatestepsbytrainingfromscratch(Lingetal.,2017) thoughtpromptingtoachievenewstate-
+orfinetuningapretrainedmodel(Cobbeetal.,2021),in of-the-art performanceon the GSM8K
+additiontoneuro-symbolicmethodsthatuseformallan- benchmark of math word problems.
+guagesinsteadofnaturallanguage(RoyandRoth,2015; FinetunedGPT-3andpriorbestarefrom
+ChiangandChen,2019;Aminietal.,2019;Chenetal., Cobbeetal.(2021).
+2019). Second,largelanguagemodelsoffertheexciting
+prospect of in-context few-shot learning via prompting. That is, instead of finetuning a separate
+language model checkpoint for each new task, one can simply “prompt” the model with a few
+input–outputexemplarsdemonstratingthetask. Remarkably,thishasbeensuccessfulforarangeof
+simplequestion-answeringtasks(Brownetal.,2020).
+Both of the above ideas, however, have key limitations. For rationale-augmented training and
+finetuningmethods,itiscostlytocreatealargesetofhighqualityrationales,whichismuchmore
+complicatedthansimpleinput–outputpairsusedinnormalmachinelearning. Forthetraditionalfew-
+shotpromptingmethodusedinBrownetal.(2020),itworkspoorlyontasksthatrequirereasoning
+abilities,andoftendoesnotimprovesubstantiallywithincreasinglanguagemodelscale(Raeetal.,
+2021). Inthispaper,wecombinethestrengthsofthesetwoideasinawaythatavoidstheirlimitations.
+Specifically,weexploretheabilityoflanguagemodelstoperformfew-shotpromptingforreasoning
+tasks,givenapromptthatconsistsoftriples: (cid:104)input,chainofthought,output(cid:105). Achainofthoughtis
+aseriesofintermediatenaturallanguagereasoningstepsthatleadtothefinaloutput,andwereferto
+thisapproachaschain-of-thoughtprompting. AnexamplepromptisshowninFigure1.
+Wepresentempiricalevaluationsonarithmetic,commonsense,andsymbolicreasoningbenchmarks,
+showingthatchain-of-thoughtpromptingoutperformsstandardprompting,sometimestoastriking
+degree. Figure2illustratesonesuchresult—ontheGSM8Kbenchmarkofmathwordproblems
+(Cobbeetal.,2021),chain-of-thoughtpromptingwithPaLM540Boutperformsstandardprompting
+byalargemarginandachievesnewstate-of-the-artperformance. Apromptingonlyapproachis
+importantbecauseitdoesnotrequirealargetrainingdatasetandbecauseasinglemodelcheckpoint
+canperformmanytaskswithoutlossofgenerality. Thisworkunderscoreshowlargelanguagemodels
+canlearnviaafewexampleswithnaturallanguagedataaboutthetask(c.f. automaticallylearning
+thepatternsunderlyinginputsandoutputsviaalargetrainingdataset).
+2 Chain-of-ThoughtPrompting
+Considerone’sownthoughtprocesswhensolvingacomplicatedreasoningtasksuchasamulti-step
+mathwordproblem. Itistypicaltodecomposetheproblemintointermediatestepsandsolveeach
+beforegivingthefinalanswer: “AfterJanegives2flowerstohermomshehas10...thenaftershe
+gives3toherdadshewillhave7...sotheansweris7.” Thegoalofthispaperistoendowlanguage
+modelswiththeabilitytogenerateasimilarchainofthought—acoherentseriesofintermediate
+reasoning steps that lead to the final answer for a problem. We will show that sufficiently large
+2
+
+languagemodelscangeneratechainsofthoughtifdemonstrationsofchain-of-thoughtreasoningare
+providedintheexemplarsforfew-shotprompting.
+Figure1showsanexampleofamodelproducingachainofthoughttosolveamathwordproblem
+thatitwouldhaveotherwisegottenincorrect. Thechainofthoughtinthiscaseresemblesasolution
+andcaninterpretedasone,butwestillopttocallitachainofthoughttobettercapturetheideathatit
+mimicsastep-by-stepthoughtprocessforarrivingattheanswer(andalso,solutions/explanations
+typicallycomeafterthefinalanswer(Narangetal.,2020;Wiegreffeetal.,2022;Lampinenetal.,
+2022,interalia)).
+Chain-of-thoughtpromptinghasseveralattractivepropertiesasanapproachforfacilitatingreasoning
+inlanguagemodels.
+1. First,chainofthought,inprinciple,allowsmodelstodecomposemulti-stepproblemsinto
+intermediatesteps,whichmeansthatadditionalcomputationcanbeallocatedtoproblems
+thatrequiremorereasoningsteps.
+2. Second,achainofthoughtprovidesaninterpretablewindowintothebehaviorofthemodel,
+suggestinghowitmighthavearrivedataparticularanswerandprovidingopportunities
+todebugwherethereasoningpathwentwrong(althoughfullycharacterizingamodel’s
+computationsthatsupportananswerremainsanopenquestion).
+3. Third, chain-of-thought reasoning can be used for tasks such as math word problems,
+commonsensereasoning,andsymbolicmanipulation,andispotentiallyapplicable(atleast
+inprinciple)toanytaskthathumanscansolvevialanguage.
+4. Finally,chain-of-thoughtreasoningcanbereadilyelicitedinsufficientlylargeoff-the-shelf
+language models simply by including examples of chain of thought sequences into the
+exemplarsoffew-shotprompting.
+Inempiricalexperiments,wewillobservetheutilityofchain-of-thoughtpromptingforarithmetic
+reasoning(Section3),commonsensereasoning(Section4),andsymbolicreasoning(Section5).
+3 ArithmeticReasoning
+WebeginbyconsideringmathwordproblemsoftheforminFigure1,whichmeasurethearithmetic
+reasoningabilityoflanguagemodels.Thoughsimpleforhumans,arithmeticreasoningisataskwhere
+languagemodelsoftenstruggle(Hendrycksetal.,2021;Pateletal.,2021,interalia).Strikingly,chain-
+of-thoughtpromptingwhenusedwiththe540Bparameterlanguagemodelperformscomparablywith
+task-specificfinetunedmodelsonseveraltasks,evenachievingnewstateoftheartonthechallenging
+GSM8Kbenchmark(Cobbeetal.,2021).
+3.1 ExperimentalSetup
+Weexplorechain-of-thoughtpromptingforvariouslanguagemodelsonmultiplebenchmarks.
+Benchmarks. We consider the following five math word problem benchmarks: (1) the GSM8K
+benchmark of math word problems (Cobbe et al., 2021), (2) the SVAMP dataset of math word
+problemswithvaryingstructures(Pateletal.,2021),(3)theASDivdatasetofdiversemathword
+problems(Miaoetal.,2020),(4)theAQuAdatasetofalgebraicwordproblems,and(5)theMAWPS
+benchmark(Koncel-Kedziorskietal.,2016). ExampleproblemsaregiveninAppendixTable12.
+Standardprompting. Forthebaseline,weconsiderstandardfew-shotprompting,popularizedby
+Brownetal.(2020),inwhichalanguagemodelisgivenin-contextexemplarsofinput–outputpairs
+beforeoutputtingapredictionforatest-timeexample. Exemplarsareformattedasquestionsand
+answers. Themodelgivestheanswerdirectly,asshowninFigure1(left).
+Chain-of-thought prompting. Our proposed approach is to augment each exemplar in few-shot
+promptingwithachainofthoughtforanassociatedanswer,asillustratedinFigure1(right). Asmost
+ofthedatasetsonlyhaveanevaluationsplit,wemanuallycomposedasetofeightfew-shotexemplars
+withchainsofthoughtforprompting—Figure1(right)showsonechainofthoughtexemplar,andthe
+fullsetofexemplarsisgiveninAppendixTable20. (Theseparticularexemplarsdidnotundergo
+promptengineering;robustnessisstudiedinSection3.4andAppendixA.2.) Toinvestigatewhether
+chain-of-thoughtpromptinginthisformcansuccessfullyelicitsuccessfulreasoningacrossarangeof
+3
+
+Math Word Problems (free response) Math Word Problems (multiple choice) CSQA (commonsense)
+Q: Roger has 5 tennis balls. He buys Q: How many keystrokes are needed Q: Sammy wanted to go to where the
+2 more cans of tennis balls. Each can to type the numbers from 1 to 500? people were. Where might he go?
+has 3 tennis balls. How many tennis Answer Choices: (a) 1156 (b) 1392 (c) 1480 Options: (a) race track (b) populated areas
+balls does he have now? (d) 1562 (e) 1788 (c) desert (d) apartment (e) roadblock
+A: There are 9 one-digit numbers
+A: Roger started with 5 balls. 2 cans from 1 to 9. There are 90 two-digit A: The answer must be a place with a
+of 3 tennis balls each is 6 tennis numbers from 10 to 99. There are lot of people. Race tracks, desert,
+balls. 5 + 6 = 11. The answer is 11. 401 three-digit numbers from 100 to apartments, and roadblocks don't
+have a lot of people, but populated
+500. 9 + 90(2) + 401(3) = 1392. The
+areas do. So the answer is (b).
+answer is (b).
+StrategyQA Date Understanding Sports Understanding
+Q: Yes or no: Would a pear sink in Q: The concert was scheduled to be Q: Is the following sentence
+water? on 06/01/1943, but was delayed by plausible? "Joao Moutinho caught the
+one day to today. What is the date 10 screen pass in the NFC
+A: The density of a pear is about 0.6 days ago in MM/DD/YYYY? championship."
+g/cm^3, which is less than water.
+Thus, a pear would float. So the A: One day after 06/01/1943 is A: Joao Moutinho is a soccer player.
+answer is no. 06/02/1943, so today is 06/02/1943. The NFC championship is part of
+10 days before today is 05/23/1943. American football, not soccer. So the
+So the answer is 05/23/1943. answer is no.
+SayCan (Instructing a robot) Last Letter Concatenation Coin Flip (state tracking)
+Human: How would you bring me Q: Take the last letters of the words Q: A coin is heads up. Maybelle flips
+something that isn’t a fruit? in “Lady Gaga” and concatenate the coin. Shalonda does not flip the
+them. coin. Is the coin still heads up?
+Explanation: the user wants
+something to eat that isn’t a fruit. An A: The last letter of “Lady” is “y”. The A: The coin was flipped by Maybelle.
+energy bar is not a fruit, so I will bring last letter of “Gaga” is “a”. So the coin was flipped 1 time, which
+the user an energy bar. Concatenating them is “ya”. So the is an odd number. The coin started
+Plan: 1. find(energy bar) 2. answer is ya. heads up, so after an odd number of
+pick(energy bar) 3. find(user) 4. flips, it will be tails up. So the answer
+put(energy bar) 5. done(). is no.
+Figure3: Examplesof(cid:104)input,chainofthought,output(cid:105)triplesforarithmetic,commonsense,and
+symbolicreasoningbenchmarks. Chainsofthoughtarehighlighted. FullpromptsinAppendixG.
+mathwordproblems,weusedthissinglesetofeightchainofthoughtexemplarsforallbenchmarks
+exceptAQuA,whichismultiplechoiceinsteadoffreeresponse. ForAQuA,weusedfourexemplars
+andsolutionsfromthetrainingset,asgiveninAppendixTable21.
+Language models. We evaluate five large language models. The first is GPT-3 (Brown et al.,
+2020),forwhichweusetext-ada-001,text-babbage-001,text-curie-001,andtext-davinci-002,which
+presumablycorrespondtoInstructGPTmodelsof350M,1.3B,6.7B,and175Bparameters(Ouyang
+etal.,2022).ThesecondisLaMDA(Thoppilanetal.,2022),whichhasmodelsof422M,2B,8B,
+68B,and137Bparameters. ThethirdisPaLM,whichhasmodelsof8B,62B,and540Bparameters.
+ThefourthisUL220B(Tayetal.,2022),andthefifthisCodex(Chenetal.,2021,code-davinci-002
+intheOpenAIAPI).Wesamplefromthemodelsviagreedydecoding(thoughfollow-upworkshows
+chain-of-thoughtpromptingcanbeimprovedbytakingthemajorityfinalanswerovermanysampled
+generations(Wangetal.,2022a)). ForLaMDA,wereportaveragedresultsoverfiverandomseeds,
+where each seed had a different randomly shuffled order of exemplars. As LaMDA experiments
+didnotshowlargevarianceamongdifferentseeds,tosavecomputewereportresultsforasingle
+exemplarorderforallothermodels.
+3.2 Results
+Thestrongestresultsofchain-of-thoughtpromptingaresummarizedinFigure4,withallexperimental
+outputsforeachmodelcollection,modelsize,andbenchmarkshowninTable2intheAppendix.
+Therearethreekeytakeaways. First,Figure4showsthatchain-of-thoughtpromptingisanemergent
+abilityofmodelscale(Weietal.,2022b). Thatis,chain-of-thoughtpromptingdoesnotpositively
+impactperformanceforsmallmodels,andonlyyieldsperformancegainswhenusedwithmodelsof
+∼100Bparameters. Wequalitativelyfoundthatmodelsofsmallerscaleproducedfluentbutillogical
+chainsofthought,leadingtolowerperformancethanstandardprompting.
+4
+
+60
+40
+20
+0
+K8MSG
+)%(etarevlos
+Standardprompting
+Chain-of-thoughtprompting
+Priorsupervisedbest
+LaMDA GPT PaLM
+80
+60
+40
+20
+0
+PMAVS
+)%(etarevlos
+100
+75
+50
+25
+0
+0.4 8 137
+SPWAM
+)%(etarevlos
+Second,chain-of-thoughtpromptinghaslarger
+performancegainsformore-complicatedprob-
+lems. For instance, for GSM8K (the dataset
+withthelowestbaselineperformance), perfor-
+mancemorethandoubledforthelargestGPT
+andPaLMmodels. Ontheotherhand,forSin-
+gleOp,theeasiestsubsetofMAWPSwhichonly
+requiresasinglesteptosolve,performanceim-
+provementswereeithernegativeorverysmall
+(seeAppendixTable3).
+Third, chain-of-thought prompting via GPT-3
+175B and PaLM 540B compares favorably to
+priorstateoftheart,whichtypicallyfinetunesa
+task-specificmodelonalabeledtrainingdataset.
+Figure4showshowPaLM540Buseschain-of-
+thoughtpromptingtoachievenewstateoftheart
+onGSM8K,SVAMP,andMAWPS(thoughnote
+thatstandardpromptingalreadypassedtheprior
+best for SVAMP). On the other two datasets,
+AQuAandASDiv,PaLMwithchain-of-thought
+promptingreacheswithin2%ofthestateofthe
+art(AppendixTable2).
+To better understand why chain-of-thought
+promptingworks,wemanuallyexaminedmodel-
+generatedchainsofthoughtbyLaMDA137B
+forGSM8K.Of50randomexampleswherethe
+0.4 7 175 8 62 540
+modelreturnedthecorrectfinalanswer, allof
+thegeneratedchainsofthoughtwerealsolog- Modelscale(#parametersinbillions)
+ically and mathematically correct except two
+thatcoincidentallyarrivedatthecorrectanswer Figure 4: Chain-of-thought prompting enables
+(see Appendix D.1, and Table 8 for examples largelanguagemodelstosolvechallengingmath
+ofcorrectmodel-generatedchainsofthought). problems. Notably, chain-of-thought reasoning
+We also randomly examined 50 random sam- is an emergent ability of increasing model scale.
+plesforwhichthemodelgavethewronganswer. PriorbestnumbersarefromCobbeetal.(2021)
+Thesummaryofthisanalysisisthat46%ofthe forGSM8K,Jieetal.(2022)forSVAMP,andLan
+chainsofthoughtwerealmostcorrect,barring etal.(2021)forMAWPS.
+minormistakes(calculatorerror,symbolmap-
+pingerror,oronereasoningstepmissing),andthattheother54%ofthechainsofthoughthadmajor
+errorsinsemanticunderstandingorcoherence(seeAppendixD.2). Toprovideasmallinsightinto
+whyscalingimproveschain-of-thoughtreasoningability,weperformedasimilaranalysisoferrors
+madebyPaLM62BandwhetherthoseerrorswerefixedbyscalingtoPaLM540B.Thesummary
+isthatscalingPaLMto540Bfixesalargeportionofone-stepmissingandsemanticunderstanding
+errorsinthe62Bmodel(seeAppendixA.1).
+3.3 AblationStudy
+Theobservedbenefitsofusingchain-of-thoughtpromptingraisesthenaturalquestionofwhetherthe
+sameperformanceimprovementscanbeconferredviaothertypesofprompting. Figure5showsan
+ablationstudywiththreevariationsofchainofthoughtdescribedbelow.
+Equationonly. Onereasonforwhychain-of-thoughtpromptingmighthelpisthatitproducesthe
+mathematical equation to be evaluated, and so we test a variation where the model is prompted
+to output only a mathematical equation before giving the answer. Figure 5 shows that equation
+onlypromptingdoesnothelpmuchforGSM8K,whichimpliesthatthesemanticsofthequestions
+inGSM8Karetoochallengingtodirectlytranslateintoanequationwithoutthenaturallanguage
+reasoningstepsinchainofthought. Fordatasetsofone-steportwo-stepproblems,however,wefind
+thatequationonlypromptingdoesimproveperformance,sincetheequationcanbeeasilyderived
+fromthequestion(seeAppendixTable6).
+5
+
+60
+40
+20
+0
+LaMDA PaLM
+)%(etarevlosK8MSG
+Variable compute only. Another intuition is that chain of
+Standardprompting
+thought allows the model to spend more computation (i.e.,
+Equationonly
+intermediatetokens)onharderproblems. Toisolatetheeffect
+Variablecomputeonly
+ofvariablecomputationfromchain-of-thoughtreasoning,we
+Reasoningafteranswer
+testaconfigurationwherethemodelispromptedtooutputa
+Chain-of-thoughtprompting
+onlysequenceofdots(...)equaltothenumberofcharactersin
+theequationneededtosolvetheproblem.Thisvariantperforms
+about the same as the baseline, which suggests that variable
+computationbyitselfisnotthereasonforthesuccessofchain-
+of-thoughtprompting,andthatthereappearstobeutilityfrom
+expressingintermediatestepsvianaturallanguage.
+Chainofthoughtafteranswer. Anotherpotentialbenefitof
+chain-of-thoughtpromptingcouldsimplybethatsuchprompts
+allowthemodeltobetteraccessrelevantknowledgeacquired
+duringpretraining. Therefore,wetestanalternativeconfigura-
+tionwherethechainofthoughtpromptisonlygivenafterthe
+answer,isolatingwhetherthemodelactuallydependsonthe Figure 5: Ablation study for dif-
+producedchainofthoughttogivethefinalanswer. Thisvariant ferent variations of prompting us-
+performsaboutthesameasthebaseline,whichsuggeststhat ingLaMDA137BandPaLM540B.
+thesequentialreasoningembodiedinthechainofthoughtis Resultsforotherdatasetsaregiven
+usefulforreasonsbeyondjustactivatingknowledge. inAppendixTable6andTable7.
+3.4 RobustnessofChainofThought
+20
+15
+10
+5
+0
+GSM8K
+)%(etarevloS
+Standardprompting
+Sensitivitytoexemplarsisakeyconsiderationofprompt- Chain-of-thoughtprompting
+ingapproaches—forinstance,varyingthepermutationof ·differentannotator(B)
+few-shotexemplarscancausetheaccuracyofGPT-3on ·differentannotator(C)
+SST-2torangefromnearchance(54.3%)tonearstateof ·intentionallyconcisestyle
+theart(93.4%)(Zhaoetal.,2021). Inthisfinalsubsec- ·exemplarsfromGSM8K(α)
+tion,weevaluaterobustnesstochainsofthoughtwritten ·exemplarsfromGSM8K(β)
+bydifferentannotators. Inadditiontotheresultsabove,
+·exemplarsfromGSM8K(γ)
+which used chains of thought written by an Annotator
+A,twootherco-authorsofthispaper(AnnotatorsBand 60
+C) independently wrote chains of thought for the same
+few-shotexemplars(showninAppendixH).AnnotatorA
+alsowroteanotherchainofthoughtthatwasmoreconcise 40
+thantheoriginal,followingthestyleofsolutionsgivenin
+Cobbeetal.(2021).1
+20
+Figure6showstheseresultsforLaMDA137BonGSM8K
+andMAWPS(ablationresultsforotherdatasetsaregiven
+inAppendixTable6/Table7). Althoughthereisvariance 0
+amongdifferentchainofthoughtannotations,aswouldbe MAWPS
+expectedwhenusingexemplar-basedprompting(LeScao
+and Rush, 2021; Reynolds and McDonell, 2021; Zhao Figure6: Chain-of-thoughtprompting
+etal.,2021),allsetsofchainofthoughtpromptsoutper- hasvariancefordifferentpromptexam-
+formthestandardbaselinebyalargemargin. Thisresult ples(asexpected)butoutperformsstan-
+impliesthatsuccessfuluseofchainofthoughtdoesnot dardpromptingforvariousannotatorsas
+dependonaparticularlinguisticstyle. wellasfordifferentexemplars.
+To confirm that successful chain-of-thought prompting
+worksforothersetsofexemplars,wealsorunexperiments
+withthreesetsofeightexemplarsrandomlysampledfromtheGSM8Ktrainingset,anindependent
+1Forinstance,whereasoriginalchainofthoughtusesseveralshortsentences(“’Therewereoriginally9
+computers.Foreachof4days,5morecomputerswereadded.So5*4=20computerswereadded.9+20is
+29.”),theconcisechainofthoughtwouldread“5*4=20newcomputerswereadded.Sothereare9+20=29
+newcomputersintheserverroomnow”.
+6
+
+source (examples in this dataset already included reasoning steps like a chain of thought).2 Fig-
+ure6showsthatthesepromptsperformedcomparablywithourmanuallywrittenexemplars,also
+substantiallyoutperformingstandardprompting.
+Inadditiontorobustnesstoannotators,independently-writtenchainsofthought,differentexemplars,
+andvariouslanguagemodels,wealsofindthatchain-of-thoughtpromptingforarithmeticreasoning
+isrobusttodifferentexemplarordersandvaryingnumbersofexemplars(seeAppendixA.2).
+4 CommonsenseReasoning
+Althoughchainofthoughtisparticularlysuitableformathwordproblems,thelanguage-basednature
+ofchainofthoughtactuallymakesitapplicabletoabroadclassofcommonsensereasoningproblems,
+whichinvolvereasoningaboutphysicalandhumaninteractionsunderthepresumptionofgeneral
+backgroundknowledge. Commonsensereasoningiskeyforinteractingwiththeworldandisstill
+beyondthereachofcurrentnaturallanguageunderstandingsystems(Talmoretal.,2021).
+Benchmarks. Weconsiderfivedatasetscoveringadiverserangeofcommonsensereasoningtypes.
+ThepopularCSQA(Talmoretal.,2019)askscommonsensequestionsabouttheworldinvolving
+complex semantics that often require prior knowledge. StrategyQA (Geva et al., 2021) requires
+modelstoinferamulti-hopstrategytoanswerquestions. Wechoosetwospecializedevaluationsets
+fromtheBIG-bencheffort(BIG-benchcollaboration,2021): DateUnderstanding,whichinvolves
+inferringadatefromagivencontext,andSportsUnderstanding,whichinvolvesdeterminingwhether
+a sentence relating to sports is plausible or implausible. Finally, the SayCan dataset (Ahn et al.,
+2022)involvesmappinganaturallanguageinstructiontoasequenceofrobotactionsfromadiscrete
+set. Figure3showsexampleswithchainofthoughtannotationsforalldatasets.
+Prompts. Wefollowthesameexperimentalsetupasthepriorsection. ForCSQAandStrategyQA,
+werandomlyselectedexamplesfromthetrainingsetandmanuallycomposedchainsofthoughtfor
+themtouseasfew-shotexemplars. ThetwoBIG-benchtasksdonothavetrainingsets,soweselected
+thefirsttenexamplesasexemplarsintheevaluationsetasfew-shotexemplarsandreportnumberson
+therestoftheevaluationset. ForSayCan,weusesixexamplesfromthetrainingsetusedinAhnetal.
+(2022)andalsomanuallycomposedchainsofthought.
+Results. Figure7highlightstheseresultsforPaLM(fullresultsforLaMDA,GPT-3,anddifferent
+modelscalesareshowninTable4). Foralltasks,scalingupmodelsizeimprovedtheperformance
+ofstandardprompting;chain-of-thoughtpromptingledtofurthergains,withimprovementsappear-
+ingtobelargestforPaLM540B.Withchain-of-thoughtprompting,PaLM540Bachievedstrong
+performancerelativetobaselines,outperformingthepriorstateoftheartonStrategyQA(75.6%vs
+69.4%)andoutperforminganunaidedsportsenthusiastonsportsunderstanding(95.4%vs84%).
+Theseresultsdemonstratethatchain-of-thoughtpromptingcanalsoimproveperformanceontasks
+requiringarangeofcommonsensereasoningabilities(thoughnotethatgainwasminimalonCSQA).
+100
+80
+60
+40
+20
+8 62540
+)%(etarevloS
+CSQA StrategyQA Date Sports SayCan
+90 80 100 100
+80 60 80 Standardprompting
+80
+Chainofthought
+70 40 60
+Priorsupervisedbest
+60
+60 20 40 Human
+50 0 40 20
+8 62540 8 62540 8 62540 8 62540
+Modelscale(#parametersinbillions)
+Figure 7: Chain-of-thought prompting also improves the commonsense reasoning abilities of
+language models. The language model shown here is PaLM. Prior best numbers are from the
+leaderboardsofCSQA(Talmoretal.,2019)andStrategyQA(Gevaetal.,2021)(single-modelonly,
+asofMay5,2022). AdditionalresultsusingvarioussizesofLaMDA,GPT-3,andPaLMareshown
+inTable4.
+2Wesampleexamples≤60tokenstofitintoourinputcontextwindow,andalsolimittheexamplesto≤2
+stepstosolveforafaircomparisonwiththeeightexemplarsthatwecomposed.
+7
+
+5 SymbolicReasoning
+100
+75
+50
+25
+0
+)%(etarevloS
+Standardprompting
+Chain-of-thoughtprompting
+LetterConcat:2 LetterConcat:4
+(indomain) (OOD)
+100
+80
+60
+40
+8 62 540
+)%(etarevloS
+Ourfinalexperimentalevaluationconsiderssymbolicrea-
+soning,whichissimpleforhumansbutpotentiallychal-
+lenging for language models. We show that chain-of-
+thoughtpromptingnotonlyenableslanguagemodelsto
+performsymbolicreasoningtasksthatarechallengingin
+thestandardpromptingsetting,butalsofacilitateslength
+generalizationtoinference-timeinputslongerthanthose
+seeninthefew-shotexemplars.
+Tasks. Weusethefollowingtwotoytasks.
+CoinFlip:2 CoinFlip:4
+• Last letter concatenation. This task asks the model
+(indomain) (OOD)
+toconcatenatethelastlettersofwordsinaname(e.g.,
+“AmyBrown”→“yn”). Itisamorechallengingversion
+offirstletterconcatenation,whichlanguagemodelscan
+alreadyperformwithoutchainofthought.3 Wegenerate
+fullnamesbyrandomlyconcatenatingnamesfromthe
+topone-thousandfirstandlastnamesfromnamecensus
+data(https://namecensus.com/).
+• Coinflip. Thistaskasksthemodeltoanswerwhethera 8 62 540
+coinisstillheadsupafterpeopleeitherflipordon’tflip Modelscale(#parametersinbillions)
+thecoin(e.g.,“Acoinisheadsup. Phoebeflipsthecoin.
+Osvaldodoesnotflipthecoin.Isthecoinstillheadsup?”
+Figure 8: Using chain-of-thought
+→“no”).
+prompting facilitates generalization to
+Astheconstructionofthesesymbolicreasoningtasksis longer sequences in two symbolic rea-
+well-defined,foreachtaskweconsideranin-domaintest soningtasks.
+setforwhichexampleshadthesamenumberofstepsas
+thetraining/few-shotexemplars,aswellasanout-of-domain(OOD)testset,forwhichevaluation
+exampleshadmorestepsthanthoseintheexemplars. Forlastletterconcatenation,themodelonly
+seesexemplarsofnameswithtwowords,andthenperformslastletterconcatenationonnameswith3
+and4words.4 Wedothesameforthenumberofpotentialflipsinthecoinfliptask. Ourexperimental
+setupusesthesamemethodsandmodelsasinthepriortwosections. Weagainmanuallycompose
+chainsofthoughtforthefew-shotexemplarsforeachtask,whicharegiveninFigure3.
+Results. Theresultsofthesein-domainandOODevaluationsareshowninFigure8forPaLM,
+withresultsforLaMDAshowninAppendixTable5. WithPaLM540B,chain-of-thoughtprompting
+leadstoalmost100%solverates(notethatstandardpromptingalreadysolvescoinflipwithPaLM
+540, thoughnotforLaMDA137B).Notethatthesein-domainevaluationsare“toytasks”inthe
+sensethatperfectsolutionstructuresarealreadyprovidedbythechainsofthoughtinthefew-shot
+exemplars;allthemodelhastodoisrepeatthesamestepswiththenewsymbolsinthetest-time
+example. Andyet,smallmodelsstillfail—theabilitytoperformabstractmanipulationsonunseen
+symbolsforthesethreetasksonlyarisesatthescaleof100Bmodelparameters.
+AsfortheOODevaluations,standardpromptingfailsforbothtasks.Withchain-of-thoughtprompting,
+languagemodelsachieveupwardscalingcurves(thoughperformanceislowerthaninthein-domain
+setting). Hence,chain-of-thoughtpromptingfacilitateslengthgeneralizationbeyondseenchainsof
+thoughtforlanguagemodelsofsufficientscale.
+6 Discussion
+Wehaveexploredchain-of-thoughtpromptingasasimplemechanismforelicitingmulti-steprea-
+soningbehaviorinlargelanguagemodels. Wefirstsawthatchain-of-thoughtpromptingimproves
+performancebyalargemarginonarithmeticreasoning,yieldingimprovementsthataremuchstronger
+thanablationsandrobusttodifferentannotators,exemplars,andlanguagemodels(Section3). Next,
+3Wetested10commonnamesusingGPT-3davincianditgotallbutonecorrect.
+4Fornamesoflengthlongerthan2words,weconcatenatemultiplefirstandlastnamestogether.
+8
+
+experimentsoncommonsensereasoningunderscoredhowthelinguisticnatureofchain-of-thought
+reasoningmakesitgenerallyapplicable(Section4). Finally,weshowedthatforsymbolicreasoning,
+chain-of-thoughtpromptingfacilitatesOODgeneralizationtolongersequencelengths(Section5). In
+allexperiments,chain-of-thoughtreasoningiselicitedsimplybypromptinganoff-the-shelflanguage
+model. Nolanguagemodelswerefinetunedintheprocessofwritingthispaper.
+Theemergenceofchain-of-thoughtreasoningasaresultofmodelscalehasbeenaprevailingtheme
+(Weietal.,2022b).Formanyreasoningtaskswherestandardpromptinghasaflatscalingcurve,chain-
+of-thoughtpromptingleadstodramaticallyincreasingscalingcurves. Chain-of-thoughtprompting
+appearstoexpandthesetoftasksthatlargelanguagemodelscanperformsuccessfully—inother
+words,ourworkunderscoresthatstandardpromptingonlyprovidesalowerboundonthecapabilities
+oflargelanguagemodels. Thisobservationlikelyraisesmorequestionsthanitanswers—forinstance,
+howmuchmorecanweexpectreasoningabilitytoimprovewithafurtherincreaseinmodelscale?
+Whatotherpromptingmethodsmightexpandtherangeoftasksthatlanguagemodelscansolve?
+Asforlimitations,wefirstqualifythatalthoughchainofthoughtemulatesthethoughtprocessesof
+humanreasoners,thisdoesnotanswerwhethertheneuralnetworkisactually“reasoning,”which
+weleaveasanopenquestion. Second,althoughthecostofmanuallyaugmentingexemplarswith
+chainsofthoughtisminimalinthefew-shotsetting,suchannotationcostscouldbeprohibitivefor
+finetuning(thoughthiscouldpotentiallybesurmountedwithsyntheticdatageneration,orzero-shot
+generalization). Third,thereisnoguaranteeofcorrectreasoningpaths,whichcanleadtobothcorrect
+andincorrectanswers;improvingfactualgenerationsoflanguagemodelsisanopendirectionfor
+futurework(Rashkinetal.,2021;YeandDurrett,2022;Wiegreffeetal.,2022,interalia). Finally,
+theemergenceofchain-of-thoughtreasoningonlyatlargemodelscalesmakesitcostlytoservein
+real-worldapplications;furtherresearchcouldexplorehowtoinducereasoninginsmallermodels.
+7 RelatedWork
+Thisworkisinspiredbymanyresearchareas,whichwedetailinanextendedrelatedworksection
+(AppendixC).Herewedescribetwodirectionsandassociatedpapersthatareperhapsmostrelevant.
+Thefirstrelevantdirectionisusingintermediatestepstosolvereasoningproblems. Lingetal.(2017)
+pioneertheideaofusingnaturallanguagerationalestosolvemathwordproblemsthroughaseries
+ofintermediatesteps. Theirworkisaremarkablecontrasttotheliteratureusingformallanguages
+toreason(Royetal.,2015;ChiangandChen,2019;Aminietal.,2019;Chenetal.,2019). Cobbe
+etal.(2021)extendLingetal.(2017)bycreatingalargerdatasetandusingittofinetuneapretrained
+language model rather than training a model from scratch. In the domain of program synthesis,
+Nye et al. (2021) leverage language models to predict the final outputs of Python programs via
+firstline-to-linepredictingtheintermediatecomputationalresults,andshowthattheirstep-by-step
+predictionmethodperformsbetterthandirectlypredictingthefinaloutputs.
+Naturally,thispaperalsorelatescloselytothelargebodyofrecentworkonprompting. Sincethe
+popularizationoffew-shotpromptingasgivenbyBrownetal.(2020),severalgeneralapproaches
+haveimprovedthepromptingabilityofmodels,suchasautomaticallylearningprompts(Lesteretal.,
+2021)orgivingmodelsinstructionsdescribingatask(Weietal.,2022a;Sanhetal.,2022;Ouyang
+et al., 2022). Whereas these approaches improve or augment the input part of the prompt (e.g.,
+instructionsthatareprependedtoinputs),ourworktakestheorthogonaldirectionofaugmentingthe
+outputsoflanguagemodelswithachainofthought.
+8 Conclusions
+Wehaveexploredchain-of-thoughtpromptingasasimpleandbroadlyapplicablemethodforenhanc-
+ingreasoninginlanguagemodels. Throughexperimentsonarithmetic,symbolic,andcommonsense
+reasoning,wefindthatchain-of-thoughtreasoningisanemergentpropertyofmodelscalethatallows
+sufficientlylargelanguagemodelstoperformreasoningtasksthatotherwisehaveflatscalingcurves.
+Broadeningtherangeofreasoningtasksthatlanguagemodelscanperformwillhopefullyinspire
+furtherworkonlanguage-basedapproachestoreasoning.
+9
+
+Acknowledgements
+WethankJacobDevlin,ClaireCui,AndrewDai,andElliePavlickforprovidingfeedbackonthe
+paper. WethankJacobAustin,YuhuaiWu,HenrykMichalewski,AitorLewkowycz,CharlesSutton,
+andAakankshaChowdheryforhelpfuldiscussions. WethankSidMaxwellfornotifyingusabouta
+mistakeinthemanualerroranalysisintheoriginalmanuscript.
+References
+MichaelAhn,AnthonyBrohan,NoahBrown,YevgenChebotar,OmarCortes,ByronDavid,Chelsea
+Finn,KeerthanaGopalakrishnan,KarolHausman,AlexHerzog,etal.2022. DoasIcan,notasI
+say: Groundinglanguageinroboticaffordances. arXivpreprintarXiv:2204.01691.
+AidaAmini, SaadiaGabriel, ShanchuanLin, RikKoncel-Kedziorski, YejinChoi, andHannaneh
+Hajishirzi. 2019. MathQA: Towards interpretable math word problem solving with operation-
+basedformalisms. InProceedingsofthe2019ConferenceoftheNorthAmericanChapterofthe
+AssociationforComputationalLinguistics: HumanLanguageTechnologies,Volume1(Longand
+ShortPapers),Minneapolis,Minnesota.AssociationforComputationalLinguistics.
+DanielAndor,LuhengHe,KentonLee,andEmilyPitler.2019. GivingBERTacalculator: Finding
+operationsandargumentswithreadingcomprehension. EMNLP.
+JacobAndreas,DanKlein,andSergeyLevine.2018. Learningwithlatentlanguage. NAACL.
+JacobAustin,AugustusOdena,MaxwellNye,MaartenBosma,HenrykMichalewski,DavidDohan,
+EllenJiang,CarrieCai,MichaelTerry,QuocLe,etal.2021.Programsynthesiswithlargelanguage
+models. arXivpreprintarXiv:2108.07732.
+BIG-bench collaboration. 2021. Beyond the imitation game: Measuring and extrapolating the
+capabilitiesoflanguagemodels. Inpreparation.
+KajBostrom,XinyuZhao,SwaratChaudhuri,andGregDurrett.2021. Flexiblegenerationofnatural
+languagedeductions. EMNLP.
+TomBrown,BenjaminMann,NickRyder,MelanieSubbiah,JaredDKaplan,PrafullaDhariwal,
+Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel
+Herbert-Voss,GretchenKrueger,TomHenighan,RewonChild,AdityaRamesh,DanielZiegler,
+JeffreyWu,ClemensWinter,ChrisHesse,MarkChen,EricSigler,MateuszLitwin,ScottGray,
+BenjaminChess,JackClark,ChristopherBerner,SamMcCandlish,AlecRadford,IlyaSutskever,
+andDarioAmodei.2020. Languagemodelsarefew-shotlearners. NeurIPS.
+Jonathon Cai, Richard Shin, and Dawn Song. 2017. Making neural programming architectures
+generalizeviarecursion. ICLR.
+Oana-MariaCamburu,TimRocktäschel,ThomasLukasiewicz,andPhilBlunsom.2018. e-SNLI:
+Naturallanguageinferencewithnaturallanguageexplanations. NeurIPS.
+Howard Chen, Jacqueline He, Karthik Narasimhan, and Danqi Chen. 2022. Can rationalization
+improverobustness? NAACL.
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira Pinto, Jared
+Kaplan,HarriEdwards,YuriBurda,NicholasJoseph,GregBrockman,etal.2021. Evaluating
+largelanguagemodelstrainedoncode. arXivpreprintarXiv:2107.03374.
+XinyunChen,ChenLiang,AdamsWeiYu,DennyZhou,DawnSong,andQuocV.Le.2019. Neural
+symbolic reader: Scalable integration of distributed and symbolic representations for reading
+comprehension. ICLR.
+Ting-RuiChiangandYun-NungChen.2019. Semantically-alignedequationgenerationforsolving
+andreasoningmathwordproblems. InProceedingsofthe2019ConferenceoftheNorthAmeri-
+canChapteroftheAssociationforComputationalLinguistics: HumanLanguageTechnologies,
+Volume1(LongandShortPapers),pages2656–2668,Minneapolis,Minnesota.Associationfor
+ComputationalLinguistics.
+10
+
+Peter Clark, Oyvind Tafjord, and Kyle Richardson. 2020. Transformers as soft reasoners over
+language. IJCAI.
+KarlCobbe,VineetKosaraju,MohammadBavarian,JacobHilton,ReiichiroNakano,Christopher
+Hesse,andJohnSchulman.2021. Trainingverifierstosolvemathwordproblems. arXivpreprint
+arXiv:2110.14168.
+JacobDevlin,Ming-WeiChang,KentonLee,andKristinaToutanova.2019. BERT:Pre-trainingof
+deepbidirectionaltransformersforlanguageunderstanding. NAACL.
+HonghuaDong,JiayuanMao,TianLin,ChongWang,LihongLi,andDennyZhou.2019. Neural
+logicmachines. ICLR.
+DheeruDua,SameerSingh,andMattGardner.2020. Benefitsofintermediateannotationsinreading
+comprehension. ACL.
+MorGeva,DanielKhashabi,EladSegal,TusharKhot,DanRoth,andJonathanBerant.2021. Did
+aristotleusealaptop? Aquestionansweringbenchmarkwithimplicitreasoningstrategies. TACL.
+YulingGu, BhavanaDalviMishra, andPeterClark.2022. DREAM:Uncoveringmentalmodels
+behindlanguagemodels. NAACL.
+BradenHancock,ParomaVarma,StephanieWang,MartinBringmann,PercyLiang,andChristopher
+Ré.2018. Trainingclassifierswithnaturallanguageexplanations. ACL.
+PeterHaseandMohitBansal.2022. Whencanmodelslearnfromexplanations? aformalframework
+forunderstandingtherolesofexplanationdata. ACL.
+DanHendrycks,CollinBurns,SauravKadavath,AkulArora,StevenBasart,EricTang,DawnSong,
+andJacobSteinhardt.2021. Measuringmathematicalproblemsolvingwiththemathdataset. arXiv
+preprintarXiv:2103.03874.
+MohammadJavadHosseini,HannanehHajishirzi,OrenEtzioni,andNateKushman.2014. Learning
+tosolvearithmeticwordproblemswithverbcategorization. EMNLP.
+ZhanmingJie,JieruiLi,andWeiLu.2022. Learningtoreasondeductively: Mathwordproblem
+solvingascomplexrelationextraction. arXivpreprintarXiv:2203.10316.
+Jared Kaplan, Sam McCandlish, Tom Henighan, Tom B Brown, Benjamin Chess, Rewon Child,
+ScottGray,AlecRadford,JeffreyWu,andDarioAmodei.2020. Scalinglawsforneurallanguage
+models. arXivpreprintarXiv:2001.08361.
+RikKoncel-Kedziorski,SubhroRoy,AidaAmini,NateKushman,andHannanehHajishirzi.2016.
+MAWPS:Amathwordproblemrepository. NAACL.
+AndrewK.Lampinen, IshitaDasgupta, StephanieC.Y.Chan, KoryMatthewson, MichaelHenry
+Tessler,AntoniaCreswell,JamesL.McClelland,JaneX.Wang,andFelixHill.2022.Canlanguage
+modelslearnfromexplanationsincontext? arXivpreprintarXiv:2204.02329.
+YihuaiLan,LeiWang,QiyuanZhang,YunshiLan,BingTianDai,YanWang,DongxiangZhang,
+andEe-PengLim.2021. MWPToolkit: Anopen-sourceframeworkfordeeplearning-basedmath
+wordproblemsolvers. arXivpreprintarXiv:2109.00799.
+TevenLeScaoandAlexanderRush.2021. Howmanydatapointsisapromptworth? NAACL.
+BrianLester,RamiAl-Rfou,andNoahConstant.2021. Thepowerofscaleforparameter-efficient
+prompttuning. EMNLP.
+IddoLev,BillMacCartney,ChristopherManning,andRogerLevy.2004. Solvinglogicpuzzles:
+Fromrobustprocessingtoprecisesemantics. Proceedingsofthe2ndWorkshoponTextMeaning
+andInterpretation.
+XiangLisaLiandPercyLiang.2021. Prefix-tuning: Optimizingcontinuouspromptsforgeneration.
+ACL.
+11
+
+Zhengzhong Liang, Steven Bethard, and Mihai Surdeanu. 2021. Explainable multi-hop verbal
+reasoningthroughinternalmonologue. NAACL.
+WangLing,DaniYogatama,ChrisDyer,andPhilBlunsom.2017. Programinductionbyrationale
+generation: Learningtosolveandexplainalgebraicwordproblems. ACL.
+PengfeiLiu,WeizheYuan,JinlanFu,ZhengbaoJiang,HiroakiHayashi,andGrahamNeubig.2021.
+Pre-train,prompt,andpredict: Asystematicsurveyofpromptingmethodsinnaturallanguage
+processing. arXivpreprintarXiv:2107.13586.
+BodhisattwaPrasadMajumder,Oana-MariaCamburu,ThomasLukasiewicz,andJulianMcAuley.
+2021. Rationale-inspired natural language explanations with commonsense. arXiv preprint
+arXiv:2106.13876.
+AnaMarasovic´,IzBeltagy,DougDowney,andMatthewEPeters.2022. Few-shotself-rationalization
+withnaturallanguageprompts. NAACLFindings.
+JoshuaMaynez,ShashiNarayan,BerndBohnet,andRyanMcDonald.2020. Onfaithfulnessand
+factualityinabstractivesummarization. InACL.
+Shen Yun Miao, Chao Chun Liang, and Keh Yih Su. 2020. A diverse corpus for evaluating and
+developingEnglishmathwordproblemsolvers. ACL.
+SewonMin,XinxiLyu,AriHoltzman,MikelArtetxe,MikeLewis,HannanehHajishirzi,andLuke
+Zettlemoyer.2022. Rethinkingtheroleofdemonstrations: Whatmakesin-contextlearningwork?
+arXivpreprintarXiv:2202.12837.
+SharanNarang,ColinRaffel,KatherineLee,AdamRoberts,NoahFiedel,andKarishmaMalkan.
+2020. WT5?! Training text-to-text models to explain their predictions. arXiv preprint
+arXiv:2004.14546.
+MaxwellNye,AndersJohanAndreassen,GuyGur-Ari,HenrykMichalewski,JacobAustin,David
+Bieber,DavidDohan,AitorLewkowycz,MaartenBosma,DavidLuan,etal.2021.Showyourwork:
+Scratchpadsforintermediatecomputationwithlanguagemodels. arXivpreprintarXiv:2112.00114.
+LongOuyang,JeffWu,XuJiang,DiogoAlmeida,CarrollL.Wainwright,PamelaMishkin,Chong
+Zhang,SandhiniAgarwal,KatarinaSlama,AlexRay,etal.2022. Traininglanguagemodelsto
+followinstructionswithhumanfeedback. arXivpreprintarXiv:2203.02155.
+ArkilPatel, SatwikBhattamishra, andNavinGoyal.2021. AreNLPmodelsreallyabletosolve
+simplemathwordproblems? NAACL.
+MatthewE.Peters,MarkNeumann,MohitIyyer,MattGardner,ChristopherClark,KentonLee,and
+LukeZettlemoyer.2018. Deepcontextualizedwordrepresentations. NAACL.
+XinyuPi,QianLiu,BeiChen,MortezaZiyadi,ZeqiLin,YanGao,QiangFu,Jian-GuangLou,and
+WeizhuChen.2022. Reasoninglikeprogramexecutors. arXivpreprintarXiv:2201.11473.
+Piotr Pie˛kos, Mateusz Malinowski, and Henryk Michalewski. 2021. Measuring and improving
+BERT’smathematicalabilitiesbypredictingtheorderofreasoning. ACL.
+JackW.Rae,SebastianBorgeaud,TrevorCai,KatieMillican,JordanHoffmann,FrancisSong,John
+Aslanides,SarahHenderson,RomanRing,SusannahYoung,etal.2021. Scalinglanguagemodels:
+Methods,analysis&insightsfromtrainingGopher. arXivpreprintarXiv:2112.11446.
+ColinRaffel,NoamShazeer,AdamRoberts,KatherineLee,SharanNarang,MichaelMatena,Yanqi
+Zhou, Wei Li, and Peter J Liu. 2020. Exploring the limits of transfer learning with a unified
+text-to-texttransformer. JournalofMachineLearningResearch,21:1–67.
+DheerajRajagopal,VidhishaBalachandran,EduardH.Hovy,andYuliaTsvetkov.2021. SelfExplain:
+Aself-explainingarchitectureforneuraltextclassifiers. EMNLP.
+Nazneen Fatema Rajani, Bryan McCann, Caiming Xiong, and Richard Socher. 2019. Explain
+yourself! Leveraginglanguagemodelsforcommonsensereasoning. ACL.
+12
+
+Qiu Ran, Yankai Lin, Peng Li, Jie Zhou, and Zhiyuan Liu. 2019. NumNet: Machine reading
+comprehensionwithnumericalreasoning. EMNLP.
+Hannah Rashkin, Vitaly Nikolaev, Matthew Lamm, Michael Collins, Dipanjan Das, Slav Petrov,
+GauravSinghTomar,IuliaTurc,andDavidReitter.2021.Measuringattributioninnaturallanguage
+generationmodels. arXivpreprintarXiv:2112.12870.
+GabrielRecchia.2021. Teachingautoregressivelanguagemodelscomplextasksbydemonstration.
+arXivpreprintarXiv:2109.02102.
+EmilyReif,DaphneIppolito,AnnYuan,AndyCoenen,ChrisCallison-Burch,andJasonWei.2022.
+Arecipeforarbitrarytextstyletransferwithlargelanguagemodels. ACL.
+LariaReynoldsandKyleMcDonell.2021. Promptprogrammingforlargelanguagemodels: Beyond
+thefew-shotparadigm. ExtendedAbstractsofthe2021CHIConferenceonHumanFactorsin
+ComputingSystems.
+SubhroRoyandDanRoth.2015. Solvinggeneralarithmeticwordproblems. EMNLP.
+SubhroRoy, TimVieira, andDanRoth.2015. ReasoningaboutQuantitiesinNaturalLanguage.
+TACL.
+MohammedSaeed,NaserAhmadi,PreslavNakov,andPaoloPapotti.2021. RuleBERT:Teaching
+softrulestopre-trainedlanguagemodels. EMNLP.
+Victor Sanh, Albert Webson, Colin Raffel, Stephen H. Bach, Lintang Sutawika, Zaid Alyafeai,
+AntoineChaffin,ArnaudStiegler,TevenLeScao,ArunRaja,etal.2022. Multitaskprompted
+trainingenableszero-shottaskgeneralization. ICLR.
+Jianhao Shen, Yichun Yin, Lin Li, Lifeng Shang, Xin Jiang, Ming Zhang, and Qun Liu. 2021.
+Generate&rank: Amulti-taskframeworkformathwordproblems. InFindingsoftheAssociation
+forComputationalLinguistics: EMNLP2021.
+AlonTalmor,JonathanHerzig,NicholasLourie,andJonathanBerant.2019. CommonsenseQA:A
+questionansweringchallengetargetingcommonsenseknowledge. NAACL.
+AlonTalmor,OyvindTafjord,PeterClark,YoavGoldberg,andJonathanBerant.2020. Leap-of-
+thought: Teachingpre-trainedmodelstosystematicallyreasonoverimplicitknowledge. NeurIPS.
+AlonTalmor,OriYoran,RonanLeBras, ChandraBhagavatula, YoavGoldberg,YejinChoi,and
+JonathanBerant.2021. CommonsenseQA2.0: Exposingthelimitsofaithroughgamification.
+NeurIPSTrackonDatasetsandBenchmarks.
+YiTay,MostafaDehghani,VinhQTran,XavierGarcia,DaraBahri,TalSchuster,HuaixiuSteven
+Zheng,NeilHoulsby,andDonaldMetzler.2022. Unifyinglanguagelearningparadigms. arXiv
+preprintarXiv:2205.05131.
+RomalThoppilan,DanielDeFreitas,JamieHall,NoamShazeer,ApoorvKulshreshtha,Heng-Tze
+Cheng,AliciaJin,TaylorBos,LeslieBaker,YuDu,etal.2022. LaMDA:Languagemodelsfor
+dialogapplications. arXivpreprintarXiv:2201.08239.
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, and Denny Zhou. 2022a.
+Self-consistency improves chain of thought reasoning in language models. arXiv preprint
+arXiv:2203.11171.
+YizhongWang,SwaroopMishra,PegahAlipoormolabashi,YeganehKordi,AmirrezaMirzaei,Anjana
+Arunkumar,ArjunAshok,ArutSelvanDhanasekaran,AtharvaNaik,DavidStap,etal.2022b.
+Benchmarkinggeneralizationviain-contextinstructionson1,600+languagetasks. arXivpreprint
+arXiv:2204.07705.
+JasonWei,MaartenBosma,VincentY.Zhao,KelvinGuu,AdamsWeiYu,BrianLester,NanDu,
+AndrewM.Dai,andQuocV.Le.2022a. Finetunedlanguagemodelsarezero-shotlearners. ICLR.
+13
+
+JasonWei,YiTay,RishiBommasani,ColinRaffel,BarretZoph,SebastianBorgeaud,DaniYogatama,
+MaartenBosma,DennyZhou,DonaldMetzler,etal.2022b. Emergentabilitiesoflargelanguage
+models. TransactionsonMachineLearningResearch.
+SarahWiegreffe,JackHessel,SwabhaSwayamdipta,MarkRiedl,andYejinChoi.2022. Reframing
+human-AIcollaborationforgeneratingfree-textexplanations. NAACL.
+SarahWiegreffeandAnaMarasovic´.2021. Teachmetoexplain: Areviewofdatasetsforexplainable
+NLP. NeurIPS.
+SarahWiegreffe,AnaMarasovic´,andNoahA.Smith.2021. Measuringassociationbetweenlabels
+andfree-textrationales. EMNLP.
+TongshuangWu,EllenJiang,AaronDonsbach,JeffGray,AlejandraMolina,MichaelTerry,and
+Carrie J Cai. 2022a. PromptChainer: Chaining large language model prompts through visual
+programming. CHIExtendedAbstracts.
+TongshuangWu,MichaelTerry,andCarrieJunCai.2022b. AIchains: Transparentandcontrollable
+human-AIinteractionbychaininglargelanguagemodelprompts. CHI.
+YujunYan,KevinSwersky,DanaiKoutra,ParthasarathyRanganathan,andMiladHashemi.2020.
+Neuralexecutionengines: Learningtoexecutesubroutines. NeurIPS.
+HuihanYao,YingChen,QinyuanYe,XisenJin,andXiangRen.2021. Refininglanguagemodels
+withcompositionalexplanations. NeurIPS.
+Xi Ye and Greg Durrett. 2022. The unreliability of explanations in few-shot in-context learning.
+arXivpreprintarXiv:2205.03401.
+YordanYordanov,VidKocijan,ThomasLukasiewicz,andOana-MariaCamburu.2021. Few-shot
+out-of-domaintransferlearningofnaturallanguageexplanations.arXivpreprintarXiv:2112.06204.
+OmarZaidan,JasonEisner,andChristinePiatko.2007. Using“annotatorrationales”toimprove
+machinelearningfortextcategorization. NAACL.
+WojciechZarembaandIlyaSutskever.2014. Learningtoexecute. arXivpreprintarXiv:1410.4615.
+Eric Zelikman, Yuhuai Wu, and Noah D. Goodman. 2022. STaR: Bootstrapping reasoning with
+reasoning. arXivpreprintarXiv:2203.14465.
+TonyZ.Zhao,EricWallace,ShiFeng,DanKlein,andSameerSingh.2021. Calibratebeforeuse:
+Improvingfew-shotperformanceoflanguagemodels. ICML.
+WangchunshuZhou,JinyiHu,HanlinZhang,XiaodanLiang,MaosongSun,ChenyanXiong,and
+JianTang.2020. Towardsinterpretablenaturallanguageunderstandingwithexplanationsaslatent
+variables. NeurIPS.
+14
+
+Checklist
+1. Forallauthors...
+(a) Dothemainclaimsmadeintheabstractandintroductionaccuratelyreflectthepaper’s
+contributionsandscope? [Yes]
+(b) Didyoudescribethelimitationsofyourwork? [Yes]SeeSection6andAppendixA.2.
+(c) Didyoudiscussanypotentialnegativesocietalimpactsofyourwork? [Yes]Wedon’t
+expectnegativesocietalimpactsasadirectresultofthecontributionsinourpaper. One
+consideration,however,isthatgeneratedchainofthoughtisnotalwaysfactual,which
+isnotedasalimitationinAppendixD.1(andnotethatwedonotsuggestusingsuch
+chainsofthoughtinafactualmannerorinanyreal-worldscenario).
+(d) Haveyoureadtheethicsreviewguidelinesandensuredthatyourpaperconformsto
+them? [Yes]
+2. Ifyouareincludingtheoreticalresults...
+(a) Didyoustatethefullsetofassumptionsofalltheoreticalresults? [N/A]
+(b) Didyouincludecompleteproofsofalltheoreticalresults? [N/A]
+3. Ifyouranexperiments...
+(a) Didyouincludethecode,data,andinstructionsneededtoreproducethemainexperi-
+mentalresults(eitherinthesupplementalmaterialorasaURL)?[Yes]Weincluded
+inputs, outputs, and targets for LaMDA and GPT-3 in the supplementary material.
+Althoughweuseproprietarymodels,weGPT-3resultsarefullyreproducible. Repro-
+ducibilityisfurtherdiscussedinAppendixE.1.
+(b) Didyouspecifyallthetrainingdetails(e.g.,datasplits,hyperparameters,howthey
+werechosen)? [Yes]Datasplitswerespecified,N/Aforhyperparams.
+(c) Didyoureporterrorbars(e.g.,withrespecttotherandomseedafterrunningexper-
+imentsmultipletimes)? [Yes]StandarddeviationformultipleseedsusingLaMDA
+137B,whereeachseedisadifferentrandomorderofexemplars,isgiveninTable6
+andTable7.
+(d) Didyouincludethetotalamountofcomputeandthetypeofresourcesused(e.g.,type
+ofGPUs,internalcluster,orcloudprovider)? [Yes]Typeofresourcesaredescribedin
+AppendixE.2,thoughwedidnotestimatethetotalamountofcompute.
+4. Ifyouareusingexistingassets(e.g.,code,data,models)orcurating/releasingnewassets...
+(a) Ifyourworkusesexistingassets,didyoucitethecreators? [Yes]Weusedtwomodels
+thatweanonymizedbasedontherecommendationoftheNeurIPSchairs.Thesemodels
+willbecitedinthecamera-readyversionofthepaper.
+(b) Didyoumentionthelicenseoftheassets? [Yes]SeeAppendixE.3.
+(c) DidyouincludeanynewassetseitherinthesupplementalmaterialorasaURL?[Yes]
+Thecoinflipandlastletterconcatenationdatasetsaretheonlynewassets,andtheyare
+givenintheSupplementaryMaterials.
+(d) Didyoudiscusswhetherandhowconsentwasobtainedfrompeoplewhosedatayou’re
+using/curating? [N/A]Nohumandatacollected.
+(e) Didyoudiscusswhetherthedatayouareusing/curatingcontainspersonallyidentifiable
+informationoroffensivecontent? [N/A]Nohumandatacollected.
+5. Ifyouusedcrowdsourcingorconductedresearchwithhumansubjects...
+(a) Didyouincludethefulltextofinstructionsgiventoparticipantsandscreenshots,if
+applicable? [N/A]
+(b) Did you describe any potential participant risks, with links to Institutional Review
+Board(IRB)approvals,ifapplicable? [N/A]
+(c) Didyouincludetheestimatedhourlywagepaidtoparticipantsandthetotalamount
+spentonparticipantcompensation? [N/A]
+15
+
+A FrequentlyAskedQuestions
+A.1 Whydoesincreasingmodelscaleimprovechain-of-thoughtprompting?
+Thefindingthatsuccessfulchain-of-thoughtreasoningpredictablyemergesonlyatcertainmodel
+scalesisintriguing. Scalinguplanguagemodelshasbeenshowntoconferbenefitssuchasimproved
+performanceandsampleefficiency(Kaplanetal.,2020),butchain-of-thoughtreasoningisemergent
+inthesensethatitssuccesscannotbepredictedonlybyextrapolatingtheperformanceofsmallscale
+models,aschainofthoughtactuallyhurtsperformanceformostmodelssmallerthan10Bparameters.
+Thequestionofwhymodelscaleimproveschain-of-thoughtpromptingiscertainlymulti-faceted,and
+wemadeapreliminaryattempttoshedinsightintoitviaerroranalysis. Thissmallanalysisinvolved
+manuallyreading45errorsmadebyPaLM62Bandcategorizingthemintosemanticunderstanding
+(20errors),onestepmissing(18errors),andothererrors(7errors). The“othercategory”included
+hallucinations,repetitiveoutputs,andsymbolmappingerrors. Thiscategorizationisacoarseone
+borrowedfromtheinitialerroranalysisdoneonLaMDAinAppendixD.2,forwhichcategorieswere
+conceivedbasedonwhatimprovementswereneededtomakethechainofthoughtcorrect.
+AsshowninFigure9,scalingPaLMto540Bparametersfixedasubstantialportionoferrorsinall
+threecategories. Examplesofsemanticunderstandingandone-stepmissingerrorsthatwerefixedby
+scalingPaLMto540BaregiveninFigure10. Thisresultappearsconsistentwithahypothesisthat
+languagemodelsacquirearangeofsemanticunderstandingandlogicalreasoningskillsasafunction
+ofmodelscale(thoughnotethatmodelscaleisoftenconflatedwithotherfactors,suchasamountof
+trainingcompute).
+Types of errors made by
+a 62B language model:
+Semantic understanding
+(62B made 20 errors of this type,
+540B fixes 6 of them)
+One step missing
+(62B made 18 errors of this type,
+540B fixes 12 of them)
+Errors fixed by
+Other scaling from
+(62B made 7 errors of this type, 62B to 540B
+540B fixes 4 of them)
+Figure9: Erroranalysisof45problemsthatPaLM62Bgotincorrect. Theseerrorswerecategorized
+thatsemanticunderstanding,onestepmissing,andother. Theothercategoryincludeshallucinations,
+repetitiveoutputs,andsymbolmappingerrors. ScalingPaLMto540Bfixedasubstantialportionof
+errorsinallcategories.
+Therearealsothreenotablepointsregardingwhysmalllanguagemodelsfail. Thefirstobservation
+isthatsmalllanguagemodelsfailatevenrelativelyeasysymbolmappingtasks. Asdemonstrated
+inSection5,forevensymbolicreasoningtasksthatonlyrequiregeneralizationtonewexamples
+usingthesamechainofthoughtlogicalstructurethatwasgiveninthefew-shotexemplars,small
+languagemodelsstillfailed. Thesecondobservationisthatsmalllanguagemodelsseemtohave
+inherently weaker arithmetic abilities, as shown by Brown et al. (2020), the ability to do simple
+arithmeticoperations(withoutsemanticunderstanding)requiressufficientmodelscale. Finally,we
+noticedqualitativelythatsmalllanguagemodelsoftendidnotgenerateafinalanswerthatcouldbe
+parsed,duetoeitherrepetitionsorlogicthatneverarrivedatafinalanswer.
+Insummary,thesuccessofchain-of-thoughtreasoningasaresultofmodelscaleisacomplicated
+phenomena that likely involves a variety of emergent abilities (semantic understanding, symbol
+mapping,stayingontopic,arithmeticability,faithfulness,etc). Futureworkcouldmorethoroughly
+investigatewhatpropertiesofpretrainingdata,modelarchitecture,andoptimizationobjectivecausally
+enablesuchreasoningcapabilities.
+16
+
+Question 62B Model Output 540B Model Output
+Tracy used a piece of wire 4 She cut the wire into 6 inch pieces. The wire was 4 feet long. This
+feet long to support tomato This means she got 4 * 6 = 24 means it was 4 * 12 = 48 inches
+plants in the garden. The pieces. The answer is 24. long. It was cut into pieces 6 inches
+wire was cut into pieces 6 (Incorrect: semantic long. This means she obtained 48 /
+inches long. How many understanding error) 6 = 8 pieces. The answer is 8.
+pieces did she obtain? (Correct)
+Question 62B Model Output 540B Model Output
+Tom's ship can travel at 10 He travels from 1 to 4 PM. That He travels at 10 mph from 1 to 4
+miles per hour. He is sailing means he travels for 3 hours. He PM. This means he travels 3 hours.
+from 1 to 4 PM. He then travels back at 6 mph. That means 3 hours at 10 mph means he travels
+travels back at a rate of 6 he travels for 3 * 6 = 18 miles. The 3 * 10 = 30 miles. He then travels
+mph. How long does it take answer is 18. (Incorrect: semantic back at 6 mph. This means he
+him to get back? understanding error) travels 6 miles per hour. He has to
+travel 30 miles, so it takes him 30 / 6
+= 5 hours. The answer is 5.
+(Correct)
+Question 62B Model Output 540B Model Output
+Stephen placed an online The final price of Stephen's Stephen's bill was $40.00. The
+order for groceries. His final groceries was $40.00. The delivery delivery vendor added 25% to the
+bill came to $40.00. vendor added 25% to the final total, bill. This means the bill was
+Because this was through a so the final total was 125% of increased by 25% of $40.00. This is
+delivery vendor, they tacked $40.00. This means the final total 0.25 * $40.00 = $10.00. The delivery
+on a 25% fee to his final was 125% * $40.00 = $50.00. The fee was $3.00. The tip was $4.00.
+total and charged him $3.00 delivery vendor also charged $3.00 So the total bill was $40.00 + $10.00
+in delivery fees. Stephen in delivery fees. So the final price of + $3.00 + 540b model $4.00 =
+also added a $4.00 tip. After Stephen's groceries was $50.00 + $57.00. The answer is 57. (Correct)
+the extra fees, what was the $3.00 = $53.00. The answer is
+final price of Stephen's $53.00. (Incorrect: one step
+groceries? missing error)
+Question 62B Model Output 540B Model Output
+There are four schools There are 4 schools. Each school Each school has sent 2 teams, each
+competing at a basketball has sent a girls’ basketball team and with 5 players. This means each
+tournament. Each school a boys’ basketball team. Each team school has sent 2 * 5 = 10 players.
+has sent a girls’ basketball has 5 players each. That means Each school has also sent 2
+team and a boys’ basketball there are 4 * 2 * 5 = 40 players. coaches. This means each school
+team and each team has 5 Each team has a coach. That has sent 10 + 2 = 12 people. There
+players each. Each school means there are 40 + 4 = 44 are 4 schools, so in total all of the
+has also sent a coach for coaches. The answer is 44. schools have sent 4 * 12 = 48
+each team. In total, how (Incorrect: one step missing people. The answer is 48. (Correct)
+many people have all of the error)
+schools sent?
+Figure 10: Examples of semantic understanding and one-step missing errors that were fixed by
+scalingPaLMfrom62Bto540B.
+A.2 Whatistheroleofpromptengineering?
+Oneofthekeyconsiderationsofpromptingissensitivitytotheexactprompt. Thereisnoshortage
+ofworkshowingthatpromptsaffectlanguagemodelsinunexpectedways(Minetal.,2022). The
+generalwaythatwecreatedchainofthoughtannotationswasbytakingeightexemplarsfromthe
+trainingsetanddecomposingthereasoningprocessintomultiplestepsleadingtothefinalanswer.
+Examples of chain of thought annotations are provided in Figure 3, with full prompts given in
+Appendix G.To analyzehow sensitive chain of thoughtis to promptengineering, we performed
+robustnessexperimentswithrespecttovariousfactors.
+• Differentannotators. Wefirstanalyzerobustnesstothreedifferentannotators(Section3.4and
+Figure6). Althoughthereisnotablevarianceinperformance(whichwewilldiscusslater),chain
+ofthoughtperformedbetterthanthebaselinebyalargemarginforallthreeannotatorsoneight
+datasetsinarithmetic,commonsense,andsymbolicreasoning(Table6andTable7). Similartothe
+annotationprocessinCobbeetal.(2021),annotatorswerenotgivenspecificinstructionsabout
+17
+
+howtowritethechainofthoughtannotationsotherthantosimplywritethestep-by-stepreasoning
+processthatledtothefinalanswer. Thus,theannotationswerewrittenineachannotator’sown
+linguistic“chainofthought”writingstyle.
+• Annotatorswithoutmachinelearningbackground. TheGSM8Kdataset(Cobbeetal.,2021)
+conveniently provides a training set with reasoning chains written by crowd compute workers,
+whichenablesustoinvestigatewhetherchainofthoughtstillworkswithreasoningchainsfroman
+independentsourcewithoutabackgroundinmachinelearning. Sowerandomlysampledthreesets
+ofeightexemplarswithchainsofthoughtfromGSM8K.Thesechainofthoughtannotationsalso
+outperformedthebaselinebyalargemarginforallfourarithmeticdatasets(Table6),indicating
+thatchainofthoughtisnotdependentonaparticularsetofannotators.
+• Differentexemplars. ThedifferentGSM8Kexemplarsexperimentabove(Table6)alsoshows
+thatchain-of-thoughtpromptingworksfordifferentsetsofexemplars. Notably,wetesteverysetof
+exemplarsonallfourarithmeticdatasets(insteadofpickingexemplarsfromthetrainingsetfor
+eachdataset),whichsuggeststhattheexemplarsdonotnecessarilyhavetocomefromthesame
+datasetdistributionasthetestexamples.
+• Differentorderofexemplars. Priorworkhasshownthatinsomecases(e.g.,classification)even
+theorderofpromptsmatter—varyingthepermutationoffew-shotexemplarscancausetheaccuracy
+ofGPT-3onSST-2torangefromnearchance(54.3%)tonearSOTA(93.4%)(Zhaoetal.,2021).
+WeshowthestandarddeviationofperformancefromdifferentexemplarsinTable6andTable7.
+Standarddeviationswithrespecttopromptorderarerelativelyminimalinalmostallcases. The
+oneexceptionisthecoinfliptask,forwhichexemplarordershavehighstandarddeviation,likely
+forthereasoncitedinZhaoetal.(2021)—forclassification,manyexemplarsofthesamecategory
+inarowbiasesthemodeloutputs).
+• Different number of exemplars. We also found that gains from chain-of-thought prompting
+generallystillheldwhentherewasavaryingnumberoffew-shotexemplars. Thisisshownforfive
+datasetsinFigure11(wedidnothavethecomputetorunthisforalldatasets). Wealsofoundin
+preliminaryexperimentsthatfurtherincreasingthenumberofexemplarsinstandardprompting
+did not lead to significant gains (e.g., increasing from 8 to 16 exemplars did not improve the
+performanceofstandardpromptingenoughtocatchupwithchain-of-thoughtprompting).
+• Differentlanguagemodels. Anotherinterestingquestioniswhethercertainpromptsthatwork
+better for one model work better for other large language models. We find that with the same
+prompts, chain-of-thought prompting improves performance across all three models (LaMDA,
+GPT-3,andPaLM)foralldatasetsexceptCSQAandStrategyQAforGPT-3(Table1,Table4,
+Table5). Thefactthatgainsfromchainofthoughtdidnottransferperfectlyamongmodelsis
+a limitation; further work could investigate why how different pre-training datasets and model
+architecturesaffecttheperformancegainfromchain-of-thoughtprompting.
+Promptengineeringstillmatters,though. Althoughtheresultsarerelativelyrobusttotheprompt
+for arithmetic reasoning, we want to be clear that prompt engineering still does matter, and can
+improve performance significantly in many cases. Though most chain of thought annotations
+outperformstandardprompting,thereislargevariationinmanycases. Forinstance,forthecoin
+fliptask,theperformancevariedfrom99.6%forAnnotatorAto71.4%forAnnotatorC,though
+bothwereabovestandardprompting=50.0%(seeTable7). Thereareeventaskswhereprompt
+engineeringisarequirementforgoodperformance. Inpreliminaryexperiments,wetriedusingchain
+ofthoughttoenablelanguagemodelstoreversetheorderofalistof5items. Whiletwoco-authors
+werenotabletowritechainofthoughtpromptsthatsolvedthetaskdespitetheirbestattempts,athird
+co-authorwasabletowriteachainofthoughtthatperfectlysolvedthetask.
+Howtogeneratechainofthoughtannotationsinarobustfashioncouldbeaninterestingdirection
+forfuturework. Forinstance,anideaherecouldbetousealargelanguagemodeltoautomatically
+generatechainsofthoughtviaprompting(andpotentiallyoptimizethisoveravalidationset).
+A.3 Willchain-of-thoughtpromptingimproveperformanceformytaskofinterest?
+While chain-of-thought prompting is in principle applicable for any text-to-text task, it is more
+helpfulforsometasksthanothers. Basedontheexperimentsinthispaper,ourintuitionisthatchain
+ofthoughthelpsthemostwhenthreeconditionsaremet: (1)thetaskischallengingandrequires
+18
+
+multi-stepreasoning,(2)alargelanguagemodelisused,and(3)thescalingcurveisrelativelyflat.
+Conversely,thebenefitsaresmallerwhenoneormoreoftheseconditionsarenotmet.
+Theseintuitionsareperhapssupportedbythearithmeticreasoningresults. Theperformancegain
+from chain-of-thought prompting is largest for PaLM 540B on GSM8K (challenging multi-step
+problems,flatscalingcurve),whichmeetstheseconditions. Theperformancegainissmallforthe
+subsetsofMAWPSthatonlyrequireoneortwosteps(SingleOP,SingleEq,andAddSub),forwhich
+PaLM540Balreadyachievesperformanceof90%orhigher(anditisalsogenerallytruethatthereis
+lessheadroomforimprovementwhenperformanceisalreadystrong).
+Althoughinthispaperwefocusedonmulti-stepreasoningtasks(arithmetic, commonsense, and
+symbolic),chain-of-thoughtpromptingcanpotentiallybeappliedtoanytaskforwhichhumansusea
+“chainofthought”tosolve(atleastinprinciple).Weleavetheempiricalevaluationofchain-of-thought
+promptingonsuchdiversetasks(e.g.,machinetranslation,etc.) tofuturework.
+A.4 Whyispromptingwiththeequationonlynotenoughforsomearithmeticreasoning
+datasets?
+Promptingwiththeequationonlyasanintermediatestepdoeshelponmanydatasets,especiallywhen
+thedatasetsonlyrequireafewreasoningsteps(SVAMP,ASDiv,MAWPS).ForGSM8K,however,
+usingtheequationonlydidnotimproveperformancesubstantially. Basedonqualitativeanalysis,we
+believethatthesequestionsaretoosemanticallychallengingforthemodeltodirectlytranslatethem
+intoamathequation. ConsiderthisexamplefromLaMDA137B:
+QUESTION: Mikeplayspingpongfor40minutes. Inthefirst20minutes,hescores4
+points.Inthesecond20minutes,hescores25%morepoints.Howmanytotalpointsdidhe
+score?
+EQUATIONONLY(WRONGANSWER): (4+20*0.25)=6.Theansweris6.
+CHAINOFTHOUGHT(CORRECT): Mikeplayedpingpongfor40minutes. Inthefirst
+20minutes,hescored4points.Inthesecond20minutes,hescored25%morepoints.So
+hescored25%moreinthesecond20minutes.4x1.25=5.Sohescored5pointsinthe
+second20minutes.Sohescored9pointsintotal.Theansweris9.
+Itishardforthemodeltodirectlytranslateallofthesemanticsintoasingleequation,butchainof
+thoughtallowsittobetterreasonabouteachpartofthequestionviaintermediatestepsinnatural
+language.
+19
+
+B AllExperimentalResults
+This section contains tables for experimental results for varying models and model sizes, on all
+benchmarks,forstandardpromptingvs.chain-of-thoughtprompting.
+Forthearithmeticreasoningbenchmarks,somechainsofthought(alongwiththeequationsproduced)
+werecorrect,exceptthemodelperformedanarithmeticoperationincorrectly. Asimilarobservation
+was made in Cobbe et al. (2021). Hence, we can further add a Python program as an external
+calculator(usingthePythonevalfunction)toalltheequationsinthegeneratedchainofthought.
+Whentherearemultipleequationsinachainofthought,wepropagatetheexternalcalculatorresults
+fromoneequationtothefollowingequationsviastringmatching. AsshowninTable1,weseethat
+addingacalculatorsignificantlyboostsperformanceofchain-of-thoughtpromptingonmosttasks.
+Table1: Chainofthoughtpromptingoutperformsstandardpromptingforvariouslargelanguage
+modelsonfivearithmeticreasoningbenchmarks. Allmetricsareaccuracy(%). Ext.calc.: post-hoc
+externalcalculatorforarithmeticcomputationsonly. Priorbestnumbersarefromthefollowing. a:
+Cobbeetal.(2021). b&e: Pietal.(2022),c: Lanetal.(2021),d: Pie˛kosetal.(2021).
+Prompting GSM8K SVAMP ASDiv AQuA MAWPS
+Priorbest N/A(finetuning) 55a 57.4b 75.3c 37.9d 88.4e
+UL220B Standard 4.1 10.1 16.0 20.5 16.6
+Chainofthought 4.4(+0.3) 12.5(+2.4) 16.9(+0.9) 23.6(+3.1) 19.1(+2.5)
++ext.calc 6.9 28.3 34.3 23.6 42.7
+LaMDA137B Standard 6.5 29.5 40.1 25.5 43.2
+Chainofthought 14.3(+7.8) 37.5(+8.0) 46.6(+6.5) 20.6(-4.9) 57.9(+14.7)
++ext.calc 17.8 42.1 53.4 20.6 69.3
+GPT-3175B Standard 15.6 65.7 70.3 24.8 72.7
+(text-davinci-002) Chainofthought 46.9(+31.3) 68.9(+3.2) 71.3(+1.0) 35.8(+11.0) 87.1(+14.4)
++ext.calc 49.6 70.3 71.1 35.8 87.5
+Codex Standard 19.7 69.9 74.0 29.5 78.7
+(code-davinci-002) Chainofthought 63.1(+43.4) 76.4(+6.5) 80.4(+6.4) 45.3(+15.8) 92.6(+13.9)
++ext.calc 65.4 77.0 80.0 45.3 93.3
+PaLM540B Standard 17.9 69.4 72.1 25.2 79.2
+Chainofthought 56.9(+39.0) 79.0(+9.6) 73.9(+1.8) 35.8(+10.6) 93.3(+14.2)
++ext.calc 58.6 79.8 72.6 35.8 93.5
+20
+
+Table2: Standardpromptingversuschainofthoughtpromptingonfivearithmeticreasoningbench-
+marks. Note that chain of thought prompting is an emergent ability of model scale—it does not
+positivelyimpactperformanceuntilusedwithamodelofsufficientscale.
+GSM8K SVAMP ASDiv AQuA MAWPS
+Model standard CoT standard CoT standard CoT standard CoT standard CoT
+UL2 20B 4.1 4.4 10.1 12.5 16.0 16.9 20.5 23.6 16.6 19.1
+LaMDA 420M 2.6 0.4 2.5 1.6 3.2 0.8 23.5 8.3 3.2 0.9
+2B 3.6 1.9 3.3 2.4 4.1 3.8 22.9 17.7 3.9 3.1
+8B 3.2 1.6 4.3 3.4 5.9 5.0 22.8 18.6 5.3 4.8
+68B 5.7 8.2 13.6 18.8 21.8 23.1 22.3 20.2 21.6 30.6
+137B 6.5 14.3 29.5 37.5 40.1 46.6 25.5 20.6 43.2 57.9
+GPT 350M 2.2 0.5 1.4 0.8 2.1 0.8 18.1 8.7 2.4 1.1
+1.3B 2.4 0.5 1.5 1.7 2.6 1.4 12.6 4.3 3.1 1.7
+6.7B 4.0 2.4 6.1 3.1 8.6 3.6 15.4 13.4 8.8 3.5
+175B 15.6 46.9 65.7 68.9 70.3 71.3 24.8 35.8 72.7 87.1
+Codex - 19.7 63.1 69.9 76.4 74.0 80.4 29.5 45.3 78.7 92.6
+PaLM 8B 4.9 4.1 15.1 16.8 23.7 25.2 19.3 21.7 26.2 30.5
+62B 9.6 29.9 48.2 46.7 58.7 61.9 25.6 22.4 61.8 80.3
+540B 17.9 56.9 69.4 79.0 72.1 73.9 25.2 35.8 79.2 93.3
+Table3: StandardpromptingversuschainofthoughtpromptingonthefoursubsetsoftheMAWPS
+benchmark. ThepointofstratifyingtheMAWPSbenchmarkistoshowthatperformancegainsare
+minimaloneasyone-steportwo-stepproblemswherelargelanguagemodelsalreadyachievehigh
+performance(e.g.,SingleOp,SingleEq,andAddSub).
+SingleOp SingleEq AddSub MultiArith
+Model standard CoT standard CoT standard CoT standard CoT
+UL2 20B 24.9 27.2 18.0 20.2 18.5 18.2 5.0 10.7
+LaMDA 420M 2.8 1.0 2.4 0.4 1.9 0.7 5.8 1.5
+2B 4.6 4.1 2.4 3.3 2.7 3.2 5.8 1.8
+8B 8.0 7.0 4.5 4.4 3.4 5.2 5.2 2.4
+68B 36.5 40.8 23.9 26.0 17.3 23.2 8.7 32.4
+137B 73.2 76.2 48.8 58.7 43.0 51.9 7.6 44.9
+GPT 350M 3.2 1.8 2.0 0.2 2.0 1.5 2.3 0.8
+1.3B 5.3 3.0 2.4 1.6 2.3 1.5 2.2 0.5
+6.7B 13.5 3.9 8.7 4.9 8.6 2.5 4.5 2.8
+175B 90.9 88.8 82.7 86.6 83.3 81.3 33.8 91.7
+Codex - 93.1 91.8 86.8 93.1 90.9 89.1 44.0 96.2
+PaLM 8B 41.8 46.6 29.5 28.2 29.4 31.4 4.2 15.8
+62B 87.9 85.6 77.2 83.5 74.7 78.2 7.3 73.7
+540B 94.1 94.1 86.5 92.3 93.9 91.9 42.2 94.7
+21
+
+Table4: Standardpromptingversuschainofthoughtpromptingonfivecommonsensereasoning
+benchmarks. Chainofthoughtpromptingisanemergentabilityofmodelscale—itdoesnotpositively
+impactperformanceuntilusedwithamodelofsufficientscale.
+CSQA StrategyQA Date Sports SayCan
+Model standard CoT standard CoT standard CoT standard CoT standard CoT
+UL2 20B 34.2 51.4 59.0 53.3 13.5 14.0 57.9 65.3 20.0 41.7
+LaMDA 420M 20.1 19.2 46.4 24.9 1.9 1.6 50.0 49.7 7.5 7.5
+2B 20.2 19.6 52.6 45.2 8.0 6.8 49.3 57.5 8.3 8.3
+8B 19.0 20.3 54.1 46.8 9.5 5.4 50.0 52.1 28.3 33.3
+68B 37.0 44.1 59.6 62.2 15.5 18.6 55.2 77.5 35.0 42.5
+137B 53.6 57.9 62.4 65.4 21.5 26.8 59.5 85.8 43.3 46.6
+GPT 350M 14.7 15.2 20.6 0.9 4.3 0.9 33.8 41.6 12.5 0.8
+1.3B 12.0 19.2 45.8 35.7 4.0 1.4 0.0 26.9 20.8 9.2
+6.7B 19.0 24.0 53.6 50.0 8.9 4.9 0.0 4.4 17.5 35.0
+175B 79.5 73.5 65.9 65.4 43.8 52.1 69.6 82.4 81.7 87.5
+Codex - 82.3 77.9 67.1 73.2 49.0 64.8 71.7 98.5 85.8 88.3
+PaLM 8B 19.8 24.9 55.6 53.5 12.9 13.1 55.1 75.2 34.2 40.0
+62B 65.4 68.1 58.4 63.4 29.8 44.7 72.1 93.6 65.8 70.0
+540B 78.1 79.9 68.6 77.8 49.0 65.3 80.5 95.4 80.8 91.7
+Table5: Standardpromptingversuschainofthoughtpromptingenableslengthgeneralizationto
+longerinferenceexamplesontwosymbolicmanipulationtasks.
+LastLetterConcatenation CoinFlip(statetracking)
+2 OOD:3 OOD:4 2 OOD:3 OOD:4
+Model standard CoTstandard CoTstandard CoTstandard CoTstandard CoTstandard CoT
+UL2 20B 0.618.8 0.0 0.2 0.0 0.0 70.4 67.1 51.652.2 48.750.4
+LaMDA420M 0.3 1.6 0.0 0.0 0.0 0.0 52.9 49.6 50.050.5 49.549.1
+2B 2.3 6.0 0.0 0.0 0.0 0.0 54.9 55.3 47.448.7 49.850.2
+8B 1.511.5 0.0 0.0 0.0 0.0 52.9 55.5 48.249.6 51.250.6
+68B 4.452.0 0.0 0.8 0.0 2.5 56.2 83.2 50.469.1 50.959.6
+137B 5.877.5 0.034.4 0.013.5 49.0 99.6 50.791.0 49.174.5
+PaLM 8B 2.618.8 0.0 0.0 0.0 0.2 60.0 74.4 47.357.1 50.951.8
+62B 6.885.0 0.059.6 0.013.4 91.4 96.8 43.991.0 38.372.4
+540B 7.699.4 0.294.8 0.063.0 98.1100.0 49.398.6 54.890.2
+22
+
+Table6: Ablationandrobustnessresultsforarithmeticreasoningdatasets.Chainofthoughtgenerally
+outperformsablationsbyalargeamount. “Equationonly”performsinbetweenstandardprompting
+andchainofthoughtprompting,asitallowsforintermediatereasoningstepsviaequationsbutdoes
+notleveragenaturallanguage. Chainofthoughtpromptinghasvariance(asexpected)whenused
+withpromptswrittenbydifferentannotatorsorwhenusingotherexemplars,butstilloutperforms
+standardpromptingbyalargemargin. Standarddeviationshownisfordifferentorderoffew-shot
+promptingexemplars,withfivedifferentrandomseeds. ResultshereareshownforLaMDA137B,as
+additionalqueriesforGPT-3andPaLMarebothlimitedandexpensive.
+GSM8K SVAMP ASDiv MAWPS
+Standardprompting 6.5±0.4 29.5±0.6 40.1±0.6 43.2±0.9
+Chainofthoughtprompting 14.3±0.4 36.7±0.4 46.6±0.7 57.9±1.5
+Ablations
+·equationonly 5.4±0.2 35.1±0.4 45.9±0.6 50.1±1.0
+·variablecomputeonly 6.4±0.3 28.0±0.6 39.4±0.4 41.3±1.1
+·reasoningafteranswer 6.1±0.4 30.7±0.9 38.6±0.6 43.6±1.0
+Robustness
+·differentannotator(B) 15.5±0.6 35.2±0.4 46.5±0.4 58.2±1.0
+·differentannotator(C) 17.6±1.0 37.5±2.0 48.7±0.7 60.1±2.0
+·intentionallyconcisestyle 11.1±0.3 38.7±0.8 48.0±0.3 59.6±0.7
+·exemplarsfromGSM8K(α) 12.6±0.6 32.8±1.1 44.1±0.9 53.9±1.1
+·exemplarsfromGSM8K(β) 12.7±0.5 34.8±1.1 46.9±0.6 60.9±0.8
+·exemplarsfromGSM8K(γ) 12.6±0.7 35.6±0.5 44.4±2.6 54.2±4.7
+Table7: Ablationandrobustnessresultsforfourdatasetsincommonsenseandsymbolicreasoning.
+Chainofthoughtgenerallyoutperformsablationsbyalargeamount. Chainofthoughtpromptinghas
+variance(asexpected)whenusedwithpromptswrittenbydifferentannotatorsorwhenusingother
+exemplars,butstilloutperformsstandardpromptingbyalargemargin. Standarddeviationshown
+isfordifferentorderoffew-shotpromptingexemplars,withfivedifferentrandomseeds. Results
+hereareshownforLaMDA137B,asadditionalqueriesforGPT-3andPaLMarebothlimitedand
+expensive. TheexceptionisthatwerunSayCanusingPaLMhere,astheSayCanevaluationsetis
+only120examplesandthereforelessexpensivetorunmultipletimes.
+Commonsense Symbolic
+Date Sports SayCan Concat Coin
+Standardprompting 21.5±0.6 59.5±3.0 80.8±1.8 5.8±0.6 49.0±2.1
+Chainofthoughtprompting 26.8±2.1 85.8±1.8 91.7±1.4 77.5±3.8 99.6±0.3
+Ablations
+·variablecomputeonly 21.3±0.7 61.6±2.2 74.2±2.3 7.2±1.6 50.7±0.7
+·reasoningafteranswer 20.9±1.0 63.0±2.0 83.3±0.6 0.0±0.0 50.2±0.5
+Robustness
+·differentannotator(B) 27.4±1.7 75.4±2.7 88.3±1.4 76.0±1.9 77.5±7.9
+·differentannotator(C) 25.5±2.5 81.1±3.6 85.0±1.8 68.1±2.2 71.4±11.1
+23
+
+C ExtendedRelatedWork
+Chain-of-thoughtpromptingisageneralapproachthatisinspiredbyseveralpriordirections: prompt-
+ing,naturallanguageexplanations,programsynthesis/execution,numericandlogicalreasoning,and
+intermediatelanguagesteps.
+C.1 Prompting
+Therecentsuccessoflarge-scalelanguagemodelshasledtogrowinginterestinimprovingtheir
+capability to perform tasks via prompting (Brown et al. (2020), and see Liu et al. (2021) for a
+survey). Thispaperfallsinthecategoryofgeneralpromptingapproaches,wherebyinputpromptsare
+optimizedtoallowasinglelargelanguagemodeltobetterperformavarietyoftasks(LiandLiang,
+2021;Lesteretal.,2021;Reifetal.,2022,interalia).
+Onerecentlineofworkaimstoimprovetheabilityoflanguagemodelstoperformataskbyproviding
+instructionsthatdescribethetask(Raffeletal.,2020;Weietal.,2022a;Ouyangetal.,2022;Sanh
+etal.,2022;Wangetal.,2022b). Thislineofworkisrelatedbecauseitalsoaugmentsinput–output
+pairswithmeta-data.Butwhereasaninstructionaugmentstheinputtoatask(instructionsaretypically
+prepended to the inputs), chain-of-thought prompting augments the outputs of language models.
+Anotherrelateddirectionissequentiallycombiningtheoutputsoflanguagemodels;human–computer
+interaction (HCI) work (Wu et al., 2022a,b) has shown that combining sequential generations of
+languagemodelsimprovestaskoutcomesina20-personuserstudy.
+C.2 Naturallanguageexplanations
+Anothercloselyrelateddirectionusesnaturallanguageexplanations(NLEs),oftenwiththegoalof
+improvingmodelinterpretability(Zhouetal.,2020;WiegreffeandMarasovic´,2021,interalia). That
+lineofworktypicallyfocusesonnaturallanguageinference(Camburuetal.,2018;Yordanovetal.,
+2021;Bostrometal.,2021),andproducesexplanationseithersimultaneouslytoorafterthefinal
+prediction(Narangetal.,2020;Majumderetal.,2021;Wiegreffeetal.,2021,2022). Bycontrast,
+thechainofthoughtprocessingconsideredinthispaperoccursbeforethefinalanswer. Andwhile
+NLEaimsmostlytoimproveneuralnetworkinterpretability(Rajagopaletal.,2021),thegoalof
+chain-of-thoughtpromptingistoallowmodelstodecomposemulti-hopreasoningtasksintomultiple
+steps—interpretabilityisjustasideeffect. Marasovic´etal.(2022)showthatprompt-basedfinetuning
+withNLEimprovesNLIandclassificationperformance,thoughtheylargelyfocusonevaluating
+explanationplausibility. Incomparison,ourworkfocusesonarangeofarithmetic,commonsense,
+andsymbolictasksthatrequiremulti-hopreasoning.
+C.3 Programsynthesisandexecution
+Usingintermediatereasoningstepshasalonghistoryinprogramsynthesisandexecution(Zaremba
+and Sutskever, 2014, inter alia). Recent work along in this direction has included a number of
+architecturalinnovations(Caietal.,2017;Dongetal.,2019;Yanetal.,2020),aswellastheuseof
+largelanguagemodels(Chenetal.,2021;Austinetal.,2021). Theprogramexecutionworkclosestto
+oursisperhapsNyeetal.(2021),whichshowthatlargelanguagemodelscanperformupto10-digit
+addition,evaluatepolynomials,andexecutepythonprograms. Whereasgeneratingaprogramand
+thenexecutingitcanbeviewedasatypeofreasoning,ourworkgeneralizessuchdomain-specific
+primitivestonaturallanguage,whichisopen-domainandrelevanttoanytext-to-textNLPtaskin
+principle.
+C.4 Numericandlogicalreasoning
+Numericandlogicalreasoninghasbeenalong-studiedtaskinmachinelearningandnaturallanguage
+processing(Levetal.,2004,interalia). Recentworkhasalsoaimedtoinjectnumericreasoning
+abilitiesinlanguagemodelsinvariousways,suchasaugmentingBERTwithapredefinedsetof
+executableoperations(Andoretal.,2019),includingagraphneuralnetwork(Ranetal.,2019),and
+using specialized training procedures (Pie˛kos et al., 2021). Another line of work aims to enable
+languagemodelstoperformlogicalorformalreasoning,oftenbyverablizingtherulesinnatural
+language formal rules using language (Clark et al., 2020; Saeed et al., 2021; Liang et al., 2021).
+24
+
+Perhapsthemost-relatedworkhereisRecchia(2021),whichshowsthatfinetuningenableslonghand
+moduleoperations,whichhaspreviouslybeendifficultforperformers.Whereasworkinthisdirection
+isoftentask-specificandusesfinetuning,weshowthatchain-of-thoughtpromptingworksforabroad
+rangeoftaskswithoutanyfinetuning.
+C.5 Intermediatelanguagesteps
+Extensivepriorworkhasshownthebenefitsofendowingneuralnetworkswiththeabilitytoproduce
+intermediate steps via training or finetuning confers various benefits in a range of scenarios. As
+examples, it has been shown that natural language intermediate steps can improve performance
+(Zaidanetal.,2007;Yaoetal.,2021;HaseandBansal,2022;Guetal.,2022),improverobustness
+(Chenetal.,2022),speeduptraining(Hancocketal.,2018),mitigatebias(Duaetal.,2020),and
+evenhelpinimageandreinforcementlearningsettings(Andreasetal.,2018). Toendowmodelswith
+theabilitytoproduceintermediatesteps,priorworktypicallyfinetunesmodelsoneithermanually
+annotatedtrainingdatasets(Camburuetal.,2018;Rajanietal.,2019,interalia)orgeneratessynthetic
+datasets(Talmoretal.,2020;Zelikmanetal.,2022). Comparedwiththesetrainingorfinetuning
+methods,ourworkshowsthatvariousnaturallanguagereasoningabilitiescanbeelicitedinoff-the-
+shelflanguagemodelsofsufficientscalesimplyviaprompting. Thispromptingsetupisimportant
+becauseitallowsforintermediatestepreasoningwithoutalargenumberoflabeledannotations,and
+becauseasinglemodelcanperformarangeofreasoningtaskswithoutanygradientupdates.
+D Appendix: AdditionalAnalysis
+D.1 CorrectChainofThoughtAnalysis
+As mentioned in the main text, we analyze 50 chains of thought from LaMDA 137B that led to
+correctanswersintheGSM8Kdataset. Ofthese50,onlyonearrivedatthecorrectanswerthrough
+incorrectreasoning(showninTable9: “correctbychance”). Theother49hadcorrectlogicand
+math,withexamplesshowninTable8. Fivehadminorimperfectionswhilemaintainingcoherentand
+understandablelogic:
+• Onehadunderspecifiedstatements(showninTable9: “correctbutunderspecifiedstatements”).
+• Onemadeanunrelatedbutcorrectstatement(showninTable9: “correctbutunrelatedstatement”).
+• Twohadthecorrectlogicbutomittedspecificstepsintheequation,thoughitwasstillunderstand-
+able(showninTable9: “correctbutimperfectequation”).
+• One had the correct math but inverted the semantics (shown in Table 9: “correct but inverted
+semantics”)
+Table8: ExampleofcorrectchainsofthoughtproducedbythemodelfortheGSM8Kdataset.
+QUESTION: Jamesdecidestorun3sprints3timesaweek. Heruns60meterseachsprint. Howmanytotal
+metersdoesherunaweek?
+MODEL ANSWER (CORRECT):Jamesdecidestorun3sprints3timesaweek. Heruns60meterseach
+sprint.Soheruns60metersx3sprintsx3timesaweek.Thatis60metersx9.Theansweris540.(cid:88)
+QUESTION:Brandon’siPhoneisfourtimesasoldasBen’siPhone.Ben’siPhoneistwotimesolderthanSuzy’s
+iPhone.IfSuzy’siPhoneis1yearold,howoldisBrandon’siPhone?
+MODEL ANSWER (CORRECT):Brandon’siPhoneis4timesasoldasBen’siPhone. Ben’siPhoneis2
+timesolderthanSuzy’siPhone.SoBrandon’siPhoneis4x2=8timesolderthanSuzy’siPhone.Suzy’siPhone
+is1yearold.SoBrandon’siPhoneis8x1=8yearsold.Theansweris8.(cid:88)
+QUESTION: Jeanhas30lollipops. Jeaneats2ofthelollipops. Withtheremaininglollipops,Jeanwantsto
+package2lollipopsinonebag.HowmanybagscanJeanfill?
+MODELANSWER(CORRECT):Jeanstartedwith30lollipops.Sheate2ofthem.Soshehas28lollipops
+left.Shewantstopackage2lollipopsinonebag.Soshecanpackage28/2=14bags.Theansweris14.(cid:88)
+Althoughwefindthatchain-of-thoughtreasoningismostlycorrectformathquestionswherethefinal
+answerwascorrect,thisislikelybecauseitishardtoarriveatthecorrectfinalanswerbycoincidence
+forfreeresponsequestions. Formultiplechoiceorbinaryclassificationproblems,itwasmuchmore
+25
+
+likelythatmodelscouldarriveatthecorrectanswerviaanincorrectreasoningpath(e.g., allthe
+commmonsensereasoningdatasetsweevaluate). Thisisalimitation,andfutureworkshouldperform
+ananalysisofthefactualityofsuchchainsofthought.
+Table9: Of50examplesthatthemodelgotcorrect,therewere7salientcaseswherethechainof
+thoughtthemodelgeneratedwasimperfect. Wefoundtheother43tobeequivalenttowhatahuman
+wouldpotentiallygenerateasagroundtruth.
+QUESTION: Thereare36penguinssunbathinginthesnow.One-thirdofthemjumpinandswimintheocean.
+Anotherone-thirdgoinsidethecavetoeattheirdinner.Howmanypenguinsarestillleftsunbathing?
+MODELANSWER(CORRECTBYCHANCE): Thereare36penguins.One-thirdofthemjumpinandswimin
+theocean.Sothatis12penguins.Anotherone-thirdgoinsidethecavetoeattheirdinner.Sothatis12penguins.
+Theansweris12.
+QUESTION: Johnhas2houseswith3bedroomseach. Eachbedroomhas2windowseach. Therearean
+additional4windowsineachhousenotconnectedtobedrooms.Howmanytotalwindowsaretherebetweenthe
+houses?
+MODELANSWER(CORRECTBUTUNDERSPECIFIEDSTATEMENTS): Thereare2houseswith3bedrooms
+each.Eachbedroomhas2windowseach.Sothereare2x3=6windowsineachhouse.Thereareanadditional
+4windowsineachhousenotconnectedtobedrooms.Sothereare4+4=8windowsineachhouse.Sothereare
+6x2=12windowsineachhouse.Sothereare12+8=20windowsinbothhouses.Theansweris20.
+QUESTION: IfAnnis9yearsoldandherbrotheristwiceherage,howoldwillherbrotherbein3years?
+MODELANSWER(CORRECTBUTUNRELATEDSTATEMENT): Annis9yearsold.Herbrotheristwiceher
+age.Soherbrotheris18yearsold.In3years,shewillbe12.Soherbrotherwillbe18+3=21yearsold.The
+answeris21.
+QUESTION: Alocalgasstationissellinggasfor$3.00agallon.Anappcompanyisoffering$.20cashbackper
+gallonifyoufillupatthisstation. Ifsomeonebuys10gallonsofgas,howmuchwiththeirgasbe,afterthe
+cashbackrewards?
+MODELANSWER(CORRECTBUTIMPERFECTEQUATION): Thegasisoriginally3dollarspergallon. If
+youbuy10gallons,thatis3x10=30dollars.Ifyouget20centsoffpergallon,thatis20x10=2dollars.So
+thetotalis30-2=28dollars.Theansweris28dollars.
+QUESTION: Nissahires60seasonalworkerstoplayelvesinherdepartmentstore’sSantavillage.Athirdof
+theelvesquitafterchildrenvomitonthem,then10oftheremainingelvesquitafterkidskicktheirshins.How
+manyelvesareleft?
+MODELANSWER(CORRECTBUTIMPERFECTEQUATION): Nissahires60seasonalworkers. Athirdof
+themquit.So60-1/3=40elvesareleft.Then10elvesquit.So40-10=30elvesareleft.Theansweris30
+elves.
+QUESTION: GrandmaJonesbaked5applepiesforthefireman’sluncheon.Shecuteachpieinto8piecesand
+setthefivepiesoutonthebuffettableforthegueststoservethemselves.Attheendoftheevening,afterthe
+guestshadtakenandeatentheirpiecesofpie,therewere14piecesofpieremaining.Howmanypieceswere
+takenbytheguests?
+MODELANSWER(CORRECTBUTINVERTEDSEMANTICS): 5pieswerebakedandcutinto8pieceseach.
+The5pieswerethenservedtotheguests.8x5=40piecesofpie.Theguestsate14piecesofpie.40-14=26
+piecesofpiewereleft.Theansweris26.(cid:88)
+26
+
+D.2 IncorrectChainofThoughtAnalysis
+Wealsomanuallyanalyze50randomlysampledoutputsofthemodelthatwereincorrectonGSM8K
+forLaMDA137B.Therearemanywaysthatachainofthoughtcanbeincorrect,makingthedesign
+oferrorcategorizationnon-trivial. Wedecidedtocategorizeerrorsintowhatchangesareneededto
+makethechainofthoughtcorrect,withthegoalofelucidatinghowthemodelcanbeimprovedinthe
+future.
+Wefoundthatmanychainsofthoughtcanbemadecorrectwithoneofthefollowingthreeclassesof
+modification.
+• Calculatorerroronly. Wefoundthat8%ofthechainsofthoughtwerecompletelycorrectexcept
+foracalculatorerror—inotherwords, applyinganexternalcalculatortoequations, asdonein
+Cobbeetal.(2021),wouldmakethechainofthoughtcorrect. Anexampleofthistypeoferroris
+showninTable10: “calculatorerroronly”. Indeed,thesolverateofchain-of-thoughtprompting
+onforLaMDA137BGSM8Kwentupfrom14.3%to17.3%whenweaddedaPythonprogram
+asanexternalcalculator,asshowninTable2. Also,34%oftheexamplescontainedcalculator
+errorsinadditiontoothertypesoferrors. However,weperformtherestoftheerrorcategorization
+independentlyofcalculatorerrors.
+• Symbolmappingerror. Wenextfoundthat16%percentofthechainsofthoughtwerecorrect
+exceptforwhatwecallsymbolmappingerrors. Wedefineasymbolmappingerroraswhenthe
+chainofthoughtiscorrectexceptforthenumbersymbols,anditcouldbemadetotallycorrectby
+modifyingonlytheequationsandnotthewords. Asonemightarguethattheycouldsimplyplace
+thecorrectfinalequationinanychainofthought,weconstrainthiscategorytochainsofthought
+wherethechainofthoughtcanbemodifiedtobeacompletelycorrectreasoningprocess(notjust
+finalanswer). AnexampleofthiserrorcategoryisshowninTable10: “symbolmappingerror”.
+• Onestepmissingerror. Ournextcategoryoferrorischainsofthoughtwhichwerecorrectexcept
+thattheyweremissingasinglestep. Inotherwords,thesechainsofthoughtscouldberewrittento
+becorrectbyaddinginanadditionalreasoningstepthatwasmissedbythemodel. Anexampleof
+thiserrorcategoryisshowninTable10: “onestepmissingerror”. Wefoundthat22%percentof
+theerrorsfellintothiscategory.
+Table10: Exampleofincorrectchainsofthought,categorizedasdescribedinAppendixD.2.
+QUESTION: Danplants3rosebushes.Eachrosebushhas25roses.Eachrosehas8thorns.Howmanythorns
+aretheretotal?
+MODELANSWER(INCORRECT;CALCULATORERRORONLY): Danplants3rosebushes.Eachrosebush
+has25roses.Eachrosehas8thorns.So3x25x8=300.Theansweris300.(cid:55)
+EXPLANATION FOR ERROR CATEGORY: The produced chain of thought could be made correct just by
+runningtheequationthroughanexternalcalculator,insteadofaskingthemodeltodothecomputation.
+QUESTION: Jillgetspaid$20perhourtoteachand$30tobeacheerleadingcoach.Ifsheworks50weeksa
+year,35hoursaweekasateacherand15hoursaweekasacoach,what’sherannualsalary?
+MODEL ANSWER (INCORRECT; SYMBOL MAPPING ERROR): Jillgetspaid20dollarsperhourtoteach
+and30dollarsperhourtobeacheerleadingcoach.Ifsheworks50weeksayear,35hoursaweekasateacher
+and15hoursaweekasacoach,thensheworks50x35=1750hoursasateacherand15x30=450hoursasa
+coach.Sosheworks1750+450=2200hours.Shegetspaid20dollarsperhourfor1750hoursand30dollars
+perhourfor450hours.Soherannualsalaryis20x1750+30x450=$36,500.Theansweris$36,500.(cid:55)
+EXPLANATIONFORERRORCATEGORY:Themodelincorrectlymapped“15x30”insteadof“15x50”,and
+thechainofthoughtwouldbemadecorrectbyfixingjustthatonechange(withanexternalcalculator).
+QUESTION: Kelianhastworecipesforpreparingdishes,onehaving20instructionsandthesecondonehaving
+twiceasmanyinstructionsasthefirstone.HowmanyinstructionsdoesKelianhavetoreadtopreparethetwo
+dishes?
+MODELANSWER(INCORRECT;ONESTEPMISSINGERROR): Kelianhastworecipes.Onehas20instruc-
+tions.Theotherhastwiceasmanyinstructionsasthefirstone.Sothesecondonehas40instructions.SoKelian
+hastoread40instructionstopreparethetwodishes.Theansweris40.(cid:55)
+EXPLANATIONFORERRORCATEGORY:Themodelanswercouldbemadecorrectjustaddingoneadditional
+step(inthiscase,adding20and40).
+27
+
+Wefoundthattheremainingchainsofthought(27of50;54%)wouldrequiresubstantialeditstomake
+intoacorrectchainofthought. Almostallcaseshereinvolvedsomeerrorinsemanticunderstanding
+(seeTable11: “semanticunderstandingerror”),and8ofthe27alsohadincoherentchainofthoughts,
+meaningthatsomestatementsinthegeneratedchainofthoughtdidnotfollowfromprioronesor
+violatedbasicworldknowledge(seeTable11: “incoherentchainofthoughterror”).
+Table11: Exampleofincorrectchainsofthought,categorizedasdescribedinAppendixD.2. These
+chainsofthoughthadmultiplemistakesthatcouldnotbefixedwithminoredits.
+QUESTION: Gretchenhas110coins. Thereare30moregoldcoinsthansilvercoins. Howmanygoldcoins
+doesGretchenhave?
+MODELANSWER(INCORRECT; SEMANTICUNDERSTANDINGERROR): Gretchenhas110coins. There
+are30moregoldcoinsthansilvercoins.Sothereare110-30=80silvercoins.Sothereare80silvercoinsand
+110-80=30goldcoins.Theansweris30.(cid:55)
+EXPLANATIONFORERRORCATEGORY: Themodeldoesnotunderstandthat110coinsareintotalandthat
+itmustsolveanequationtogetthenumberofgoldandsilvercoins.
+QUESTION: Inadanceclassof20students, 20%enrolledincontemporarydance, 25%oftheremaining
+enrolledinjazzdance,andtherestenrolledinhip-hopdance.Whatpercentageoftheentirestudentsenrolledin
+hip-hopdance?
+MODEL ANSWER (INCORRECT; INCOHERENT CHAIN OF THOUGHT ERROR): 20%ofthestudentsen-
+rolledincontemporarydance.25%oftheremainingstudentsenrolledinjazzdance.Therestenrolledinhip-hop
+dance. Sothepercentageoftheentirestudentsenrolledinhip-hopdanceisthepercentageofthestudents
+enrolledinhip-hopdance,minusthepercentageofthestudentsenrolledincontemporarydance,minusthe
+percentageofthestudentsenrolledinjazzdance.Sothepercentageoftheentirestudentsenrolledinhip-hop
+danceis(25+20)-(25+20)=100%.Theansweris100%.(cid:55)
+EXPLANATION FOR ERROR CATEGORY: Thischainofthoughtisincoherentinthatthepercentofentire
+studentsenrolledinhip-hopedancecannotbethepercentofstudentenrolledinhip-hopdanceminusanother
+term.
+Overall,therearenoguaranteesthatthereasoningprocessesgeneratedbylargelanguagemodels
+are coherent or factually correct, as underscored by the recent work evaluating the factuality of
+languagemodelgenerationsandexplanations(Maynezetal.,2020;Rashkinetal.,2021;Yeand
+Durrett,2022;Marasovic´ etal.,2022;Wiegreffeetal.,2022). Incorrectreasoningprocessescanlead
+tobothincorrectfinalanswersaswellasaccidentallycorrectfinalanswers(withaccidentallycorrect
+finalanswersbeingmorelikelyfortaskssuchasbinaryclassificationasopposedtofreeresponse).
+Improvingthefactualityoflanguagemodelgenerationswithrespecttocontextandworldknowledge
+isanimportantdirectionopenproblemsinlanguagemodelresearchandcouldalsobeexpectedto
+potentiallyimprovemulti-stepreasoningabilitiesoflanguagemodels. Onepotentialmethodfor
+improvingthequalityofdecodingcouldinvolvegeneratingmultiplereasoningpathsandscoring
+eachofthemwithaverifier,thoughthisrequirestrainingtheverifier(Cobbeetal.,2021;Shenetal.,
+2021;Thoppilanetal.,2022).
+D.3 AdditionalRobustnessAnalysis
+Astheexperimentsinthemainpaperuseafixednumberoffew-shotexemplars(8;asconstrainedby
+theinputlengthof1024tokens),weverifythatthechain-of-thoughtpromptingisrobusttovarious
+numbersoffew-shotexemplars. WerunexperimentsforLaMDA137B,comparingchain-of-thought
+promptingwithstandardpromptingforthefivedatasetswherestandardpromptinghadamostlyflat
+scaling curve (the largest model did not achieve high performance). As shown in Figure 11, the
+improvementofchain-of-thoughtpromptingoverstandardpromptingremainsrobusttovaryingthe
+numberoffew-shotexemplarsintheprompt.
+28
+
+15
+10
+5
+0
+12 4 6 8
+)%(etarevloS
+Standardprompting
+Chainofthoughtprompting
+MultiArith Sports LastLetter
+GSM8K (MAWPS) Understanding CoinFlip Concatenation
+60 100 100 100
+75 75 75
+40
+50 50 50
+20
+25 25 25
+0 0 0 0
+12 4 6 8 12 4 6 8 12 4 6 8 1 2 3 4
+Numberoffew-shotexemplars
+Figure11: Theimprovementofchainofthoughtpromptingoverstandardpromptingappearsrobust
+tovaryingthenumberoffew-shotexemplarsintheprompt.
+Table12: Summaryofmathwordproblembenchmarksweuseinthispaperwithexamples. N:
+numberofevaluationexamples.
+Dataset N Exampleproblem
+GSM8K 1,319 Joshdecidestotryflippingahouse.Hebuysahousefor$80,000andthenputs
+in$50,000inrepairs. Thisincreasedthevalueofthehouseby150%. How
+muchprofitdidhemake?
+SVAMP 1,000 Eachpackofdvdscosts76dollars.Ifthereisadiscountof25dollarsoneach
+pack.Howmuchdoyouhavetopaytobuyeachpack?
+ASDiv 2,096 EllenhassixmoreballsthanMarin.Marinhasnineballs.Howmanyballsdoes
+Ellenhave?
+AQuA 254 Acarisbeingdriven,inastraightlineandatauniformspeed,towardsthebase
+ofaverticaltower. Thetopofthetowerisobservedfromthecarand,inthe
+process,ittakes10minutesfortheangleofelevationtochangefrom45◦to60◦.
+Afterhowmuchmoretimewillthiscarreachthebaseofthetower? Answer
+√ √ √ √ √
+Choices:(a)5 3+1(b)6 3+ 2(c)7 3-1(d)8 3-2(e)Noneofthese
+MAWPS:SingleOp 562 Ifthereare7bottlecapsinaboxandLindaputs7morebottlecapsinside,how
+manybottlecapsareinthebox?
+MAWPS:SingleEq 508 Bennyboughtasoftdrinkfor2dollarsand5candybars.Hespentatotalof27
+dollars.Howmuchdideachcandybarcost?
+MAWPS:AddSub 395 Therewere6rosesinthevase. Marycutsomerosesfromherflowergarden.
+Therearenow16rosesinthevase.Howmanyrosesdidshecut?
+MAWPS:MultiArith 600 The school cafeteria ordered 42 red apples and 7 green apples for students
+lunches.But,ifonly9studentswantedfruit,howmanyextradidthecafeteria
+endupwith?
+29
+
+E AdditionalDetails
+VersionControl
+V5→V6. FixedminortypoinFigure3.
+V4→V5. AddedCodexandUL2results. Smallchangestowritingandstyleofpaper.
+V3→V4. FixedtypoinFigure3andaddedacouplecitations.
+V2→V3. AddedGPT-3results. AddedSVAMPandAQuAevaldatasetsformath. AddedSayCan
+evalforcommonsense. AddedExtendedRelatedWorksection(AppendixC).Addedablationsfor
+CommonsenseandSymbolicReasoning(Table7). AddedFAQsection(AppendixA).Addedraw
+resultsinAppendixB.
+V1→V2. AddedPaLMresults(V1onlyhadLaMDA).
+E.1 ReproducibilityStatement
+Asourresultsmakeuseoftwosetsoflargelanguagemodelsthatisnotpubliclyavailable,wetake
+thefollowingactionstofacilitatereproducibility. First,weprovidetheexactinputpromptsforall
+tasksinTable20–Table27inAppendixG(andemphasizethatwedonotperformanyfinetuningand
+onlyapplypromptingtooff-the-shelflanguagemodels). Second,weconductexperimentsusingthe
+publiclyavailableGPT-3APIforfourmodelscalestext-ada-001,text-babbage-001,text-curie-001,
+text-davinci-002). Finally,wemakeexactinputs,targets,andpredictionsforLaMDA137Bforeach
+taskavailableasazipfileinthesupplementarymaterial.
+E.2 ComputationalResources
+Forallthreelanguagemodelsweevaluated,wedidprompting-basedinferenceonly. Nofinetuning
+wasdoneforthispaper. ForinferenceonLaMDA137BweuseTPUv3(8x8configuration,64chips
+/128cores),andforinferenceonPaLM540BweuseTPUv4(4x4x12configuration,192chips/384
+cores). GPT-3experimentsweredoneusingthepublicAPI.5
+E.3 DatasetDetailsandLicenses
+Welistthedetailsandlicensesforallarithmeticandcommonsensedatasetsusedinthispaper. The
+symbolicreasoningdatasetswerecreatedsynthetically,asdescribedinSection4.
+Arithmeticreasoning
+• Math Word Problem Repository (Koncel-Kedziorski et al., 2016): AddSub (Hosseini
+et al., 2014): https://www.cs.washington.edu/nlp/arithmetic; MultiArith (Roy
+andRoth,2015),license: CCBY4.0.
+• ASDiv(Miaoetal.,2020): https://github.com/chaochun/nlu-asdiv-dataset.
+• AQuA(Lingetal.,2017): https://github.com/deepmind/AQuA, license: https://
+github.com/deepmind/AQuA/blob/master/LICENSE.
+• GSM8K (Cobbe et al., 2021): https://github.com/openai/grade-school-math,
+MIT license: https://github.com/openai/grade-school-math/blob/master/
+LICENSE.
+• SVAMP (Patel et al., 2021): https://github.com/arkilpatel/SVAMP, MIT license:
+https://github.com/arkilpatel/SVAMP/blob/main/LICENSE.
+Commonsensereasoning
+• CSQA(Talmoretal.,2019): https://www.tau-nlp.org/commonsenseqa,https://
+github.com/jonathanherzig/commonsenseqa.
+5https://beta.openai.com/docs/api-reference/making-requests
+30
+
+• StrategyQA (Geva et al., 2021): we use the open-domain setting (question-only set)
+from BIG-bench collaboration (2021): https://github.com/google/BIG-bench/
+tree/main/bigbench/benchmark_tasks/strategyqa. The original dataset is from
+https://github.com/eladsegal/strategyqa,MITlicense: https://github.com/
+eladsegal/strategyqa/blob/main/LICENSE.
+• DateunderstandingandsportsunderstandingfromBIG-Bench(BIG-benchcollaboration,
+2021): Apache License v.2: https://github.com/google/BIG-bench/blob/main/
+LICENSE.
+• SayCan(Ahnetal.,2022): SayCandatasetcanbeaccessedathttps://say-can.github.
+io/underCCBY4.0license.
+31
+
+F Appendix: Input/OutputExamples
+Table13: ExamplesofcorrectandincorrectchainsofthoughtproducedbyLaMDA137Bonthe
+letterconcatenationtask.
+QUESTION: Takethelastlettersofthewordsin“WaldoSchmidt”andconcatenatethem.
+MODEL ANSWER (CORRECT): The last letter of “Waldo” is “o”. The last letter of “Schmidt” is “t”.
+Concatenatingthemis“ot”.Sotheanswerisot.(cid:88)
+QUESTION: Takethelastlettersofthewordsin“DanielFriedman”andconcatenatethem.
+MODELANSWER(INCORRECT):Thelastletterof“Daniel”is“l”.Thelastletterof“Friedman”is“m”.
+Concatenatingthemis“lm”.Sotheanswerislm.(cid:55)
+Table14: ExamplesofcorrectandincorrectchainsofthoughtproducedbyLaMDA137Bonthe
+coinfliptask.
+QUESTION: Acoinisheadsup.Andreeflipsthecoin.Audriedoesnotflipthecoin.Isthecoinstillheadsup?
+MODELANSWER(CORRECT):ThecoinwasflippedbyAndree.Sothecoinwasflipped1time,whichis
+anoddnumber.Thecoinstartedheadsup,soafteranoddnumberofflips,itwillbetailsup.Sotheanswerisno.
+(cid:88)
+QUESTION: Acoinisheadsup.Kristiandoesnotflipthecoin.Dallasdoesnotflipthecoin.Isthecoinstill
+headsup?
+MODELANSWER(INCORRECT):ThecoinwasflippedbyKristian.Sothecoinwasflipped1time,which
+isanoddnumber.Thecoinstartedheadsup,soafteranoddnumberofflips,itwillbetailsup.Sotheansweris
+no.(cid:55)
+Table15: ExamplesofcorrectandincorrectchainsofthoughtproducedbyLaMDA137BonCSQA.
+QUESTION: Whenapersonisbeginningwork,whataretheybuilding?
+AnswerChoices:(a)time(b)accomplishing(c)working(d)momentum(e)tiredness
+MODEL ANSWER (CORRECT):Theanswermustbesomethingthatisbuilt. Oftheabovechoices,only
+momentumisbuilt.Sotheansweris(d).(cid:88)
+QUESTION: Whereareyoulikelytofindahamburger?
+AnswerChoices:(a)fastfoodrestaurant(b)pizza(c)groundupdeadcows(d)mouth(e)cowcarcus
+MODELANSWER(CORRECT):Theanswermustbeaplacewherehamburgersarefound. Oftheabove
+choices,onlyfastfoodrestaurantsservehamburgers.Sotheansweris(a).(cid:88)
+QUESTION: Asidefromwaterandnourishmentwhatdoesyourdogneed?
+AnswerChoices:(a)bone(b)charm(c)petted(d)lotsofattention(e)walked
+MODELANSWER(INCORRECT):Theanswermustbesomethingthatadogneeds.Oftheabovechoices,
+onlyboneissomethingthatadogneeds.Sotheansweris(a).(cid:55)(Groundtruthis(d).)
+QUESTION: Whatareyouwaitingalongsidewithwhenyou’reinareceptionarea?
+AnswerChoices:(a)motel(b)chair(c)hospital(d)people(e)hotels
+MODELANSWER(INCORRECT):Theanswermustbesomethingthatiswaitingwithyouinareception
+area.Oftheabovechoices,onlypeoplearewaitingwithyouinareceptionarea.Sotheansweris(e).(cid:55)(Ground
+truthis(d).)
+32
+
+Table 16: Examples of correct and incorrect chains of thought produced by LaMDA 137B on
+StrategyQA.
+QUESTION: WillTheExorciststimulatelimbicsystem?
+MODELANSWER(CORRECT):TheExorcistisahorrormovie.Horrormoviesarescary.Thelimbicsystem
+isinvolvedinfear.Thus,TheExorcistwillstimulatethelimbicsystem.Sotheanswerisyes.(cid:88)
+QUESTION: WasJacksonPollocktrainedbyLeonardodaVinci?
+MODELANSWER(CORRECT):LeonardodaVincilivedinthe15thcentury.JacksonPollocklivedinthe
+20thcentury.Thus,JacksonPollockcouldnothavebeentrainedbyLeonardodaVinci.Sotheanswerisno.(cid:88)
+QUESTION: CanHarryPotterbookaflightonAsianaAirlines?
+MODELANSWER(INCORRECT):HarryPotterisafictionalcharacter.Thus,HarryPottercandoanything.
+Sotheanswerisyes.(cid:55)(Groundtruthis“no”.)
+QUESTION: Wouldasophistuseanépée?
+MODELANSWER(INCORRECT):Asophistisapersonwhoisskilledintheartofpersuasion.Anépéeis
+atypeofsword.Thus,asophistcoulduseanépée.Sotheanswerisyes.(cid:55)(Groundtruthis“no”.)
+Table17: ExamplesofcorrectandincorrectchainsofthoughtproducedbyLaMDA137BonDate
+Understanding.
+QUESTION: May6,1992islikeyesterdaytoJane,butthatisactuallytenyearsago.Whatisthedateamonth
+agoinMM/DD/YYYY?
+MODELANSWER(CORRECT):May6,1992istenyearsago,sotodayisMay6,2002.Soamonthagowill
+beApril6,2002.Sotheansweris04/06/2002.(cid:88)
+QUESTION: Thisisthelastdayof1899.Whatisthedate24hourslaterinMM/DD/YYYY?
+MODELANSWER(CORRECT):Todayis12/31/1899.24hourslaterwillbe01/01/1900.Sotheansweris
+01/01/1900.(cid:88)
+QUESTION: Janescheduled3apointmentswith5poeplefortomorrow(Tue,7/9/1972).Whatisthedateone
+weekagofromtodayinMM/DD/YYYY?
+MODELANSWER(INCORRECT):Tomorrowis7/9/1972.Oneweekagofromtodayis7/2/1972.Sothe
+answeris7/2/1972.(cid:55)(Groundtruthis07/01/1972.)
+QUESTION: Todayisthepalindromedayof2020,becausetheMMDDYYYYformatofthedateisthesame
+backwardsasforwards.WhatisthedatetomorrowinMM/DD/YYYY?
+MODELANSWER(INCORRECT):Todayis02/29/2020.Tomorrowwillbe03/01/2020.Sotheansweris
+03/01/2020.(cid:55)(Groundtruthis“02/03/2020”.)
+Table18: ExamplesofcorrectandincorrectchainsofthoughtproducedbyLaMDA137BonSports
+Understanding.
+QUESTION: Isthefollowingsentenceplausible?“JoaoMoutinhowasoutatthird.”
+MODELANSWER(CORRECT):JoaoMoutinhoisasoccerplayer.Beingoutatthirdispartofbaseball,not
+soccer.Sotheanswerisno.(cid:88)
+QUESTION: Isthefollowingsentenceplausible? “MalcolmBrogdoneurosteppedtothebasketintheNBA
+Championship.”
+MODELANSWER(CORRECT):MalcolmBrogdonisabasketballplayer.Eurosteppingtothebasketispart
+ofbasketball.Sotheanswerisyes.(cid:88)
+QUESTION: Isthefollowingsentenceplausible?“DerrickWhitebackhandedashot.”
+MODEL ANSWER (INCORRECT): DerrickWhiteisabasketballplayer. Backhandingashotispartof
+basketball.Sotheanswerisyes.(cid:55)(Groundtruthis“no”,backhandingashotispartofhockey.)
+QUESTION: Isthefollowingsentenceplausible?“NazemKadriwasoutathome.”
+MODELANSWER(INCORRECT):NazemKadriisahockeyplayer. Beingoutathomeispartofhockey.
+Sotheanswerisyes.(cid:55)(Groundtruthis“no”,beingoutathomeispartofbaseball.)
+33
+
+Table19: ExamplesofcorrectandincorrectchainsofthoughtproducedbyPaLM540BonSayCan
+robotplanningtasks.
+QUESTION:Ispilledmycokeonthetable,couldyouthrowitawayandthenbringmesomethingtohelpclean?
+MODELANSWER(CORRECT):Explanation:Theuserhasspilledtheircokeonthetable.Iwillthrowaway
+thecokeandthenbringtheuserasponge. Plan: find(coke),pick(coke),find(trash),put(coke),find(sponge),
+pick(sponge),find(table),put(sponge).(cid:88)
+QUESTION: Couldyoucompostthatappleforme?
+MODELANSWER(CORRECT):Explanation:Theuserwouldlikemetocomposttheapple.Iwillmovethe
+appletothecompost.Plan:find(apple),pick(apple),find(trash),put(apple).(cid:88)
+QUESTION: Canyoubringmeadrinkthatisnotcoke?
+MODELANSWER(INCORRECT):Explanation:Theuseraskedmetobringadrinkthatisnotcoke,Iwill
+bringasprite.Plan:find(sprite),pick(sprite),find(user),put(sprite).(cid:55)(Feasibleanswersincludingfindinglime
+soda,pepsi,grapefruitsodaorwater,becausethereisnospriteinthesceneasdefinedinTable28.)
+QUESTION: Canyoubringmesomethingsalty?
+MODELANSWER (INCORRECT):Explanation: Theuserwouldlikesomethingsalty. Thereareseveral
+optionsintheobjectslist,soIwillbringtheuseralimesoda.Plan:find(limesoda),pick(limesoda),find(user),
+put(limesoda).(cid:55)(Feasibleanswersincludingfindingchips.Themodelmisidentifylimesodaassalty.)
+34
+
+G Appendix: FullPrompts
+Table20: Few-shotexemplarsforfullchainofthoughtpromptformathwordproblems. Thissetof
+exemplarswasusedforallmathwordproblemdatasetsexceptAQuA.
+PROMPTFORMATHWORDPROBLEMS
+Q:Thereare15treesinthegrove.Groveworkerswillplanttreesinthegrovetoday.Aftertheyaredone,there
+willbe21trees.Howmanytreesdidthegroveworkersplanttoday?
+A:Thereare15treesoriginally.Thentherewere21treesaftersomemorewereplanted.Sotheremusthave
+been21-15=6.Theansweris6.
+Q:Ifthereare3carsintheparkinglotand2morecarsarrive,howmanycarsareintheparkinglot?
+A:Thereareoriginally3cars.2morecarsarrive.3+2=5.Theansweris5.
+Q:Leahhad32chocolatesandhersisterhad42.Iftheyate35,howmanypiecesdotheyhaveleftintotal?
+A:Originally,Leahhad32chocolates.Hersisterhad42.Sointotaltheyhad32+42=74.Aftereating35,they
+had74-35=39.Theansweris39.
+Q:Jasonhad20lollipops.HegaveDennysomelollipops.NowJasonhas12lollipops.Howmanylollipopsdid
+JasongivetoDenny?
+A:Jasonstartedwith20lollipops.Thenhehad12aftergivingsometoDenny.SohegaveDenny20-12=8.
+Theansweris8.
+Q:Shawnhasfivetoys.ForChristmas,hegottwotoyseachfromhismomanddad.Howmanytoysdoeshe
+havenow?
+A:Shawnstartedwith5toys.Ifhegot2toyseachfromhismomanddad,thenthatis4moretoys.5+4=9.
+Theansweris9.
+Q:Therewereninecomputersintheserverroom.Fivemorecomputerswereinstalledeachday,frommonday
+tothursday.Howmanycomputersarenowintheserverroom?
+A: There were originally 9 computers. For each of 4 days, 5 more computers were added. So 5 * 4 = 20
+computerswereadded.9+20is29.Theansweris29.
+Q:Michaelhad58golfballs.Ontuesday,helost23golfballs.Onwednesday,helost2more.Howmanygolf
+ballsdidhehaveattheendofwednesday?
+A:Michaelstartedwith58golfballs.Afterlosing23ontuesday,hehad58-23=35.Afterlosing2more,he
+had35-2=33golfballs.Theansweris33.
+Q:Oliviahas$23.Sheboughtfivebagelsfor$3each.Howmuchmoneydoesshehaveleft?
+A:Oliviahad23dollars.5bagelsfor3dollarseachwillbe5x3=15dollars.Soshehas23-15dollarsleft.23
+-15is8.Theansweris8.
+35
+
+Table21: Few-shotexemplarsforfullchainofthoughtpromptforAQuA.
+PROMPTFORAQUAALGEBRAICWORDPROBLEMS
+Q:Johnfoundthattheaverageof15numbersis40.If10isaddedtoeachnumberthenthemeanofthenumbers
+is?
+AnswerChoices:(a)50(b)45(c)65(d)78(e)64
+A:If10isaddedtoeachnumber,thenthemeanofthenumbersalsoincreasesby10.Sothenewmeanwouldbe
+50.Theansweris(a).
+Q:Ifa/b=3/4and8a+5b=22,thenfindthevalueofa.
+AnswerChoices:(a)1/2(b)3/2(c)5/2(d)4/2(e)7/2
+A:Ifa/b=3/4,thenb=4a/3.So8a+5(4a/3)=22.Thissimplifiesto8a+20a/3=22,whichmeans44a/3
+=22.Soaisequalto3/2.Theansweris(b).
+Q:Apersonistravelingat20km/hrandreachedhisdestinyin2.5hrthenfindthedistance?
+AnswerChoices:(a)53km(b)55km(c)52km(d)60km(e)50km
+A:Thedistancethatthepersontraveledwouldhavebeen20km/hr*2.5hrs=50km.Theansweris(e).
+Q:Howmanykeystrokesareneededtotypethenumbersfrom1to500?
+AnswerChoices:(a)1156(b)1392(c)1480(d)1562(e)1788
+A:Thereare9one-digitnumbersfrom1to9.Thereare90two-digitnumbersfrom10to99.Thereare401
+three-digitnumbersfrom100to500.9+90(2)+401(3)=1392.Theansweris(b).
+Table22: Few-shotexemplarsforfullchainofthoughtpromptforthelastletterconcatenationtask.
+PROMPTFORLASTLETTERCONCATENATION
+Q:Takethelastlettersofthewordsin"ElonMusk"andconcatenatethem.
+A:Thelastletterof"Elon"is"n".Thelastletterof"Musk"is"k".Concatenatingthemis"nk".Theanswerisnk.
+Q:Takethelastlettersofthewordsin"LarryPage"andconcatenatethem.
+A:Thelastletterof"Larry"is"y".Thelastletterof"Page"is"e".Concatenatingthemis"ye".Theanswerisye.
+Q:Takethelastlettersofthewordsin"SergeyBrin"andconcatenatethem.
+A:Thelastletterof"Sergey"is"y".Thelastletterof"Brin"is"n".Concatenatingthemis"yn".Theansweris
+yn.
+Q:Takethelastlettersofthewordsin"BillGates"andconcatenatethem.
+A:Thelastletterof"Bill"is"l".Thelastletterof"Gates"is"s".Concatenatingthemis"ls".Theanswerisls.
+36
+
+Table23: Few-shotexemplarsforfullchainofthoughtpromptforthecoinfliptask.
+PROMPTFORCOINFLIP
+Q:Q:Acoinisheadsup.Kaflipsthecoin.Sherrieflipsthecoin.Isthecoinstillheadsup?
+A:ThecoinwasflippedbyKaandSherrie.Sothecoinwasflipped2times,whichisanevennumber.Thecoin
+startedheadsup,soafteranevennumberofflips,itwillstillbeheadsup.Sotheanswerisyes.
+Q:Acoinisheadsup.Jameyflipsthecoin.Teressaflipsthecoin.Isthecoinstillheadsup?
+A:ThecoinwasflippedbyJameyandTeressa.Sothecoinwasflipped2times,whichisanevennumber.The
+coinstartedheadsup,soafteranevennumberofflips,itwillstillbeheadsup.Sotheanswerisyes.
+Q:Acoinisheadsup.Maybelleflipsthecoin.Shalondadoesnotflipthecoin.Isthecoinstillheadsup?
+A:ThecoinwasflippedbyMaybelle.Sothecoinwasflipped1time,whichisanoddnumber.Thecoinstarted
+headsup,soafteranoddnumberofflips,itwillbetailsup.Sotheanswerisno.
+Q:Acoinisheadsup.Millicentdoesnotflipthecoin.Conceptionflipsthecoin.Isthecoinstillheadsup?
+A:ThecoinwasflippedbyConception.Sothecoinwasflipped1time,whichisanoddnumber.Thecoin
+startedheadsup,soafteranoddnumberofflips,itwillbetailsup.Sotheanswerisno.
+Q:Acoinisheadsup.Salflipsthecoin.Raymonddoesnotflipthecoin.Isthecoinstillheadsup?
+A:ThecoinwasflippedbySal.Sothecoinwasflipped1time,whichisanoddnumber.Thecoinstartedheads
+up,soafteranoddnumberofflips,itwillbetailsup.Sotheanswerisno.
+Q:Acoinisheadsup.Conceptionflipsthecoin.Kristiandoesnotflipthecoin.Isthecoinstillheadsup?
+A:ThecoinwasflippedbyConception.Sothecoinwasflipped1time,whichisanoddnumber.Thecoin
+startedheadsup,soafteranoddnumberofflips,itwillbetailsup.Sotheanswerisno.
+Q:Acoinisheadsup.Ingadoesnotflipthecoin.Elanordoesnotflipthecoin.Isthecoinstillheadsup?
+A:Thecoinwasflippedbynoone.Sothecoinwasflipped0times.Thecoinstartedheadsup,anditwasnot
+flipped,soitisstillheadsup.Sotheanswerisyes.
+Q:Acoinisheadsup.Ryanflipsthecoin.Shaundaflipsthecoin.Isthecoinstillheadsup?
+A:ThecoinwasflippedbyRyanandShaunda.Sothecoinwasflipped2times,whichisanevennumber.The
+coinstartedheadsup,soafteranevennumberofflips,itwillstillbeheadsup.Sotheanswerisyes.
+37
+
+Table 24: Few-shot exemplars for full chain of thought prompt for CSQA. There are newlines
+betweentheanswerchoicesthatareomittedinthetableforspacereasons.
+PROMPTFORCSQA
+Q: What do people use to absorb extra ink from a fountain pen? Answer Choices: (a) shirt pocket (b)
+calligrapher’shand(c)inkwell(d)deskdrawer(e)blotter
+A:Theanswermustbeanitemthatcanabsorbink.Oftheabovechoices,onlyblottersareusedtoabsorbink.
+Sotheansweris(e).
+Q:Whathomeentertainmentequipmentrequirescable?
+AnswerChoices:(a)radioshack(b)substation(c)television(d)cabinet
+A:Theanswermustrequirecable.Oftheabovechoices,onlytelevisionrequirescable.Sotheansweris(c).
+Q:Thefoxwalkedfromthecityintotheforest,whatwasitlookingfor?AnswerChoices:(a)prettyflowers(b)
+henhouse(c)naturalhabitat(d)storybook
+A:Theanswermustbesomethingintheforest.Oftheabovechoices,onlynaturalhabitatisintheforest.Sothe
+answeris(b).
+Q:Sammywantedtogotowherethepeoplewere.Wheremighthego?AnswerChoices:(a)populatedareas
+(b)racetrack(c)desert(d)apartment(e)roadblock
+A:Theanswermustbeaplacewithalotofpeople.Oftheabovechoices,onlypopulatedareashavealotof
+people.Sotheansweris(a).
+Q:Wheredoyouputyourgrapesjustbeforecheckingout?AnswerChoices:(a)mouth(b)grocerycart(c)super
+market(d)fruitbasket(e)fruitmarket
+A:Theanswershouldbetheplacewheregroceryitemsareplacedbeforecheckingout.Oftheabovechoices,
+grocerycartmakesthemostsenseforholdinggroceryitems.Sotheansweris(b).
+Q:GoogleMapsandotherhighwayandstreetGPSserviceshavereplacedwhat?AnswerChoices:(a)united
+states(b)mexico(c)countryside(d)atlas
+A:TheanswermustbesomethingthatusedtodowhatGoogleMapsandGPSservicesdo,whichistogive
+directions.Oftheabovechoices,onlyatlasesareusedtogivedirections.Sotheansweris(d).
+Q:Beforegettingadivorce,whatdidthewifefeelwhowasdoingallthework?AnswerChoices:(a)harder(b)
+anguish(c)bitterness(d)tears(e)sadness
+A:Theanswershouldbethefeelingofsomeonegettingdivorcedwhowasdoingallthework.Oftheabove
+choices,theclosestfeelingisbitterness.Sotheansweris(c).
+38
+
+Table25: Few-shotexemplarsforfullchainofthoughtpromptforStrategyQA.
+PROMPTFORSTRATEGYQA
+Q:Dohamstersprovidefoodforanyanimals?
+A:Hamstersarepreyanimals.Preyarefoodforpredators.Thus,hamstersprovidefoodforsomeanimals.So
+theanswerisyes.
+Q:CouldBrookeShieldssucceedatUniversityofPennsylvania?
+A:BrookeShieldswenttoPrincetonUniversity.PrincetonUniversityisaboutasacademicallyrigorousasthe
+UniversityofPennsylvania.Thus,BrookeShieldscouldalsosucceedattheUniversityofPennsylvania.Sothe
+answerisyes.
+Q:Yesorno:Hydrogen’satomicnumbersquaredexceedsnumberofSpiceGirls?
+A:Hydrogenhasanatomicnumberof1.1squaredis1.Thereare5SpiceGirls.Thus,Hydrogen’satomic
+numbersquaredislessthan5.Sotheanswerisno.
+Q:Yesorno:Isitcommontoseefrostduringsomecollegecommencements?
+A:CollegecommencementceremoniescanhappeninDecember,May,andJune.Decemberisinthewinter,so
+therecanbefrost.Thus,therecouldbefrostatsomecommencements.Sotheanswerisyes.
+Q:Yesorno:CouldallamabirthtwiceduringWarinVietnam(1945-46)?
+A:TheWarinVietnamwas6months.Thegestationperiodforallamais11months,whichismorethan6
+months.Thus,allamacouldnotgivebirthtwiceduringtheWarinVietnam.Sotheanswerisno.
+Q:Yesorno:Wouldapearsinkinwater?
+A:Thedensityofapearisabout0.6g/cm3,whichislessthanwater.Objectslessdensethanwaterfloat.Thus,
+apearwouldfloat.Sotheanswerisno.
+Table26: Few-shotexemplarsforfullchainofthoughtpromptforDateUnderstanding.
+PROMPTFORDATEUNDERSTANDING
+Q:2015iscomingin36hours.WhatisthedateoneweekfromtodayinMM/DD/YYYY?
+A:If2015iscomingin36hours,thenitiscomingin2days.2daysbefore01/01/2015is12/30/2014,sotoday
+is12/30/2014.Sooneweekfromtodaywillbe01/05/2015.Sotheansweris01/05/2015.
+Q: The first day of 2019 is a Tuesday, and today is the first Monday of 2019. What is the date today in
+MM/DD/YYYY?
+A:Ifthefirstdayof2019wasTuesday,then01/01/2019wasaTuesday.Todayisthefirstmonday,wouldbesix
+dayslater.Sotodayis01/07/2019.Sotheansweris01/07/2019.
+Q:Theconcertwasscheduledtobeon06/01/1943,butwasdelayedbyonedaytotoday.Whatisthedate10
+daysagoinMM/DD/YYYY?
+A:Onedayafter06/01/1943is06/02/1943,sotodayis06/02/1943.10daysbeforetodayis05/23/1943.Sothe
+answeris05/23/1943.
+Q:Itis4/19/1969today.Whatisthedate24hourslaterinMM/DD/YYYY?
+A:Todayis04/19/1969.24hourslaterisonedayaftertoday,whichwouldbe04/20/1969.Sotheansweris
+04/20/1969.
+Q:Janethoughttodayis3/11/2002,buttodayisinfactMar12,whichis1daylater.Whatisthedate24hours
+laterinMM/DD/YYYY?
+A:Todayis03/12/2002.Sothedate24hourslaterwillbe03/13/2002.Sotheansweris03/13/2002.
+Q:JanewasbornonthelastdayofFeburaryin2001. Todayisher16-year-oldbirthday. Whatisthedate
+yesterdayinMM/DD/YYYY?
+A:ThelastdayofFebruaryisthe28th,soJanewasbornon02/28/2001.Todayisher16-yearoldbirthday,so
+todayis02/28/2017.Soyesterdaywas02/27/2017.Sotheansweris02/27/2017.
+39
+
+Table27: Few-shotexemplarsforfullchainofthoughtpromptforSportsUnderstanding.
+PROMPTFORSPORTSUNDERSTANDING
+Q:Isthefollowingsentenceplausible?“KylePalmieriwascalledforslashing.”
+A:KylePalmieriisahockeyplayer.Beingcalledforslashingispartofhockey.Sotheanswerisyes.
+Q:Isthefollowingsentenceplausible?“JoaoMoutinhocaughtthescreenpassintheNFCchampionship.”
+A:JoaoMoutinhoisasoccerplayer.TheNFCchampionshipispartofAmericanfootball,notsoccer.Sothe
+answerisno.
+Q:Isthefollowingsentenceplausible?“CarsonWentzsetthepickandroll.”
+A:CarsonWentzisanAmericanfootballplayer.Pickandrollispartofbasketball,notfootball.Sotheanswer
+isno.
+Q:Isthefollowingsentenceplausible?“JonasValanciunasbeatthebuzzer.”
+A:JonasValanciunasisabasketballplayer.Beatingthebuzzerispartofbasketball.Sotheanswerisyes.
+Q:Isthefollowingsentenceplausible?“JamelMurraywasperfectfromtheline.”
+A:JamalMurrayisabasketballplayer.Beingperfectfromthelineispartofbasketball.Sotheanswerisyes.
+Q:Isthefollowingsentenceplausible?“SamDarnoldpassedthepuck.”
+A:SamDarnoldisaAmericanfootballplayer.Passingthepuckispartofhockey,notAmericanfootball.Sothe
+answerisno.
+Q:Isthefollowingsentenceplausible?“DraymondGreenthrewatouchdown.”
+A:DraymondGreenisanbasketballplayer.Throwingatouchdownispartoffootball,notbasketball.Sothe
+answerisno.
+Q:Isthefollowingsentenceplausible?“MalcolmBrogdonbankedtheshotin.”
+A:MalcolmBrogdonisabasketballplayer.Bankingtheshotinispartofbasketball.Sotheanswerisyes.
+40
+
+Table28: Few-shotexemplarsforfullchainofthoughtpromptforSayCanrobotplanningtasks.
+PROMPTFORSAYCANROBOTPLANNING
+Locations=[counter,table,user,trash,bowl].
+Objects=[7up,apple,kettlechips,tea,multigrainchips,coke,limesoda,jalapenochips,ricechips,orange,
+grapefruitsoda,pepsi,redbull,energybar,sponge,water].
+Therobotcanpickupitemswithpick(object)andputdownitemswithput(object)aswellasfindobjectsor
+locationswithfind().Therobotcanonlyunderstandtheexplicitlocationsandobjectslisted.
+Human:I’mhungry,canyoubringmesomechips.
+Explanation:Theuserishungryandhasaskedforchips.Thereareseveraltypesofchipsavailable,Iwillbring
+theuserthekettlechips.
+Plan:1.find(kettlechips),2.pick(kettlechips),3.find(user),4.put(kettlechips),5.done().
+Human:Howwouldyoumovethegrapefruitdrinkfromthetabletothecounter?
+Explanation:Theuserhasaskedmetomovethegrapefruitdrinktothecounter.
+Plan:1.find(grapefruitsoda),2.pick(grapefruitsoda),3.find(counter),4.put(grapefruitsoda),5.done().
+Human:Howwouldyoubringmesomesnacks?
+Explanation:Theuserhasaskedforsnacks,Iwillchoosetwoitemsandbringthem.Iwillbringjalapenochips
+andanapple.
+Plan: 1. find(jalapenochips),2. pick(jalapenochips),3. find(user),4. put(jalapenochips),5. find(apple),6.
+pick(apple),7.find(user),8.put(apple),9.done().
+Human:Howwouldyoubringmesomethingtoeatthatisn’tafruit?
+Explanation:Theuserhasaskedforafoodthatisn’tafruit,Iwillbringanenergybartothem.
+Plan:1.find(energybar),2.pick(energybar),3.find(user),4.put(energybar),5.done().
+Human:Howwouldyouputthericechipsinthebowlandthenmovetheteatothetable?
+Explanation:Theuserhasaskedmetodotwotasks,Iwilldooneandthentheother.
+Plan: 1. find(ricechips),2. pick(ricechips),3. find(bowl),4. put(ricechips),5. find(tea),6. pick(tea),7.
+find(table),8.put(tea),9.done().
+Human:Howwouldyouthrowawayaredbull?
+Explanation:Theuserhasaskedmetothrowawaytheredbull,Iwillmoveittothetrash.
+Plan:1.find(redbull),2.pick(redbull),3.find(trash),4.put(redbull),5.done().
+Human:Bringmeadrink.
+Explanation:Theuserhasaskedforadrinkandtherearemanyoptions.Iwillbringthemawater.
+Plan:1.find(water),2.pick(water),3.find(user),4.put(water),5.done().
+41
+
+H Appendix: AlternateAnnotatorsforMWP
+Table29: Few-shotexemplarsforfullchainofthoughtpromptformathwordproblems. These
+exemplarsarethesameasinTable20,exceptthatthechainsofthoughtwerewrittenbyadifferent
+annotator(“AnnotatorB”insteadof“AnnotatorA”).Annotatorswereco-authorsandfamiliarwith
+thegoalofchainofthoughtprompting.
+PROMPTFORMATHWORDPROBLEMS
+Q:Thereare15treesinthegrove.Groveworkerswillplanttreesinthegrovetoday.Aftertheyaredone,there
+willbe21trees.Howmanytreesdidthegroveworkersplanttoday?
+A:Thereare21treesnowandthereare15treesinthebeginning,sotheworkersplant21-15=6trees.The
+answeris6.
+Q:Ifthereare3carsintheparkinglotand2morecarsarrive,howmanycarsareintheparkinglot?
+A: Thereare3carsinthebeginning,2morearrive,sonowthereshouldbe3+2=5cars.Theansweris5.
+Q:Leahhad32chocolatesandhersisterhad42.Iftheyate35,howmanypiecesdotheyhaveleftintotal?
+A:Leahhad32chocolatesandhersisterhad42,intotaltheyhave32+42=74chocolates.Aftertheyate35,
+nowthereare74-35=39chocolates.Theansweris39.
+Q:Jasonhad20lollipops.HegaveDennysomelollipops.NowJasonhas12lollipops.Howmanylollipopsdid
+JasongivetoDenny?
+A:Jasonstartedwith20lollipops,butnowheonlyhas12,sohegaveDenny20-12=8lollipops.Theanswer
+is8.
+Q:Shawnhasfivetoys.ForChristmas,hegottwotoyseachfromhismomanddad.Howmanytoysdoeshe
+havenow?
+A:Shawngot2toyseachfromhismomanddad,sohegot2*2=4more,nowhewillhave5+4=9toys.The
+answeris9.
+Q:Therewereninecomputersintheserverroom.Fivemorecomputerswereinstalledeachday,frommonday
+tothursday.Howmanycomputersarenowintheserverroom?
+A: 5 computers were installed from monday to thursday, so in total 5 * 4 = 20 computers are installed. 9
+computersarethereinthebeginning,sonowthereare20+9=29computers.Theansweris29.
+Q:Michaelhad58golfballs.Ontuesday,helost23golfballs.Onwednesday,helost2more.Howmanygolf
+ballsdidhehaveattheendofwednesday?
+A:Michaelstartedwith58golfballsandlost23,sohehas58-23=35.Afterhelost2more,hehas35-2=33
+ballsnow.Theansweris33.
+Q:Oliviahas$23.Sheboughtfivebagelsfor$3each.Howmuchmoneydoesshehaveleft?
+A:5bagelsfor$3eachshouldcost5*3=15dollars.Oliviahad$23inthebeginning,sonowshehas23-15=
+8dollarsleft.Theansweris8.
+42
+
+Table30: Few-shotexemplarsforfullchainofthoughtpromptformathwordproblems. These
+exemplarsarethesameasinTable20,exceptthatthechainsofthoughtwerewrittenbyadifferent
+annotator(“AnnotatorC”insteadof“AnnotatorA”).
+PROMPTFORMATHWORDPROBLEMS
+Q:Thereare15treesinthegrove.Groveworkerswillplanttreesinthegrovetoday.Aftertheyaredone,there
+willbe21trees.Howmanytreesdidthegroveworkersplanttoday?
+A:Westartwith15trees.Laterwehave21trees.Thedifferencemustbethenumberoftreestheyplanted.So,
+theymusthaveplanted21-15=6trees.Theansweris6.
+Q:Ifthereare3carsintheparkinglotand2morecarsarrive,howmanycarsareintheparkinglot?
+A:Thereare3carsintheparkinglotalready.2morearrive.Nowthereare3+2=5cars.Theansweris5.
+Q:Leahhad32chocolatesandhersisterhad42.Iftheyate35,howmanypiecesdotheyhaveleftintotal?
+A:Leahhad32chocolatesandLeah’ssisterhad42.Thatmeanstherewereoriginally32+42=74chocolates.
+35havebeeneaten.Sointotaltheystillhave74-35=39chocolates.Theansweris39.
+Q:Jasonhad20lollipops.HegaveDennysomelollipops.NowJasonhas12lollipops.Howmanylollipopsdid
+JasongivetoDenny?
+A:Jasonhad20lollipops.Sinceheonlyhas12now,hemusthavegiventheresttoDenny.Thenumberof
+lollipopshehasgiventoDennymusthavebeen20-12=8lollipops.Theansweris8.
+Q:Shawnhasfivetoys.ForChristmas,hegottwotoyseachfromhismomanddad.Howmanytoysdoeshe
+havenow?
+A:Hehas5toys.Hegot2frommom,soafterthathehas5+2=7toys.Thenhegot2morefromdad,soin
+totalhehas7+2=9toys.Theansweris9.
+Q:Therewereninecomputersintheserverroom.Fivemorecomputerswereinstalledeachday,frommonday
+tothursday.Howmanycomputersarenowintheserverroom?
+A:Thereare4daysfrommondaytothursday.5computerswereaddedeachday.Thatmeansintotal4*5=20
+computerswereadded.Therewere9computersinthebeginning,sonowthereare9+20=29computers.The
+answeris29.
+Q:Michaelhad58golfballs.Ontuesday,helost23golfballs.Onwednesday,helost2more.Howmanygolf
+ballsdidhehaveattheendofwednesday?
+A:Michaelinitiallyhad58balls.Helost23onTuesday,soafterthathehas58-23=35balls.OnWednesday
+helost2moresonowhehas35-2=33balls.Theansweris33.
+Q:Oliviahas$23.Sheboughtfivebagelsfor$3each.Howmuchmoneydoesshehaveleft?
+A:Shebought5bagelsfor$3each.Thismeansshespent5*$3=$15onthebagels.Shehad$23inbeginning,
+sonowshehas$23-$15=$8.Theansweris8.
+43

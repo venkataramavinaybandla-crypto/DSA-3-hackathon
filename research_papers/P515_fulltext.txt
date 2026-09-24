@@ -1,0 +1,278 @@
+DistilBERT, a distilled version of BERT: smaller,
+faster, cheaper and lighter
+VictorSANH,LysandreDEBUT,JulienCHAUMOND,ThomasWOLF
+HuggingFace
+{victor,lysandre,julien,thomas}@huggingface.co
+Abstract
+AsTransferLearningfromlarge-scalepre-trainedmodelsbecomesmoreprevalent
+inNaturalLanguageProcessing(NLP),operatingtheselargemodelsinon-the-
+edgeand/orunderconstrainedcomputationaltrainingorinferencebudgetsremains
+challenging. In this work, we propose a method to pre-train a smaller general-
+purposelanguagerepresentationmodel,calledDistilBERT,whichcanthenbefine-
+tunedwithgoodperformancesonawiderangeoftaskslikeitslargercounterparts.
+Whilemostpriorworkinvestigatedtheuseofdistillationforbuildingtask-specific
+models,weleverageknowledgedistillationduringthepre-trainingphaseandshow
+thatitispossibletoreducethesizeofaBERTmodelby40%,whileretaining97%
+ofitslanguageunderstandingcapabilitiesandbeing60%faster. Toleveragethe
+inductivebiaseslearnedbylargermodelsduringpre-training,weintroduceatriple
+losscombininglanguagemodeling,distillationandcosine-distancelosses. Our
+smaller, fasterandlightermodelischeapertopre-trainandwedemonstrateits
+capabilitiesforon-devicecomputationsinaproof-of-conceptexperimentanda
+comparativeon-devicestudy.
+1 Introduction
+Thelasttwoyearshaveseentherise
+ofTransferLearningapproachesin
+NaturalLanguageProcessing(NLP)
+withlarge-scalepre-trainedlanguage
+models becoming a basic tool in
+manyNLPtasks[Devlinetal.,2018,
+Radfordetal.,2019,Liuetal.,2019].
+While these models lead to signifi-
+cant improvement, they often have
+severalhundredmillionparameters
+andcurrentresearch1onpre-trained
+models indicates that training even
+largermodelsstillleadstobetterper-
+formancesondownstreamtasks.
+Figure 1: Parameter counts of several recently released
+The trend toward bigger models
+pretrainedlanguagemodels.
+raisesseveralconcerns. Firstisthe
+environmentalcostofexponentiallyscalingthesemodels’computationalrequirementsasmentioned
+inSchwartzetal.[2019],Strubelletal.[2019]. Second,whileoperatingthesemodelson-device
+inreal-timehasthepotentialtoenablenovelandinterestinglanguageprocessingapplications,the
+growingcomputationalandmemoryrequirementsofthesemodelsmayhamperwideadoption.
+1SeeforinstancetherecentlyreleasedMegatronLM(https://nv-adlr.github.io/MegatronLM)
+EMC^2:5thEditionCo-locatedwithNeurIPS’19
+0202
+raM
+1
+]LC.sc[
+4v80110.0191:viXra
+
+Inthispaper,weshowthatitispossibletoreachsimilarperformancesonmanydownstream-tasks
+usingmuchsmallerlanguagemodelspre-trainedwithknowledgedistillation,resultinginmodels
+thatarelighterandfasteratinferencetime,whilealsorequiringasmallercomputationaltraining
+budget. Ourgeneral-purposepre-trainedmodelscanbefine-tunedwithgoodperformancesonseveral
+downstreamtasks,keepingtheflexibilityoflargermodels. Wealsoshowthatourcompressedmodels
+aresmallenoughtorunontheedge,e.g. onmobiledevices.
+Using a triple loss, we show that a 40% smaller Transformer (Vaswani et al. [2017]) pre-trained
+throughdistillationviathesupervisionofabiggerTransformerlanguagemodelcanachievesimilar
+performanceonavarietyofdownstreamtasks,whilebeing60%fasteratinferencetime. Further
+ablationstudiesindicatethatallthecomponentsofthetriplelossareimportantforbestperformances.
+We have made the trained weights available along with the training code in the Transformers2
+libraryfromHuggingFace[Wolfetal.,2019].
+2 Knowledgedistillation
+Knowledgedistillation[Bucilaetal.,2006,Hintonetal.,2015]isacompressiontechniqueinwhich
+acompactmodel-thestudent-istrainedtoreproducethebehaviourofalargermodel-theteacher-
+oranensembleofmodels.
+In supervised learning, a classification model is generally trained to predict an instance class by
+maximizing the estimated probability of gold labels. A standard training objective thus involves
+minimizingthecross-entropybetweenthemodel’spredicteddistributionandtheone-hotempirical
+distributionoftraininglabels. Amodelperformingwellonthetrainingsetwillpredictanoutput
+distribution with high probability on the correct class and with near-zero probabilities on other
+classes. Butsomeofthese"near-zero"probabilitiesarelargerthanothersandreflect,inpart,the
+generalizationcapabilitiesofthemodelandhowwellitwillperformonthetestset3.
+Training loss The student is trained with a distillation loss over the soft target probabilities of
+(cid:80)
+the teacher: L = t ∗log(s ) where t (resp. s ) is a probability estimated by the teacher
+ce i i i i i
+(resp. the student). This objective results in a rich training signal by leveraging the full teacher
+distribution. Following Hinton et al. [2015] we used a softmax-temperature: p = exp(zi/T)
+i (cid:80)
+j
+exp(zj/T)
+whereT controlsthesmoothnessoftheoutputdistributionandz isthemodelscorefortheclassi.
+i
+ThesametemperatureT isappliedtothestudentandtheteacherattrainingtime,whileatinference,
+T issetto1torecoverastandardsoftmax.
+ThefinaltrainingobjectiveisalinearcombinationofthedistillationlossL withthesupervised
+ce
+trainingloss,inourcasethemaskedlanguagemodelinglossL [Devlinetal.,2018]. Wefoundit
+mlm
+beneficialtoaddacosineembeddingloss(L )whichwilltendtoalignthedirectionsofthestudent
+cos
+andteacherhiddenstatesvectors.
+3 DistilBERT:adistilledversionofBERT
+StudentarchitectureInthepresentwork,thestudent-DistilBERT-hasthesamegeneralarchitec-
+tureasBERT.Thetoken-typeembeddingsandthepoolerareremovedwhilethenumberoflayers
+is reduced by a factor of 2. Most of the operations used in the Transformer architecture (linear
+layerandlayernormalisation)arehighlyoptimizedinmodernlinearalgebraframeworksandour
+investigationsshowedthatvariationsonthelastdimensionofthetensor(hiddensizedimension)have
+asmallerimpactoncomputationefficiency(forafixedparametersbudget)thanvariationsonother
+factorslikethenumberoflayers. Thuswefocusonreducingthenumberoflayers.
+StudentinitializationInadditiontothepreviouslydescribedoptimizationandarchitecturalchoices,
+animportantelementinourtrainingprocedureistofindtherightinitializationforthesub-networkto
+converge. Takingadvantageofthecommondimensionalitybetweenteacherandstudentnetworks,
+weinitializethestudentfromtheteacherbytakingonelayeroutoftwo.
+2https://github.com/huggingface/transformers
+3E.g. BERT-base’s predictions for a masked token in "I think this is the beginning of a
+beautiful [MASK]"comprisetwohighprobabilitytokens(dayandlife)andalongtailofvalidpredictions
+(future,story,world...).
+2
+
+Table 1: DistilBERT retains 97% of BERT performance. Comparison on the dev sets of the
+GLUEbenchmark. ELMoresultsasreportedbytheauthors. BERTandDistilBERTresultsarethe
+mediansof5runswithdifferentseeds.
+Model Score CoLA MNLI MRPC QNLI QQP RTE SST-2 STS-B WNLI
+ELMo 68.7 44.1 68.6 76.6 71.1 86.2 53.4 91.5 70.4 56.3
+BERT-base 79.5 56.3 86.7 88.6 91.8 89.6 69.3 92.7 89.0 53.5
+DistilBERT 77.0 51.3 82.2 87.5 89.2 88.5 59.9 91.3 86.9 56.3
+Table2: DistilBERTyieldstocomparable
+Table3:DistilBERTissignificantlysmaller
+performance on downstream tasks. Com-
+while being constantly faster. Inference
+parisonondownstreamtasks: IMDb(testac-
+timeofafullpassofGLUEtaskSTS-B(sen-
+curacy)andSQuAD1.1(EM/F1ondevset).
+timentanalysis)onCPUwithabatchsizeof
+D: with a second step of distillation during
+1.
+fine-tuning.
+Model #param. Inf. time
+Model IMDb SQuAD
+(Millions) (seconds)
+(acc.) (EM/F1)
+ELMo 180 895
+BERT-base 93.46 81.2/88.5
+BERT-base 110 668
+DistilBERT 92.82 77.7/85.8
+DistilBERT 66 410
+DistilBERT(D) - 79.1/86.9
+DistillationWeappliedbestpracticesfortrainingBERTmodelrecentlyproposedinLiuetal.[2019].
+Assuch,DistilBERTisdistilledonverylargebatchesleveraginggradientaccumulation(upto4K
+examplesperbatch)usingdynamicmaskingandwithoutthenextsentencepredictionobjective.
+DataandcomputepowerWetrainDistilBERTonthesamecorpusastheoriginalBERTmodel:
+aconcatenationofEnglishWikipediaandToronto Book Corpus[Zhuetal.,2015]. DistilBERT
+wastrainedon816GBV100GPUsforapproximately90hours. Forthesakeofcomparison,the
+RoBERTamodel[Liuetal.,2019]required1dayoftrainingon102432GBV100.
+4 Experiments
+GeneralLanguageUnderstandingWeassessthelanguageunderstandingandgeneralizationca-
+pabilitiesofDistilBERTontheGeneralLanguageUnderstandingEvaluation(GLUE)benchmark
+[Wangetal.,2018],acollectionof9datasetsforevaluatingnaturallanguageunderstandingsystems.
+Wereportscoresonthedevelopmentsetsforeachtaskbyfine-tuningDistilBERTwithouttheuse
+ofensemblingormulti-taskingschemeforfine-tuning(whicharemostlyorthogonaltothepresent
+work). WecomparetheresultstothebaselineprovidedbytheauthorsofGLUE:anELMo(Peters
+etal.[2018])encoderfollowedbytwoBiLSTMs.4
+Theresultsoneachofthe9tasksareshowedonTable1alongwiththemacro-score(averageof
+individualscores). Amongthe9tasks,DistilBERTisalwaysonparorimprovingovertheELMo
+baseline(upto19pointsofaccuracyonSTS-B).DistilBERTalsocomparessurprisinglywellto
+BERT,retaining97%oftheperformancewith40%fewerparameters.
+4.1 Downstreamtaskbenchmark
+DownstreamtasksWefurtherstudytheperformancesofDistilBERTonseveraldownstreamtasks
+underefficientinferenceconstraints: aclassificationtask(IMDbsentimentclassification-Maasetal.
+[2011])andaquestionansweringtask(SQuADv1.1-Rajpurkaretal.[2016]).
+AsshowninTable2,DistilBERTisonly0.6%pointbehindBERTintestaccuracyontheIMDb
+benchmarkwhilebeing40%smaller. OnSQuAD,DistilBERTiswithin3.9pointsofthefullBERT.
+Wealsostudiedwhetherwecouldaddanotherstepofdistillationduringtheadaptationphaseby
+fine-tuning DistilBERT on SQuAD using a BERT model previously fine-tuned on SQuAD as a
+4Weusejiant[Wangetal.,2019]tocomputethebaseline.
+3
+
+Table4: Ablationstudy. Variationsarerelativetothemodeltrainedwithtriplelossandteacher
+weightsinitialization.
+Ablation VariationonGLUEmacro-score
+∅-L -L -2.96
+cos mlm
+L -∅-L -1.46
+ce mlm
+L -L -∅ -0.31
+ce cos
+Tripleloss+randomweightsinitialization -3.69
+teacherforanadditionaltermintheloss(knowledgedistillation). Inthissetting,therearethustwo
+successivestepsofdistillation,oneduringthepre-trainingphaseandoneduringtheadaptationphase.
+Inthiscase,wewereabletoreachinterestingperformancesgiventhesizeofthemodel: 79.8F1and
+70.4EM,i.e. within3pointsofthefullmodel.
+Sizeandinferencespeed
+Tofurtherinvestigatethespeed-up/sizetrade-offofDistilBERT,wecompare(inTable3)thenumber
+of parameters of each model along with the inference time needed to do a full pass on the STS-
+B development set on CPU (Intel Xeon E5-2690 v3 Haswell @2.9GHz) using a batch size of 1.
+DistilBERThas40%fewerparametersthanBERTandis60%fasterthanBERT.
+OndevicecomputationWestudiedwhetherDistilBERTcouldbeusedforon-the-edgeapplications
+bybuildingamobileapplicationforquestionanswering. Wecomparetheaverageinferencetimeon
+arecentsmartphone(iPhone7Plus)againstourpreviouslytrainedquestionansweringmodelbased
+onBERT-base. Excludingthetokenizationstep,DistilBERTis71%fasterthanBERT,andthewhole
+modelweighs207MB(whichcouldbefurtherreducedwithquantization). Ourcodeisavailable5.
+4.2 Ablationstudy
+Inthissection,weinvestigatetheinfluenceofvariouscomponentsofthetriplelossandthestudent
+initializationontheperformancesofthedistilledmodel.Wereportthemacro-scoreonGLUE.Table4
+presentsthedeltaswiththefulltripleloss: removingtheMaskedLanguageModelinglosshaslittle
+impactwhilethetwodistillationlossesaccountforalargeportionoftheperformance.
+5 Relatedwork
+Task-specific distillation Most of the prior works focus on building task-specific distillation se-
+tups. Tangetal.[2019]transferfine-tuneclassificationmodelBERTtoanLSTM-basedclassifier.
+Chatterjee[2019]distillBERTmodelfine-tunedonSQuADinasmallerTransformermodelprevi-
+ouslyinitializedfromBERT.Inthepresentwork,wefounditbeneficialtouseageneral-purpose
+pre-training distillation rather than a task-specific distillation. Turc et al. [2019] use the original
+pretrainingobjectivetotrainsmallerstudent,thenfine-tunedviadistillation. Asshownintheabla-
+tionstudy,wefounditbeneficialtoleveragetheteacher’sknowledgetopre-trainwithadditional
+distillationsignal.
+Multi-distillation Yang et al. [2019] combine the knowledge of an ensemble of teachers using
+multi-tasklearningtoregularizethedistillation. TheauthorsapplyMulti-TaskKnowledgeDistillation
+tolearnacompactquestionansweringmodelfromasetoflargequestionansweringmodels. An
+applicationofmulti-distillationismulti-linguality: Tsaietal.[2019]adoptsasimilarapproachtous
+bypre-trainingamultilingualmodelfromscratchsolelythroughdistillation. However,asshownin
+theablationstudy,leveragingtheteacher’sknowledgewithinitializationandadditionallossesleads
+tosubstantialgains.
+Othercompressiontechniqueshavebeenstudiedtocompresslargemodels. Recentdevelopments
+inweightspruningrevealthatitispossibletoremovesomeheadsintheself-attentionattesttime
+withoutsignificantlydegradingtheperformanceMicheletal.[2019]. Somelayerscanbereduced
+toonehead. Aseparatelineofstudyleveragesquantizationtoderivesmallermodels(Guptaetal.
+[2015]). Pruningandquantizationareorthogonaltothepresentwork.
+5https://github.com/huggingface/swift-coreml-transformers
+4
+
+6 Conclusionandfuturework
+WeintroducedDistilBERT,ageneral-purposepre-trainedversionofBERT,40%smaller,60%faster,
+that retains 97% of the language understanding capabilities. We showed that a general-purpose
+languagemodelcanbesuccessfullytrainedwithdistillationandanalyzedthevariouscomponents
+withanablationstudy. WefurtherdemonstratedthatDistilBERTisacompellingoptionforedge
+applications.
+References
+JacobDevlin,Ming-WeiChang,KentonLee,andKristinaToutanova. Bert:Pre-trainingofdeepbidirectional
+transformersforlanguageunderstanding. InNAACL-HLT,2018.
+AlecRadford,JeffreyWu,RewonChild,DavidLuan,DarioAmodei,andIlyaSutskever. Languagemodelsare
+unsupervisedmultitasklearners. 2019.
+YinhanLiu, MyleOtt, NamanGoyal, JingfeiDu, MandarS.Joshi, DanqiChen, OmerLevy, MikeLewis,
+LukeS.Zettlemoyer,andVeselinStoyanov. Roberta:Arobustlyoptimizedbertpretrainingapproach. ArXiv,
+abs/1907.11692,2019.
+RoySchwartz,JesseDodge,NoahA.Smith,andOrenEtzioni. Greenai. ArXiv,abs/1907.10597,2019.
+EmmaStrubell,AnanyaGanesh,andAndrewMcCallum. Energyandpolicyconsiderationsfordeeplearningin
+nlp. InACL,2019.
+AshishVaswani,NoamShazeer,NikiParmar,JakobUszkoreit,LlionJones,AidanN.Gomez,LukaszKaiser,
+andIlliaPolosukhin. Attentionisallyouneed. InNIPS,2017.
+ThomasWolf,LysandreDebut,VictorSanh,JulienChaumond,ClementDelangue,AnthonyMoi,PierricCistac,
+TimRault,RémiLouf,MorganFuntowicz,andJamieBrew. Transformers:State-of-the-artnaturallanguage
+processing,2019.
+CristianBucila,RichCaruana,andAlexandruNiculescu-Mizil. Modelcompression. InKDD,2006.
+GeoffreyE.Hinton,OriolVinyals,andJeffreyDean. Distillingtheknowledgeinaneuralnetwork. ArXiv,
+abs/1503.02531,2015.
+YukunZhu,RyanKiros,RichardS.Zemel,RuslanSalakhutdinov,RaquelUrtasun,AntonioTorralba,andSanja
+Fidler. Aligningbooksandmovies:Towardsstory-likevisualexplanationsbywatchingmoviesandreading
+books. 2015IEEEInternationalConferenceonComputerVision(ICCV),pages19–27,2015.
+AlexWang, AmanpreetSingh, JulianMichael, FelixHill, OmerLevy, andSamuelR.Bowman. Glue: A
+multi-taskbenchmarkandanalysisplatformfornaturallanguageunderstanding. InICLR,2018.
+MatthewE.Peters,MarkNeumann,MohitIyyer,MattGardner,ChristopherClark,KentonLee,andLuke
+Zettlemoyer. Deepcontextualizedwordrepresentations. InNAACL,2018.
+AlexWang,IanF.Tenney,YadaPruksachatkun,KatherinYu,JanHula,PatrickXia,RaghuPappagari,Shuning
+Jin,R.ThomasMcCoy,RomaPatel,YinghuiHuang,JasonPhang,EdouardGrave,NajoungKim,PhuMon
+Htut,ThibaultF’evry,BerlinChen,NikitaNangia,HaokunLiu,AnhadMohananey,ShikhaBordia,Nicolas
+Patry,ElliePavlick,andSamuelR.Bowman. jiant1.1:Asoftwaretoolkitforresearchongeneral-purpose
+textunderstandingmodels. http://jiant.info/,2019.
+AndrewL.Maas,RaymondE.Daly,PeterT.Pham,DanHuang,AndrewY.Ng,andChristopherPotts.Learning
+wordvectorsforsentimentanalysis. InACL,2011.
+PranavRajpurkar,JianZhang,KonstantinLopyrev,andPercyLiang. Squad:100,000+questionsformachine
+comprehensionoftext. InEMNLP,2016.
+RaphaelTang, YaoLu, LinqingLiu, LiliMou, OlgaVechtomova, andJimmyLin. Distillingtask-specific
+knowledgefrombertintosimpleneuralnetworks. ArXiv,abs/1903.12136,2019.
+DebajyotiChatterjee. Makingneuralmachinereadingcomprehensionfaster. ArXiv,abs/1904.00796,2019.
+IuliaTurc,Ming-WeiChang,KentonLee,andKristinaToutanova. Well-readstudentslearnbetter:Theimpact
+ofstudentinitializationonknowledgedistillation. ArXiv,abs/1908.08962,2019.
+ZeYang,LinjunShou,MingGong,WutaoLin,andDaxinJiang.Modelcompressionwithmulti-taskknowledge
+distillationforweb-scalequestionansweringsystem. ArXiv,abs/1904.09636,2019.
+HenryTsai,JasonRiesa,MelvinJohnson,NaveenArivazhagan,XinLi,andAmeliaArcher. Smallandpractical
+bertmodelsforsequencelabeling. InEMNLP-IJCNLP,2019.
+PaulMichel,OmerLevy,andGrahamNeubig. Aresixteenheadsreallybetterthanone? InNeurIPS,2019.
+SuyogGupta,AnkurAgrawal,KailashGopalakrishnan,andPritishNarayanan. Deeplearningwithlimited
+numericalprecision. InICML,2015.
+5

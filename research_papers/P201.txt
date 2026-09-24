@@ -1,0 +1,6 @@
+Title: Maximizing the Spread of Influence through a Social Network
+Authors: Kempe et al.
+Year: 2003
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Maximizing the Spread of Influence through a Social Network' by Kempe et al. (2003). Classic foundational literature published in original journal/conference proceedings.

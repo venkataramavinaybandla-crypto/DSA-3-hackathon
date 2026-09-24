@@ -1,0 +1,1561 @@
+LORA: LOW-RANK ADAPTATION OF LARGE LAN-
+GUAGE MODELS
+EdwardHu∗ YelongShen∗ PhillipWallis ZeyuanAllen-Zhu
+YuanzhiLi SheanWang LuWang WeizhuChen
+MicrosoftCorporation
+{edwardhu, yeshe, phwallis, zeyuana,
+yuanzhil, swang, luw, wzchen}@microsoft.com
+yuanzhil@andrew.cmu.edu
+(Version2)
+ABSTRACT
+Animportantparadigmofnaturallanguageprocessingconsistsoflarge-scalepre-
+trainingongeneraldomaindataandadaptationtoparticulartasksordomains. As
+wepre-trainlargermodels,fullfine-tuning,whichretrainsallmodelparameters,
+becomes less feasible. Using GPT-3 175B as an example – deploying indepen-
+dentinstancesoffine-tunedmodels,eachwith175Bparameters,isprohibitively
+expensive. WeproposeLow-RankAdaptation, orLoRA,whichfreezesthepre-
+trainedmodelweightsandinjectstrainablerankdecompositionmatricesintoeach
+layeroftheTransformerarchitecture,greatlyreducingthenumberoftrainablepa-
+rametersfordownstreamtasks. ComparedtoGPT-3175Bfine-tunedwithAdam,
+LoRA can reduce the number of trainable parameters by 10,000 times and the
+GPUmemoryrequirementby3times. LoRAperformson-parorbetterthanfine-
+tuninginmodelqualityonRoBERTa,DeBERTa,GPT-2,andGPT-3,despitehav-
+ingfewertrainableparameters,ahighertrainingthroughput,and,unlikeadapters,
+no additional inference latency. We also provide an empirical investigation into
+rank-deficiencyinlanguagemodeladaptation,whichshedslightontheefficacyof
+LoRA.WereleaseapackagethatfacilitatestheintegrationofLoRAwithPyTorch
+models and provide our implementations and model checkpoints for RoBERTa,
+DeBERTa,andGPT-2athttps://github.com/microsoft/LoRA.
+1 INTRODUCTION
+Many applications in natural language processing rely on adapt-
+f(x)
+ing one large-scale, pre-trained language model to multiple down- h
+streamapplications. Suchadaptationisusuallydoneviafine-tuning,
+whichupdatesalltheparametersofthepre-trainedmodel. Thema-
+Pretrained
+jordownsideoffine-tuningisthatthenewmodelcontainsasmany Pretrained 𝐵=0 Weights
+parameters as in the original model. As larger models are trained Weights 𝑟
+every few months, this changes from a mere “inconvenience” for 𝑊∈ℝ𝑑×𝑑
+𝑊∈ℝ𝑑×𝑑
+GPT-2 (Radford et al., b) or RoBERTa large (Liu et al., 2019) to a 𝐴=𝒩(0,𝜎2)
+critical deployment challenge for GPT-3 (Brown et al., 2020) with 𝑑
+𝑑
+175billiontrainableparameters.1 x
+x
+Many sought to mitigate this by adapting only some parameters or
+Figure1:Ourreparametriza-
+learning external modules for new tasks. This way, we only need
+tion. WeonlytrainAandB.
+to store and load a small number of task-specific parameters in ad-
+dition to the pre-trained model for each task, greatly boosting the
+operationalefficiencywhendeployed. However,existingtechniques
+∗Equalcontribution.
+0ComparedtoV1,thisdraftincludesbetterbaselines,experimentsonGLUE,andmoreonadapterlatency.
+1WhileGPT-3175Bachievesnon-trivialperformancewithfew-shotlearning,fine-tuningboostsitsperfor-
+mancesignificantlyasshowninAppendixA.
+1
+1202
+tcO
+61
+]LC.sc[
+2v58690.6012:viXra
+
+often introduce inference latency (Houlsby et al., 2019; Rebuffi et al., 2017) by extending model
+depth or reduce the model’s usable sequence length (Li & Liang, 2021; Lester et al., 2021; Ham-
+bardzumyanetal.,2020;Liuetal.,2021)(Section3). Moreimportantly,thesemethodoftenfailto
+matchthefine-tuningbaselines,posingatrade-offbetweenefficiencyandmodelquality.
+We take inspiration from Li et al. (2018a); Aghajanyan et al. (2020) which show that the learned
+over-parametrized models in fact reside on a low intrinsic dimension. We hypothesize that the
+changeinweightsduringmodeladaptationalsohasalow“intrinsicrank”,leadingtoourproposed
+Low-Rank Adaptation (LoRA) approach. LoRA allows us to train some dense layers in a neural
+network indirectly by optimizing rank decomposition matrices of the dense layers’ change during
+adaptationinstead,whilekeepingthepre-trainedweightsfrozen,asshowninFigure1.UsingGPT-3
+175Basanexample,weshowthataverylowrank(i.e.,rinFigure1canbeoneortwo)sufficeseven
+whenthefullrank(i.e.,d)isashighas12,288,makingLoRAbothstorage-andcompute-efficient.
+LoRApossessesseveralkeyadvantages.
+• A pre-trained model can be shared and used to build many small LoRA modules for dif-
+ferenttasks. Wecanfreezethesharedmodelandefficientlyswitchtasksbyreplacingthe
+matricesAandB inFigure1, reducingthestoragerequirementandtask-switchingover-
+headsignificantly.
+• LoRA makes training more efficient and lowers the hardware barrier to entry by up to 3
+times when using adaptive optimizers since we do not need to calculate the gradients or
+maintaintheoptimizerstatesformostparameters. Instead,weonlyoptimizetheinjected,
+muchsmallerlow-rankmatrices.
+• Oursimplelineardesignallowsustomergethetrainablematriceswiththefrozenweights
+whendeployed,introducingnoinferencelatencycomparedtoafullyfine-tunedmodel,by
+construction.
+• LoRAisorthogonaltomanypriormethodsandcanbecombinedwithmanyofthem,such
+asprefix-tuning. WeprovideanexampleinAppendixE.
+Terminologies and Conventions We make frequent references to the Transformer architecture
+and use the conventional terminologies for its dimensions. We call the input and output di-
+mension size of a Transformer layer d . We use W , W , W , and W to refer to the
+model q k v o
+query/key/value/output projection matrices in the self-attention module. W or W refers to a pre-
+0
+trained weight matrix and ∆W its accumulated gradient update during adaptation. We use r to
+denote the rank of a LoRA module. We follow the conventions set out by (Vaswani et al., 2017;
+Brown et al., 2020) and use Adam (Loshchilov & Hutter, 2019; Kingma & Ba, 2017) for model
+optimizationanduseaTransformerMLPfeedforwarddimensiond =4×d .
+ffn model
+2 PROBLEM STATEMENT
+Whileourproposalisagnostictotrainingobjective,wefocusonlanguagemodelingasourmotivat-
+ingusecase. Belowisabriefdescriptionofthelanguagemodelingproblemand,inparticular,the
+maximizationofconditionalprobabilitiesgivenatask-specificprompt.
+Suppose we are given a pre-trained autoregressive language model P (y|x) parametrized by Φ.
+Φ
+For instance, P (y|x) can be a generic multi-task learner such as GPT (Radford et al., b; Brown
+Φ
+et al., 2020) based on the Transformer architecture (Vaswani et al., 2017). Consider adapting this
+pre-trainedmodeltodownstreamconditionaltextgenerationtasks,suchassummarization,machine
+readingcomprehension(MRC),andnaturallanguagetoSQL(NL2SQL).Eachdownstreamtaskis
+representedbyatrainingdatasetofcontext-targetpairs: Z = {(x ,y )} ,wherebothx and
+i i i=1,..,N i
+y are sequences of tokens. For example, in NL2SQL, x is a natural language query and y its
+i i i
+correspondingSQLcommand;forsummarization,x isthecontentofanarticleandy itssummary.
+i i
+2
+
+Duringfullfine-tuning,themodelisinitializedtopre-trainedweightsΦ andupdatedtoΦ +∆Φ
+0 0
+byrepeatedlyfollowingthegradienttomaximizetheconditionallanguagemodelingobjective:
+|y|
+(cid:88) (cid:88)
+max log(P (y |x,y )) (1)
+Φ t <t
+Φ
+(x,y)∈Zt=1
+Oneofthemaindrawbacksforfullfine-tuningisthatforeachdownstreamtask,welearnadifferent
+set of parameters ∆Φ whose dimension |∆Φ| equals |Φ |. Thus, if the pre-trained model is large
+0
+(such as GPT-3 with |Φ | ≈ 175Billion), storing and deploying many independent instances of
+0
+fine-tunedmodelscanbechallenging,ifatallfeasible.
+In this paper, we adopt a more parameter-efficient approach, where the task-specific parameter
+increment ∆Φ = ∆Φ(Θ) is further encoded by a much smaller-sized set of parameters Θ with
+|Θ|(cid:28)|Φ |. Thetaskoffinding∆ΦthusbecomesoptimizingoverΘ:
+0
+|y|
+(cid:88) (cid:88) (cid:0) (cid:1)
+max log p (y |x,y ) (2)
+Θ
+Φ0+∆Φ(Θ) t <t
+(x,y)∈Zt=1
+Inthesubsequentsections,weproposetousealow-rankrepresentationtoencode∆Φthatisboth
+compute-andmemory-efficient. Whenthepre-trainedmodelisGPT-3175B,thenumberoftrain-
+ableparameters|Θ|canbeassmallas0.01%of|Φ |.
+0
+3 AREN’T EXISTING SOLUTIONS GOOD ENOUGH?
+Theproblemwesetouttotackleisbynomeansnew.Sincetheinceptionoftransferlearning,dozens
+ofworkshavesoughttomakemodeladaptationmoreparameter-andcompute-efficient. SeeSec-
+tion6forasurveyofsomeofthewell-knownworks.Usinglanguagemodelingasanexample,there
+aretwoprominentstrategieswhenitcomestoefficientadaptations: addingadapterlayers(Houlsby
+etal.,2019;Rebuffietal.,2017;Pfeifferetal.,2021;Ru¨ckle´etal.,2020)oroptimizingsomeforms
+oftheinputlayeractivations(Li&Liang,2021;Lesteretal.,2021;Hambardzumyanetal.,2020;
+Liu et al., 2021). However, both strategies have their limitations, especially in a large-scale and
+latency-sensitiveproductionscenario.
+Adapter Layers Introduce Inference Latency There are many variants of adapters. We focus
+ontheoriginaldesignbyHoulsbyetal.(2019)whichhastwoadapterlayersperTransformerblock
+and a more recent one by Lin et al. (2020) which has only one per block but with an additional
+LayerNorm(Baetal.,2016). Whileonecanreducetheoveralllatencybypruninglayersorexploit-
+ingmulti-tasksettings(Ru¨ckle´ etal.,2020;Pfeifferetal.,2021),thereisnodirectwaystobypass
+theextracomputeinadapterlayers. Thisseemslikeanon-issuesinceadapterlayersaredesigned
+to have few parameters (sometimes <1% of the original model) by having a small bottleneck di-
+mension, whichlimitstheFLOPstheycanadd. However, largeneuralnetworksrelyonhardware
+parallelismtokeepthelatencylow,andadapterlayershavetobeprocessedsequentially.Thismakes
+a difference in the online inference setting where the batch size is typically as small as one. In a
+genericscenariowithoutmodelparallelism,suchasrunninginferenceonGPT-2(Radfordetal.,b)
+mediumonasingleGPU,weseeanoticeableincreaseinlatencywhenusingadapters,evenwitha
+verysmallbottleneckdimension(Table1).
+Thisproblemgetsworsewhenweneedtoshardthemodelasdonein Shoeybietal.(2020);Lep-
+ikhinetal.(2020),becausetheadditionaldepthrequiresmoresynchronousGPUoperationssuchas
+AllReduceandBroadcast,unlesswestoretheadapterparametersredundantlymanytimes.
+DirectlyOptimizingthePromptisHard Theotherdirection,asexemplifiedbyprefixtuning(Li
+& Liang, 2021), faces a different challenge. We observe that prefix tuning is difficult to optimize
+and that its performance changes non-monotonically in trainable parameters, confirming similar
+observationsintheoriginalpaper. Morefundamentally,reservingapartofthesequencelengthfor
+adaptation necessarily reduces the sequence length available to process a downstream task, which
+wesuspectmakestuningthepromptlessperformantcomparedtoothermethods.Wedeferthestudy
+ontaskperformancetoSection5.
+3
+
+BatchSize 32 16 1
+SequenceLength 512 256 128
+|Θ| 0.5M 11M 11M
+Fine-Tune/LoRA 1449.4±0.8 338.0±0.6 19.8±2.7
+AdapterL 1482.0±1.0(+2.2%) 354.8±0.5(+5.0%) 23.9±2.1(+20.7%)
+AdapterH 1492.2±1.0(+3.0%) 366.3±0.5(+8.4%) 25.8±2.2(+30.3%)
+Table1: InfernecelatencyofasingleforwardpassinGPT-2mediummeasuredinmilliseconds,av-
+eragedover100trials.WeuseanNVIDIAQuadroRTX8000.“|Θ|”denotesthenumberoftrainable
+parametersinadapterlayers. AdapterL andAdapterH aretwovariantsofadaptertuning,whichwe
+describeinSection5.1. Theinferencelatencyintroducedbyadapterlayerscanbesignificantinan
+online,short-sequence-lengthscenario. SeethefullstudyinAppendixB.
+4 OUR METHOD
+WedescribethesimpledesignofLoRAanditspracticalbenefits.Theprinciplesoutlinedhereapply
+toanydenselayersindeeplearningmodels,thoughweonlyfocusoncertainweightsinTransformer
+languagemodelsinourexperimentsasthemotivatingusecase.
+4.1 LOW-RANK-PARAMETRIZEDUPDATEMATRICES
+A neural network contains many dense layers which perform matrix multiplication. The weight
+matricesintheselayerstypicallyhavefull-rank. Whenadaptingtoaspecifictask,Aghajanyanetal.
+(2020) shows that the pre-trained language models have a low “instrisic dimension” and can still
+learn efficiently despite a random projection to a smaller subspace. Inspired by this, we hypothe-
+sizetheupdatestotheweightsalsohavealow“intrinsicrank”duringadaptation. Forapre-trained
+weight matrix W ∈ Rd×k, we constrain its update by representing the latter with a low-rank de-
+0
+compositionW +∆W = W +BA,whereB ∈ Rd×r,A ∈ Rr×k,andtherankr (cid:28) min(d,k).
+0 0
+Duringtraining,W isfrozenanddoesnotreceivegradientupdates,whileAandBcontaintrainable
+0
+parameters. NotebothW and∆W =BAaremultipliedwiththesameinput,andtheirrespective
+0
+outputvectorsaresummedcoordinate-wise. Forh=W x,ourmodifiedforwardpassyields:
+0
+h=W x+∆Wx=W x+BAx (3)
+0 0
+WeillustrateourreparametrizationinFigure1. WeusearandomGaussianinitializationforAand
+zeroforB,so∆W =BAiszeroatthebeginningoftraining. Wethenscale∆Wxby α,whereα
+r
+isaconstantinr. WhenoptimizingwithAdam,tuningαisroughlythesameastuningthelearning
+rate if we scale the initialization appropriately. As a result, we simply set α to the first r we try
+anddonottuneit. Thisscalinghelpstoreducetheneedtoretunehyperparameterswhenwevary
+r(Yang&Hu,2021).
+AGeneralizationofFullFine-tuning. Amoregeneralformoffine-tuningallowsthetrainingof
+asubsetofthepre-trainedparameters. LoRAtakesastepfurtheranddoesnotrequiretheaccumu-
+latedgradientupdatetoweightmatricestohavefull-rankduringadaptation. Thismeansthatwhen
+applying LoRA to all weight matrices and training all biases2, we roughly recover the expressive-
+nessoffullfine-tuningbysettingtheLoRArankrtotherankofthepre-trainedweightmatrices. In
+otherwords,asweincreasethenumberoftrainableparameters3,trainingLoRAroughlyconverges
+totrainingtheoriginalmodel,whileadapter-basedmethodsconvergestoanMLPandprefix-based
+methodstoamodelthatcannottakelonginputsequences.
+NoAdditionalInferenceLatency. Whendeployedinproduction,wecanexplicitlycomputeand
+store W = W +BA and perform inference as usual. Note that both W and BA are in Rd×k.
+0 0
+When we need to switch to another downstream task, we can recover W by subtracting BA and
+0
+then adding a different B(cid:48)A(cid:48), a quick operation with very little memory overhead. Critically, this
+2Theyrepresentanegligiblenumberofparameterscomparedtoweights.
+3Aninevitabilitywhenadaptingtohardtasks.
+4
+
+guaranteesthatwedonotintroduceanyadditionallatencyduringinferencecomparedtoafine-tuned
+modelbyconstruction.
+4.2 APPLYINGLORATOTRANSFORMER
+Inprinciple,wecanapplyLoRAtoanysubsetofweightmatricesinaneuralnetworktoreducethe
+numberoftrainableparameters. IntheTransformerarchitecture, therearefourweightmatricesin
+theself-attentionmodule(W ,W ,W ,W )andtwointheMLPmodule.WetreatW (orW ,W )
+q k v o q k v
+asasinglematrixofdimensiond ×d ,eventhoughtheoutputdimensionisusuallysliced
+model model
+into attention heads. We limit our study to only adapting the attention weights for downstream
+tasksandfreezetheMLPmodules(sotheyarenottrainedindownstreamtasks)bothforsimplicity
+andparameter-efficiency.Wefurtherstudytheeffectonadaptingdifferenttypesofattentionweight
+matricesinaTransformerinSection7.1. WeleavetheempiricalinvestigationofadaptingtheMLP
+layers,LayerNormlayers,andbiasestoafuturework.
+Practical Benefits and Limitations. The most significant benefit comes from the reduction in
+memory and storage usage. For a large Transformer trained with Adam, we reduce that VRAM
+usage by up to 2/3 if r (cid:28) d as we do not need to store the optimizer states for the frozen
+model
+parameters. On GPT-3 175B, we reduce the VRAM consumption during training from 1.2TB to
+350GB.Withr =4andonlythequeryandvalueprojectionmatricesbeingadapted,thecheckpoint
+sizeisreducedbyroughly10,000×(from350GBto35MB)4.Thisallowsustotrainwithsignifi-
+cantlyfewerGPUsandavoidI/Obottlenecks. Anotherbenefitisthatwecanswitchbetweentasks
+while deployed at a much lower cost by only swapping the LoRA weights as opposed to all the
+parameters. Thisallowsforthecreationofmanycustomizedmodelsthatcanbeswappedinandout
+ontheflyonmachinesthatstorethepre-trainedweightsinVRAM.Wealsoobservea25%speedup
+during training on GPT-3 175B compared to full fine-tuning5 as we do not need to calculate the
+gradientforthevastmajorityoftheparameters.
+LoRAalsohasitslimitations.Forexample,itisnotstraightforwardtobatchinputstodifferenttasks
+withdifferentAandBinasingleforwardpass,ifonechoosestoabsorbAandBintoW toeliminate
+additionalinferencelatency. Thoughitispossibletonotmergetheweightsanddynamicallychoose
+theLoRAmodulestouseforsamplesinabatchforscenarioswherelatencyisnotcritical.
+5 EMPIRICAL EXPERIMENTS
+We evaluate the downstream task performance of LoRA on RoBERTa (Liu et al., 2019), De-
+BERTa (He et al., 2021), and GPT-2 (Radford et al., b), before scaling up to GPT-3 175B (Brown
+et al., 2020). Our experiments cover a wide range of tasks, from natural language understanding
+(NLU)togeneration(NLG).Specifically,weevaluateontheGLUE(Wangetal.,2019)benchmark
+forRoBERTaandDeBERTa. WefollowthesetupofLi&Liang(2021)onGPT-2foradirectcom-
+parison and add WikiSQL (Zhong et al., 2017) (NL to SQL queries) and SAMSum (Gliwa et al.,
+2019) (conversation summarization) for large-scale experiments on GPT-3. See Appendix C for
+moredetailsonthedatasetsweuse. WeuseNVIDIATeslaV100forallexperiments.
+5.1 BASELINES
+Tocomparewithotherbaselinesbroadly,wereplicatethesetupsusedbypriorworkandreusetheir
+reportednumberswheneverpossible. This,however,meansthatsomebaselinesmightonlyappear
+incertainexperiments.
+Fine-Tuning(FT)isacommonapproachforadaptation.Duringfine-tuning,themodelisinitialized
+tothepre-trainedweightsandbiases,andallmodelparametersundergogradientupdates.Asimple
+variantistoupdateonlysomelayerswhilefreezingothers. Weincludeonesuchbaselinereported
+inpriorwork(Li&Liang,2021)onGPT-2,whichadaptsjustthelasttwolayers(FTTop2).
+4Westillneedthe350GBmodelduringdeployment; however, storing100adaptedmodelsonlyrequires
+350GB+35MB*100≈354GBasopposedto100*350GB≈35TB.
+5ForGPT-3175B,thetrainingthroughputforfullfine-tuningis32.5tokens/sperV100GPU;withthesame
+numberofweightshardsformodelparallelism,thethroughputis43.1tokens/sperV100GPUforLoRA.
+5
+
+Model&Method #Trainable
+Parameters MNLI SST-2 MRPC CoLA QNLI QQP RTE STS-B Avg.
+RoB (FT)* 125.0M 87.6 94.8 90.2 63.6 92.8 91.9 78.7 91.2 86.4
+base
+RoB (BitFit)* 0.1M 84.7 93.7 92.7 62.0 91.8 84.0 81.5 90.8 85.2
+base
+RoB (AdptD)* 0.3M 87.1 94.2 88.5 60.8 93.1 90.2 71.5 89.7 84.4
+base ±.0 ±.1 ±1.1 ±.4 ±.1 ±.0 ±2.7 ±.3
+RoB (AdptD)* 0.9M 87.3 94.7 88.4 62.6 93.0 90.6 75.9 90.3 85.4
+base ±.1 ±.3 ±.1 ±.9 ±.2 ±.0 ±2.2 ±.1
+RoB (LoRA) 0.3M 87.5 95.1 89.7 63.4 93.3 90.8 86.6 91.5 87.2
+base ±.3 ±.2 ±.7 ±1.2 ±.3 ±.1 ±.7 ±.2
+RoB (FT)* 355.0M 90.2 96.4 90.9 68.0 94.7 92.2 86.6 92.4 88.9
+large
+RoB (LoRA) 0.8M 90.6 96.2 90.9 68.2 94.9 91.6 87.4 92.6 89.0
+large ±.2 ±.5 ±1.2 ±1.9 ±.3 ±.1 ±2.5 ±.2
+RoB (AdptP)† 3.0M 90.2 96.1 90.2 68.3 94.8 91.9 83.8 92.1 88.4
+large ±.3 ±.3 ±.7 ±1.0 ±.2 ±.1 ±2.9 ±.7
+RoB (AdptP)† 0.8M 90.5 96.6 89.7 67.8 94.8 91.7 80.1 91.9 87.9
+large ±.3 ±.2 ±1.2 ±2.5 ±.3 ±.2 ±2.9 ±.4
+RoB (AdptH)† 6.0M 89.9 96.2 88.7 66.5 94.7 92.1 83.4 91.0 87.8
+large ±.5 ±.3 ±2.9 ±4.4 ±.2 ±.1 ±1.1 ±1.7
+RoB (AdptH)† 0.8M 90.3 96.3 87.7 66.3 94.7 91.5 72.9 91.5 86.4
+large ±.3 ±.5 ±1.7 ±2.0 ±.2 ±.1 ±2.9 ±.5
+RoB (LoRA)† 0.8M 90.6 96.2 90.2 68.2 94.8 91.6 85.2 92.3 88.6
+large ±.2 ±.5 ±1.0 ±1.9 ±.3 ±.2 ±1.1 ±.5
+DeB (FT)* 1500.0M 91.8 97.2 92.0 72.0 96.0 92.7 93.9 92.9 91.1
+XXL
+DeB (LoRA) 4.7M 91.9 96.9 92.6 72.4 96.0 92.9 94.9 93.0 91.3
+XXL ±.2 ±.2 ±.6 ±1.1 ±.1 ±.1 ±.4 ±.2
+Table 2: RoBERTa , RoBERTa , and DeBERTa with different adaptation methods on the
+base large XXL
+GLUEbenchmark.Wereporttheoverall(matchedandmismatched)accuracyforMNLI,Matthew’s
+correlationforCoLA,PearsoncorrelationforSTS-B,andaccuracyforothertasks. Higherisbetter
+forallmetrics. *indicatesnumberspublishedinpriorworks. †indicatesrunsconfiguredinasetup
+similartoHoulsbyetal.(2019)forafaircomparison.
+Bias-onlyorBitFitisabaselinewhereweonlytrainthebiasvectorswhilefreezingeverythingelse.
+Contemporarily,thisbaselinehasalsobeenstudiedbyBitFit(Zakenetal.,2021).
+Prefix-embeddingtuning(PreEmbed)insertsspecialtokensamongtheinputtokens. Thesespe-
+cialtokenshavetrainablewordembeddingsandaregenerallynotinthemodel’svocabulary. Where
+toplacesuchtokenscanhaveanimpactonperformance. Wefocuson“prefixing”,whichprepends
+suchtokenstotheprompt,and“infixing”,whichappendstotheprompt;botharediscussedinLi&
+Liang(2021). Weusel (resp. l )denotethenumberofprefix(resp. infix)tokens. Thenumberof
+p i
+trainableparametersis|Θ|=d ×(l +l ).
+model p i
+Prefix-layertuning(PreLayer)isanextensiontoprefix-embeddingtuning.Insteadofjustlearning
+the word embeddings (or equivalently, the activations after the embedding layer) for some special
+tokens,welearntheactivationsaftereveryTransformerlayer. Theactivationscomputedfrompre-
+viouslayersaresimplyreplacedbytrainableones. Theresultingnumberoftrainableparametersis
+|Θ|=L×d ×(l +l ),whereListhenumberofTransformerlayers.
+model p i
+Adapter tuning as proposed in Houlsby et al. (2019) inserts adapter layers between the self-
+attention module (and the MLP module) and the subsequent residual connection. There are two
+fullyconnectedlayerswithbiasesinanadapterlayerwithanonlinearityinbetween. Wecallthis
+original design AdapterH. Recently, Lin et al. (2020) proposed a more efficient design with the
+adapterlayerappliedonlyaftertheMLPmoduleandafteraLayerNorm. WecallitAdapterL. This
+isverysimilartoanotherdeignproposedinPfeifferetal.(2021),whichwecallAdapterP. Wealso
+includeanotherbaselinecallAdapterDrop(Ru¨ckle´etal.,2020)whichdropssomeadapterlayersfor
+greaterefficiency(AdapterD). Wecitenumbersfrompriorworkswheneverpossibletomaximize
+thenumberofbaselineswecomparewith;theyareinrowswithanasterisk(*)inthefirstcolumn.
+Inallcases,wehave|Θ|=Lˆ ×(2×d ×r+r+d )+2×Lˆ ×d whereLˆ
+Adpt model model LN model Adpt
+isthenumberofadapterlayersandLˆ thenumberoftrainableLayerNorms(e.g.,inAdapterL).
+LN
+LoRAaddstrainablepairsofrankdecompositionmatricesinparalleltoexistingweightmatrices.
+AsmentionedinSection4.2,weonlyapplyLoRAtoW andW inmostexperimentsforsimplicity.
+q v
+Thenumberoftrainableparametersisdeterminedbytherankrandtheshapeoftheoriginalweights:
+|Θ|=2×Lˆ ×d ×r,whereLˆ isthenumberofweightmatricesweapplyLoRAto.
+LoRA model LoRA
+6
+
+Model&Method #Trainable E2ENLGChallenge
+Parameters BLEU NIST MET ROUGE-L CIDEr
+GPT-2M(FT)* 354.92M 68.2 8.62 46.2 71.0 2.47
+GPT-2M(AdapterL)* 0.37M 66.3 8.41 45.0 69.8 2.40
+GPT-2M(AdapterL)* 11.09M 68.9 8.71 46.1 71.3 2.47
+GPT-2M(AdapterH) 11.09M 67.3 8.50 46.0 70.7 2.44
+±.6 ±.07 ±.2 ±.2 ±.01
+GPT-2M(FTTop2)* 25.19M 68.1 8.59 46.0 70.8 2.41
+GPT-2M(PreLayer)* 0.35M 69.7 8.81 46.1 71.4 2.49
+GPT-2M(LoRA) 0.35M 70.4 8.85 46.8 71.8 2.53
+±.1 ±.02 ±.2 ±.1 ±.02
+GPT-2L(FT)* 774.03M 68.5 8.78 46.0 69.9 2.45
+GPT-2L(AdapterL) 0.88M 69.1 8.68 46.3 71.4 2.49
+±.1 ±.03 ±.0 ±.2 ±.0
+GPT-2L(AdapterL) 23.00M 68.9 8.70 46.1 71.3 2.45
+±.3 ±.04 ±.1 ±.2 ±.02
+GPT-2L(PreLayer)* 0.77M 70.3 8.85 46.2 71.7 2.47
+GPT-2L(LoRA) 0.77M 70.4 8.89 46.8 72.0 2.47
+±.1 ±.02 ±.2 ±.2 ±.02
+Table 3: GPT-2 medium (M) and large (L) with different adaptation methods on the E2E NLG
+Challenge. Forallmetrics, higherisbetter. LoRAoutperformsseveralbaselineswithcomparable
+orfewertrainableparameters. Confidenceintervalsareshownforexperimentsweran. *indicates
+numberspublishedinpriorworks.
+5.2 ROBERTABASE/LARGE
+RoBERTa(Liuetal.,2019)optimizedthepre-trainingrecipeoriginallyproposedinBERT(Devlin
+et al., 2019a) and boosted the latter’s task performance without introducing many more trainable
+parameters. While RoBERTa has been overtaken by much larger models on NLP leaderboards
+such as the GLUE benchmark (Wang et al., 2019) in recent years, it remains a competitive and
+popularpre-trainedmodelforitssizeamongpractitioners. Wetakethepre-trainedRoBERTabase
+(125M)andRoBERTalarge(355M)fromtheHuggingFaceTransformerslibrary(Wolfetal.,2020)
+andevaluatetheperformanceofdifferentefficientadaptationapproachesontasksfromtheGLUE
+benchmark. We also replicate Houlsby et al. (2019) and Pfeiffer et al. (2021) according to their
+setup. Toensureafaircomparison,wemaketwocrucialchangestohowweevaluateLoRAwhen
+comparingwithadapters. First,weusethesamebatchsizeforalltasksanduseasequencelength
+of128tomatchtheadapterbaselines. Second,weinitializethemodeltothepre-trainedmodelfor
+MRPC,RTE,andSTS-B,notamodelalreadyadaptedtoMNLIlikethefine-tuningbaseline. Runs
+following this more restricted setup from Houlsby et al. (2019) are labeled with †. The result is
+presentedinTable2(TopThreeSections). SeeSectionD.1fordetailsonthehyperparametersused.
+5.3 DEBERTAXXL
+DeBERTa (He et al., 2021) is a more recent variant of BERT that is trained on a much larger
+scale and performs very competitively on benchmarks such as GLUE (Wang et al., 2019) and Su-
+perGLUE (Wang et al., 2020). We evaluate if LoRA can still match the performance of a fully
+fine-tuned DeBERTa XXL (1.5B) on GLUE. The result is presented in Table 2 (Bottom Section).
+SeeSectionD.2fordetailsonthehyperparametersused.
+5.4 GPT-2MEDIUM/LARGE
+Having shown that LoRA can be a competitive alternative to full fine-tuning on NLU, we hope to
+answer if LoRA still prevails on NLG models, such as GPT-2 medium and large (Radford et al.,
+b). We keep our setup as close as possible to Li & Liang (2021) for a direct comparison. Due
+to space constraint, we only present our result on E2E NLG Challenge (Table 3) in this section.
+See Section F.1 for results on WebNLG (Gardent et al., 2017) and DART (Nan et al., 2020). We
+includealistofthehyperparametersusedinSectionD.3.
+7
+
+#Trainable WikiSQL MNLI-m SAMSum
+Model&Method
+Parameters Acc. (%) Acc. (%) R1/R2/RL
+GPT-3(FT) 175,255.8M 73.8 89.5 52.0/28.0/44.5
+GPT-3(BitFit) 14.2M 71.3 91.0 51.3/27.4/43.5
+GPT-3(PreEmbed) 3.2M 63.1 88.6 48.3/24.2/40.5
+GPT-3(PreLayer) 20.2M 70.1 89.5 50.8/27.3/43.5
+GPT-3(AdapterH) 7.1M 71.9 89.8 53.0/28.9/44.8
+GPT-3(AdapterH) 40.1M 73.2 91.5 53.2/29.0/45.1
+GPT-3(LoRA) 4.7M 73.4 91.7 53.8/29.8/45.9
+GPT-3(LoRA) 37.7M 74.0 91.6 53.4/29.2/45.1
+Table4: PerformanceofdifferentadaptationmethodsonGPT-3175B.Wereportthelogicalform
+validation accuracy on WikiSQL, validation accuracy on MultiNLI-matched, and Rouge-1/2/L on
+SAMSum. LoRA performs better than prior approaches, including full fine-tuning. The results
+on WikiSQL have a fluctuation around ±0.5%, MNLI-m around ±0.1%, and SAMSum around
+±0.2/±0.2/±0.1forthethreemetrics.
+5.5 SCALINGUPTOGPT-3175B
+AsafinalstresstestforLoRA,wescaleuptoGPT-3with175billionparameters. Duetothehigh
+training cost, we only report the typical standard deviation for a given task over random seeds, as
+opposedtoprovidingoneforeveryentry. SeeSectionD.4fordetailsonthehyperparametersused.
+AsshowninTable4,LoRAmatchesorexceedsthefine-tuningbaselineonallthreedatasets. Note
+thatnotallmethodsbenefitmonotonicallyfromhavingmoretrainableparameters,asshowninFig-
+ure 2. We observe a significant performance drop when we use more than 256 special tokens for
+prefix-embeddingtuningormorethan32specialtokensforprefix-layertuning. Thiscorroborates
+similar observations in Li & Liang (2021). While a thorough investigation into this phenomenon
+is out-of-scope for this work, we suspect that having more special tokens causes the input distri-
+bution to shift further away from the pre-training data distribution. Separately, we investigate the
+performanceofdifferentadaptationapproachesinthelow-dataregimeinSectionF.3.
+0.75
+0.70
+0.65
+0.60
+0.55
+6 7 8 9 10 11
+log10 # Trainable Parameters
+ycaruccA
+noitadilaV
+WikiSQL MultiNLI-matched
+0.92
+0.90
+Method
+Fine-Tune 0.88
+PrefixEmbed
+PrefixLayer 0.86
+Adapter(H)
+LoRA 0.84
+6 7 8 9 10 11
+log10 # Trainable Parameters
+Figure2: GPT-3175Bvalidationaccuracyvs. numberoftrainableparametersofseveraladaptation
+methodsonWikiSQLandMNLI-matched. LoRAexhibitsbetterscalabilityandtaskperformance.
+SeeSectionF.2formoredetailsontheplotteddatapoints.
+6 RELATED WORKS
+Transformer Language Models. Transformer (Vaswani et al., 2017) is a sequence-to-sequence
+architecturethatmakesheavyuseofself-attention.Radfordetal.(a)appliedittoautoregressivelan-
+guagemodelingbyusingastackofTransformerdecoders. Sincethen,Transformer-basedlanguage
+modelshavedominatedNLP,achievingthestate-of-the-artinmanytasks.Anewparadigmemerged
+with BERT (Devlin et al., 2019b) and GPT-2 (Radford et al., b) – both are large Transformer lan-
+8
+
+guagemodelstrainedonalargeamountoftext–wherefine-tuningontask-specificdataafterpre-
+training on general domain data provides a significant performance gain compared to training on
+task-specificdatadirectly. TraininglargerTransformersgenerallyresultsinbetterperformanceand
+remainsanactiveresearchdirection. GPT-3(Brownetal.,2020)isthelargestsingleTransformer
+languagemodeltrainedto-datewith175Bparameters.
+Prompt Engineering and Fine-Tuning. While GPT-3 175B can adapt its behavior with just a
+few additional training examples, the result depends heavily on the input prompt (Brown et al.,
+2020). This necessitates an empirical art of composing and formatting the prompt to maximize a
+model’sperformanceonadesiredtask,whichisknownaspromptengineeringorprompthacking.
+Fine-tuningretrainsamodelpre-trainedongeneraldomainstoaspecifictaskDevlinetal.(2019b);
+Radfordetal.(a).VariantsofitincludelearningjustasubsetoftheparametersDevlinetal.(2019b);
+Collobert&Weston(2008),yetpractitionersoftenretrainallofthemtomaximizethedownstream
+performance. However,theenormityofGPT-3175Bmakesitchallengingtoperformfine-tuningin
+theusualwayduetothelargecheckpointitproducesandthehighhardwarebarriertoentrysinceit
+hasthesamememoryfootprintaspre-training.
+Parameter-EfficientAdaptation. Manyhaveproposedinsertingadapterlayersbetweenexisting
+layersinaneuralnetwork(Houlsbyetal.,2019;Rebuffietal.,2017;Linetal.,2020). Ourmethod
+uses a similar bottleneck structure to impose a low-rank constraint on the weight updates. The
+key functional difference is that our learned weights can be merged with the main weights during
+inference,thusnotintroducinganylatency,whichisnotthecasefortheadapterlayers(Section3).
+A comtenporary extension of adapter is COMPACTER (Mahabadi et al., 2021), which essentially
+parametrizestheadapterlayersusingKroneckerproductswithsomepredeterminedweightsharing
+scheme. Similarly, combining LoRA with other tensor product-based methods could potentially
+improve its parameter efficiency, which we leave to future work. More recently, many proposed
+optimizingtheinputwordembeddingsinlieuoffine-tuning,akintoacontinuousanddifferentiable
+generalizationofpromptengineering(Li&Liang,2021;Lesteretal.,2021;Hambardzumyanetal.,
+2020;Liuetal.,2021). WeincludecomparisonswithLi&Liang(2021)inourexperimentsection.
+However, this line of works can only scale up by using more special tokens in the prompt, which
+takeupavailablesequencelengthfortasktokenswhenpositionalembeddingsarelearned.
+Low-RankStructuresinDeepLearning. Low-rankstructureisverycommoninmachinelearn-
+ing. A lot of machine learning problems have certain intrinsic low-rank structure (Li et al., 2016;
+Cai et al., 2010; Li et al., 2018b; Grasedyck et al., 2013). Moreover, it is known that for many
+deeplearningtasks, especiallythosewithaheavilyover-parametrizedneuralnetwork, thelearned
+neuralnetworkwillenjoylow-rankpropertiesaftertraining(Oymaketal.,2019). Somepriorworks
+even explicitly impose the low-rank constraint when training the original neural network (Sainath
+etal.,2013;Poveyetal.,2018;Zhangetal.,2014;Jaderbergetal.,2014;Zhaoetal.,2016;Kho-
+dak et al., 2021; Denil et al., 2014); however, to the best of our knowledge, none of these works
+considers low-rank update to a frozen model for adaptation to downstream tasks. In theory liter-
+ature, it is known that neural networks outperform other classical learning methods, including the
+corresponding(finite-width)neuraltangentkernels(Allen-Zhuetal.,2019;Li&Liang,2018)when
+theunderlyingconceptclasshascertainlow-rankstructure(Ghorbanietal.,2020;Allen-Zhu&Li,
+2019;Allen-Zhu&Li,2020a). AnothertheoreticalresultinAllen-Zhu&Li(2020b)suggeststhat
+low-rank adaptations can be useful for adversarial training. In sum, we believe that our proposed
+low-rankadaptationupdateiswell-motivatedbytheliterature.
+7 UNDERSTANDING THE LOW-RANK UPDATES
+GiventheempiricaladvantageofLoRA,wehopetofurtherexplainthepropertiesofthelow-rank
+adaptation learned from downstream tasks. Note that the low-rank structure not only lowers the
+hardware barrier to entry which allows us to run multiple experiments in parallel, but also gives
+better interpretability of how the update weights are correlated with the pre-trained weights. We
+focus our study on GPT-3 175B, where we achieved the largest reduction of trainable parameters
+(upto10,000×)withoutadverselyaffectingtaskperformances.
+Weperformasequenceofempiricalstudiestoanswerthefollowingquestions:1)Givenaparameter
+budget constraint, which subset of weight matrices in a pre-trained Transformer should we adapt
+9
+
+to maximize downstream performance? 2) Is the “optimal” adaptation matrix ∆W really rank-
+deficient? Ifso,whatisagoodranktouseinpractice? 3)Whatistheconnectionbetween∆W and
+W? Does∆W highlycorrelatewithW? Howlargeis∆W comparingtoW?
+Webelievethatouranswerstoquestion(2)and(3)shedlightonthefundamentalprinciplesofusing
+pre-trainedlanguagemodelsfordownstreamtasks,whichisacriticaltopicinNLP.
+7.1 WHICHWEIGHTMATRICESINTRANSFORMERSHOULDWEAPPLYLORATO?
+Given a limited parameter budget, which types of weights should we adapt with LoRA to obtain
+thebestperformanceondownstreamtasks? AsmentionedinSection4.2,weonlyconsiderweight
+matricesintheself-attentionmodule. Wesetaparameterbudgetof18M(roughly35MBifstored
+inFP16)onGPT-3175B,whichcorrespondstor = 8ifweadaptonetypeofattentionweightsor
+r =4ifweadapttwotypes,forall96layers. TheresultispresentedinTable5.
+#ofTrainableParameters=18M
+WeightType W W W W W ,W W ,W W ,W ,W ,W
+q k v o q k q v q k v o
+Rankr 8 8 8 8 4 4 2
+WikiSQL(±0.5%) 70.4 70.0 73.0 73.2 71.4 73.7 73.7
+MultiNLI(±0.1%) 91.0 90.8 91.0 91.3 91.3 91.3 91.7
+Table5: ValidationaccuracyonWikiSQLandMultiNLIafterapplyingLoRAtodifferenttypesof
+attentionweightsinGPT-3,giventhesamenumberoftrainableparameters. AdaptingbothW and
+q
+W gives the best performance overall. We find the standard deviation across random seeds to be
+v
+consistentforagivendataset,whichwereportinthefirstcolumn.
+Note that putting all the parameters in ∆W or ∆W results in significantly lower performance,
+q k
+while adapting both W and W yields the best result. This suggests that even a rank of four
+q v
+captures enough information in ∆W such that it is preferable to adapt more weight matrices than
+adaptingasingletypeofweightswithalargerrank.
+7.2 WHATISTHEOPTIMALRANKr FORLORA?
+We turn our attention to the effect of rank r on model performance. We adapt {W ,W },
+q v
+{W ,W ,W ,W },andjustW foracomparison.
+q k v c q
+WeightType r =1 r =2 r =4 r =8 r =64
+W 68.8 69.6 70.5 70.4 70.0
+WikiSQL(±0.5%) q
+W ,W 73.4 73.3 73.7 73.8 73.5
+q v
+W ,W ,W ,W 74.1 73.7 74.0 74.0 73.9
+q k v o
+W 90.7 90.9 91.1 90.7 90.7
+q
+MultiNLI(±0.1%) W ,W 91.3 91.4 91.3 91.6 91.4
+q v
+W ,W ,W ,W 91.2 91.7 91.7 91.5 91.4
+q k v o
+Table 6: Validation accuracy on WikiSQL and MultiNLI with different rank r. To our surprise, a
+rankassmallasonesufficesforadaptingbothW andW onthesedatasetswhiletrainingW alone
+q v q
+needsalargerr. WeconductasimilarexperimentonGPT-2inSectionH.2.
+Table 6 shows that, surprisingly, LoRA already performs competitively with a very small r (more
+so for {W ,W } than just W ). This suggests the update matrix ∆W could have a very small
+q v q
+“intrinsicrank”.6 Tofurthersupportthisfinding,wechecktheoverlapofthesubspaceslearnedby
+different choices of r and by different random seeds. We argue that increasing r does not cover a
+moremeaningfulsubspace,whichsuggeststhatalow-rankadaptationmatrixissufficient.
+6However, wedonotexpectasmallr toworkforeverytaskordataset. Considerthefollowingthought
+experiment: ifthedownstreamtaskwereinadifferentlanguagethantheoneusedforpre-training,retraining
+theentiremodel(similartoLoRAwithr=d )couldcertainlyoutperformLoRAwithasmallr.
+model
+10
+
+Subspacesimilaritybetweendifferentr. GivenA andA whicharethelearnedadapta-
+r=8 r=64
+tionmatriceswithrankr = 8and64usingthesamepre-trainedmodel,weperformsingularvalue
+decomposition and obtain the right-singular unitary matrices U and U .7 We hope to an-
+Ar=8 Ar=64
+swer: howmuchofthesubspacespannedbythetopisingularvectorsinU (for1 ≤ i ≤ 8)is
+Ar=8
+containedinthesubspacespannedbytopj singularvectorsofU (for1 ≤ j ≤ 64)? Wemea-
+Ar=64
+surethisquantitywithanormalizedsubspacesimilaritybasedontheGrassmanndistance(SeeAp-
+pendixGforamoreformaldiscussion)
+||Ui(cid:62) Uj ||2
+φ(A ,A ,i,j)= Ar=8 Ar=64 F ∈[0,1] (4)
+r=8 r=64 min(i,j)
+whereUi representsthecolumnsofU correspondingtothetop-isingularvectors.
+Ar=8 Ar=8
+φ(·) has a range of [0,1], where 1 represents a complete overlap of subspaces and 0 a complete
+separation. See Figure 3 for how φ changes as we vary i and j. We only look at the 48th layer
+(out of 96) due to space constraint, but the conclusion holds for other layers as well, as shown
+inSectionH.1.
+1.0
+0.8
+0.6
+0.4
+0.2
+0.0
+1 6 21 81 32 92 53 04 64 25 85
+j
+i
+1
+2
+3
+4
+5
+6
+7
+8
+Wq
+1 6 21 81 32 92 53 04 64 25 85
+(Ar=64,Ar=8,i,j)
+Wv Wq Wv
+1 2 3 4 5 6 7 8 1 2 3 4 5 6 7 8
+j j j
+Figure3:SubspacesimilaritybetweencolumnvectorsofA andA forboth∆W and∆W .
+r=8 r=64 q v
+Thethirdandthefourthfigureszoominonthelower-lefttriangleinthefirsttwofigures. Thetop
+directionsinr =8areincludedinr =64,andviceversa.
+WemakeanimportantobservationfromFigure3.
+Directions corresponding to the top singular vector overlap significantly between
+A and A , while others do not. Specifically, ∆W (resp. ∆W ) of A
+r=8 r=64 v q r=8
+and∆W (resp. ∆W )ofA shareasubspaceofdimension1withnormalized
+v q r=64
+similarity> 0.5,providinganexplanationofwhyr = 1performsquitewellinour
+downstreamtasksforGPT-3.
+Since both A and A are learned using the same pre-trained model, Figure 3 indicates that
+r=8 r=64
+the top singular-vector directions of A and A are the most useful, while other directions
+r=8 r=64
+potentiallycontainmostlyrandomnoisesaccumulatedduringtraining.Hence,theadaptationmatrix
+canindeedhaveaverylowrank.
+Subspace similarity between different random seeds. We further confirm this by plotting the
+normalizedsubspacesimilaritybetweentworandomlyseededrunswithr =64,showninFigure4.
+∆W appearstohaveahigher“intrinsicrank”than∆W ,sincemorecommonsingularvaluedirec-
+q v
+tionsarelearnedbybothrunsfor∆W ,whichisinlinewithourempiricalobservationinTable6.
+q
+As a comparison, we also plot two random Gaussian matrices, which do not share any common
+singularvaluedirectionswitheachother.
+7.3 HOWDOESTHEADAPTATIONMATRIX∆W COMPARETOW?
+Wefurtherinvestigatetherelationshipbetween∆W andW.Inparticular,does∆W highlycorrelate
+withW? (Ormathematically,is∆W mostlycontainedinthetopsingulardirectionsofW?) Also,
+7NotethatasimilaranalysiscanbecarriedoutwithBandtheleft-singularunitarymatrices–westickwith
+Aforourexperiments.
+11
+
+0.5
+0.4
+0.3
+0.2
+0.1
+0.0
+1 5 01 51 02 52 03 43 93 44 94 45 95
+1
+8
+16
+24
+32
+40
+48
+56
+j
+i
+Wq
+1 5 01 51 02 52 03 43 93 44 94 45 95
+(Ar=64,A0r=64,i,j)
+Wv
+j
+1 5 01 51 02 52 03 43 93 44 94 45 95
+Random Gaussian
+j
+Figure4: LeftandMiddle: NormalizedsubspacesimilaritybetweenthecolumnvectorsofA
+r=64
+from two random seeds, for both ∆W and ∆W in the 48-th layer. Right: the same heat-map
+q v
+betweenthecolumnvectorsoftworandomGaussianmatrices. SeeSectionH.1forotherlayers.
+how “large” is ∆W comparing to its corresponding directions in W? This can shed light on the
+underlyingmechanismforadaptingpre-trainedlanguagemodels.
+To answer these questions, we project W onto the r-dimensional subspace of ∆W by comput-
+ing U(cid:62)WV(cid:62), with U/V being the left/right singular-vector matrix of ∆W. Then, we com-
+pare the Frobenius norm between (cid:107)U(cid:62)WV(cid:62)(cid:107) and (cid:107)W(cid:107) . As a comparison, we also compute
+F F
+(cid:107)U(cid:62)WV(cid:62)(cid:107) byreplacingU,V withthetoprsingularvectorsofW orarandommatrix.
+F
+r =4 r =64
+∆W W Random ∆W W Random
+q q q q
+||U(cid:62)W V(cid:62)|| = 0.32 21.67 0.02 1.90 37.71 0.33
+q F
+||W || =61.95 ||∆W || =6.91 ||∆W || =3.57
+q F q F q F
+Table7: TheFrobeniusnormofU(cid:62)W V(cid:62) whereU andV aretheleft/righttopr singularvector
+q
+directionsofeither(1)∆W ,(2)W ,or(3)arandommatrix. Theweightmatricesaretakenfrom
+q q
+the48thlayerofGPT-3.
+WedrawseveralconclusionsfromTable7. First,∆W hasastrongercorrelationwithW compared
+to a random matrix, indicating that ∆W amplifies some features that are already in W. Second,
+instead of repeating the top singular directions of W, ∆W only amplifies directions that are not
+emphasized in W. Third, the amplification factor is rather huge: 21.5 ≈ 6.91/0.32 for r = 4.
+SeeSectionH.4forwhyr = 64hasasmalleramplificationfactor. Wealsoprovideavisualization
+inSectionH.3forhowthecorrelationchangesasweincludemoretopsingulardirectionsfromW .
+q
+This suggests that the low-rank adaptation matrix potentially amplifies the important features for
+specificdownstreamtasksthatwerelearnedbutnotemphasizedinthegeneralpre-trainingmodel.
+8 CONCLUSION AND FUTURE WORK
+Fine-tuningenormouslanguagemodelsisprohibitivelyexpensiveintermsofthehardwarerequired
+and the storage/switching cost for hosting independent instances for different tasks. We propose
+LoRA, an efficient adaptation strategy that neither introduces inference latency nor reduces input
+sequencelengthwhileretaininghighmodelquality. Importantly,itallowsforquicktask-switching
+whendeployedasaservicebysharingthevastmajorityofthemodelparameters. Whilewefocused
+on Transformer language models, the proposed principles are generally applicable to any neural
+networkswithdenselayers.
+Therearemanydirectionsforfutureworks. 1)LoRAcanbecombinedwithotherefficientadapta-
+tionmethods,potentiallyprovidingorthogonalimprovement. 2)Themechanismbehindfine-tuning
+or LoRA is far from clear – how are features learned during pre-training transformed to do well
+ondownstreamtasks? WebelievethatLoRAmakesitmoretractabletoanswerthisthanfullfine-
+12
+
+tuning. 3) We mostly depend on heuristics to select the weight matrices to apply LoRA to. Are
+theremoreprincipledwaystodoit? 4)Finally,therank-deficiencyof∆W suggeststhatW could
+berank-deficientaswell,whichcanalsobeasourceofinspirationforfutureworks.
+REFERENCES
+Armen Aghajanyan, Luke Zettlemoyer, and Sonal Gupta. Intrinsic Dimensionality Explains the
+Effectiveness of Language Model Fine-Tuning. arXiv:2012.13255 [cs], December 2020. URL
+http://arxiv.org/abs/2012.13255.
+ZeyuanAllen-ZhuandYuanzhiLi. WhatCanResNetLearnEfficiently,GoingBeyondKernels? In
+NeurIPS,2019. Fullversionavailableathttp://arxiv.org/abs/1905.10337.
+ZeyuanAllen-ZhuandYuanzhiLi. Backwardfeaturecorrection: Howdeeplearningperformsdeep
+learning. arXivpreprintarXiv:2001.04413,2020a.
+ZeyuanAllen-ZhuandYuanzhiLi. Featurepurification: Howadversarialtrainingperformsrobust
+deeplearning. arXivpreprintarXiv:2005.10190,2020b.
+ZeyuanAllen-Zhu,YuanzhiLi,andZhaoSong. Aconvergencetheoryfordeeplearningviaover-
+parameterization.InICML,2019.Fullversionavailableathttp://arxiv.org/abs/1811.
+03962.
+JimmyLeiBa,JamieRyanKiros,andGeoffreyE.Hinton. Layernormalization,2016.
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhari-
+wal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal,
+ArielHerbert-Voss,GretchenKrueger,TomHenighan,RewonChild,AdityaRamesh,DanielM.
+Ziegler,JeffreyWu,ClemensWinter,ChristopherHesse,MarkChen,EricSigler,MateuszLitwin,
+Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec Radford,
+IlyaSutskever,andDarioAmodei. LanguageModelsareFew-ShotLearners. arXiv:2005.14165
+[cs],July2020. URLhttp://arxiv.org/abs/2005.14165.
+Jian-FengCai,EmmanuelJCande`s,andZuoweiShen. Asingularvaluethresholdingalgorithmfor
+matrixcompletion. SIAMJournalonoptimization,20(4):1956–1982,2010.
+DanielCer,MonaDiab,EnekoAgirre,InigoLopez-Gazpio,andLuciaSpecia. Semeval-2017task
+1: Semantictextualsimilaritymultilingualandcrosslingualfocusedevaluation. Proceedingsof
+the11thInternationalWorkshoponSemanticEvaluation(SemEval-2017),2017. doi: 10.18653/
+v1/s17-2001. URLhttp://dx.doi.org/10.18653/v1/S17-2001.
+Ronan Collobert and Jason Weston. A unified architecture for natural language processing: deep
+neural networks with multitask learning. In Proceedings of the 25th international conference
+on Machine learning, ICML ’08, pp. 160–167, New York, NY, USA, July 2008. Association
+for Computing Machinery. ISBN 978-1-60558-205-4. doi: 10.1145/1390156.1390177. URL
+https://doi.org/10.1145/1390156.1390177.
+MishaDenil,BabakShakibi,LaurentDinh,Marc’AurelioRanzato,andNandodeFreitas.Predicting
+parametersindeeplearning,2014.
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep
+bidirectionaltransformersforlanguageunderstanding,2019a.
+JacobDevlin,Ming-WeiChang,KentonLee,andKristinaToutanova. BERT:Pre-trainingofDeep
+Bidirectional Transformers for Language Understanding. arXiv:1810.04805 [cs], May 2019b.
+URLhttp://arxiv.org/abs/1810.04805. arXiv: 1810.04805.
+WilliamB.DolanandChrisBrockett.Automaticallyconstructingacorpusofsententialparaphrases.
+In Proceedings of the Third International Workshop on Paraphrasing (IWP2005), 2005. URL
+https://aclanthology.org/I05-5002.
+Claire Gardent, Anastasia Shimorina, Shashi Narayan, and Laura Perez-Beltrachini. The webnlg
+challenge: Generatingtextfromrdfdata. InProceedingsofthe10thInternationalConferenceon
+NaturalLanguageGeneration,pp.124–133,2017.
+13
+
+Behrooz Ghorbani, Song Mei, Theodor Misiakiewicz, and Andrea Montanari. When do neural
+networksoutperformkernelmethods? arXivpreprintarXiv:2006.13409,2020.
+BogdanGliwa,IwonaMochol,MaciejBiesek,andAleksanderWawer. Samsumcorpus: Ahuman-
+annotated dialogue dataset for abstractive summarization. CoRR, abs/1911.12237, 2019. URL
+http://arxiv.org/abs/1911.12237.
+Lars Grasedyck, Daniel Kressner, and Christine Tobler. A literature survey of low-rank tensor
+approximationtechniques. GAMM-Mitteilungen,36(1):53–78,2013.
+JihunHamandDanielD.Lee.Grassmanndiscriminantanalysis:aunifyingviewonsubspace-based
+learning. In ICML, pp. 376–383, 2008. URL https://doi.org/10.1145/1390156.
+1390204.
+Karen Hambardzumyan, Hrant Khachatrian, and Jonathan May. WARP: Word-level Adversarial
+ReProgramming. arXiv:2101.00121[cs],December2020. URLhttp://arxiv.org/abs/
+2101.00121. arXiv: 2101.00121.
+PengchengHe,XiaodongLiu,JianfengGao,andWeizhuChen. Deberta: Decoding-enhancedbert
+withdisentangledattention,2021.
+Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin de Laroussilhe,
+Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. Parameter-Efficient Transfer Learning
+for NLP. arXiv:1902.00751 [cs, stat], June 2019. URL http://arxiv.org/abs/1902.
+00751.
+MaxJaderberg,AndreaVedaldi,andAndrewZisserman.Speedingupconvolutionalneuralnetworks
+withlowrankexpansions. arXivpreprintarXiv:1405.3866,2014.
+MikhailKhodak,NeilTenenholtz,LesterMackey,andNicolo` Fusi. Initializationandregularization
+offactorizedneurallayers,2021.
+DiederikP.KingmaandJimmyBa. Adam: Amethodforstochasticoptimization,2017.
+Dmitry Lepikhin, HyoukJoong Lee, Yuanzhong Xu, Dehao Chen, Orhan Firat, Yanping Huang,
+MaximKrikun,NoamShazeer,andZhifengChen.Gshard:Scalinggiantmodelswithconditional
+computationandautomaticsharding,2020.
+BrianLester,RamiAl-Rfou,andNoahConstant.ThePowerofScaleforParameter-EfficientPrompt
+Tuning.arXiv:2104.08691[cs],April2021.URLhttp://arxiv.org/abs/2104.08691.
+arXiv: 2104.08691.
+Chunyuan Li, Heerad Farkhoor, Rosanne Liu, and Jason Yosinski. Measuring the Intrinsic Di-
+mension of Objective Landscapes. arXiv:1804.08838 [cs, stat], April 2018a. URL http:
+//arxiv.org/abs/1804.08838. arXiv: 1804.08838.
+Xiang Lisa Li and Percy Liang. Prefix-Tuning: Optimizing Continuous Prompts for Generation.
+arXiv:2101.00190[cs],January2021. URLhttp://arxiv.org/abs/2101.00190.
+YuanzhiLiandYingyuLiang. Learningoverparameterizedneuralnetworksviastochasticgradient
+descentonstructureddata. InAdvancesinNeuralInformationProcessingSystems,2018.
+Yuanzhi Li, Yingyu Liang, and Andrej Risteski. Recovery guarantee of weighted low-rank ap-
+proximationviaalternatingminimization. InInternationalConferenceonMachineLearning,pp.
+2358–2367.PMLR,2016.
+Yuanzhi Li, Tengyu Ma, and Hongyang Zhang. Algorithmic regularization in over-parameterized
+matrixsensingandneuralnetworkswithquadraticactivations. InConferenceOnLearningThe-
+ory,pp.2–47.PMLR,2018b.
+ZhaojiangLin,AndreaMadotto,andPascaleFung. Exploringversatilegenerativelanguagemodel
+viaparameter-efficienttransfer learning. InFindingsof theAssociationforComputational Lin-
+guistics: EMNLP 2020, pp. 441–459, Online, November 2020. Association for Computational
+Linguistics. doi: 10.18653/v1/2020.findings-emnlp.41. URL https://aclanthology.
+org/2020.findings-emnlp.41.
+14
+
+Xiao Liu, Yanan Zheng, Zhengxiao Du, Ming Ding, Yujie Qian, Zhilin Yang, and Jie Tang. GPT
+Understands, Too. arXiv:2103.10385 [cs], March 2021. URL http://arxiv.org/abs/
+2103.10385. arXiv: 2103.10385.
+Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike
+Lewis,LukeZettlemoyer,andVeselinStoyanov. Roberta: Arobustlyoptimizedbertpretraining
+approach,2019.
+Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. arXiv preprint
+arXiv:1711.05101,2017.
+IlyaLoshchilovandFrankHutter. Decoupledweightdecayregularization,2019.
+RabeehKarimiMahabadi,JamesHenderson,andSebastianRuder. Compacter: Efficientlow-rank
+hypercomplexadapterlayers,2021.
+Linyong Nan, Dragomir Radev, Rui Zhang, Amrit Rau, Abhinand Sivaprasad, Chiachun Hsieh,
+Xiangru Tang, Aadit Vyas, Neha Verma, Pranav Krishna, et al. Dart: Open-domain structured
+datarecordtotextgeneration. arXivpreprintarXiv:2007.02871,2020.
+JekaterinaNovikova,OndˇrejDusˇek,andVerenaRieser. Thee2edataset: Newchallengesforend-
+to-endgeneration. arXivpreprintarXiv:1706.09254,2017.
+Samet Oymak, Zalan Fabian, Mingchen Li, and Mahdi Soltanolkotabi. Generalization guaran-
+tees for neural networks via harnessing the low-rank structure of the jacobian. arXiv preprint
+arXiv:1906.05392,2019.
+JonasPfeiffer,AishwaryaKamath,AndreasRu¨ckle´,KyunghyunCho,andIrynaGurevych.Adapter-
+fusion: Non-destructivetaskcompositionfortransferlearning,2021.
+DanielPovey,GaofengCheng,YimingWang,KeLi,HainanXu,MahsaYarmohammadi,andSan-
+jeev Khudanpur. Semi-orthogonal low-rank matrix factorization for deep neural networks. In
+Interspeech,pp.3743–3747,2018.
+AlecRadford,KarthikNarasimhan,TimSalimans,andIlyaSutskever. ImprovingLanguageUnder-
+standingbyGenerativePre-Training. pp. 12,a.
+AlecRadford,JeffreyWu,RewonChild,DavidLuan,DarioAmodei,andIlyaSutskever. Language
+ModelsareUnsupervisedMultitaskLearners. pp. 24,b.
+PranavRajpurkar,RobinJia,andPercyLiang.Knowwhatyoudon’tknow:Unanswerablequestions
+forsquad. CoRR,abs/1806.03822,2018. URLhttp://arxiv.org/abs/1806.03822.
+Sylvestre-AlviseRebuffi,HakanBilen,andAndreaVedaldi. Learningmultiplevisualdomainswith
+residualadapters. arXiv:1705.08045[cs,stat],November2017. URLhttp://arxiv.org/
+abs/1705.08045. arXiv: 1705.08045.
+Andreas Ru¨ckle´, Gregor Geigle, Max Glockner, Tilman Beck, Jonas Pfeiffer, Nils Reimers, and
+IrynaGurevych. Adapterdrop: Ontheefficiencyofadaptersintransformers,2020.
+TaraNSainath,BrianKingsbury,VikasSindhwani,EbruArisoy,andBhuvanaRamabhadran. Low-
+rankmatrixfactorizationfordeepneuralnetworktrainingwithhigh-dimensionaloutputtargets.
+In 2013 IEEE international conference on acoustics, speech and signal processing, pp. 6655–
+6659.IEEE,2013.
+Mohammad Shoeybi, Mostofa Patwary, Raul Puri, Patrick LeGresley, Jared Casper, and Bryan
+Catanzaro. Megatron-lm: Training multi-billion parameter language models using model par-
+allelism,2020.
+Richard Socher, Alex Perelygin, Jean Wu, Jason Chuang, Christopher D. Manning, Andrew Ng,
+and Christopher Potts. Recursive deep models for semantic compositionality over a sentiment
+treebank. In Proceedings of the 2013 Conference on Empirical Methods in Natural Language
+Processing,pp.1631–1642,Seattle,Washington,USA,October2013.AssociationforComputa-
+tionalLinguistics. URLhttps://aclanthology.org/D13-1170.
+15
+
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
+Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Proceedings of the 31st In-
+ternationalConferenceonNeuralInformationProcessingSystems,pp.6000–6010,2017.
+Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel R. Bowman.
+Glue: Amulti-taskbenchmarkandanalysisplatformfornaturallanguageunderstanding,2019.
+AlexWang,YadaPruksachatkun,NikitaNangia,AmanpreetSingh,JulianMichael,FelixHill,Omer
+Levy, and Samuel R. Bowman. Superglue: A stickier benchmark for general-purpose language
+understandingsystems,2020.
+AlexWarstadt,AmanpreetSingh,andSamuelRBowman. Neuralnetworkacceptabilityjudgments.
+arXivpreprintarXiv:1805.12471,2018.
+AdinaWilliams,NikitaNangia,andSamuelBowman. Abroad-coveragechallengecorpusforsen-
+tence understanding through inference. In Proceedings of the 2018 Conference of the North
+AmericanChapteroftheAssociationforComputationalLinguistics:HumanLanguageTechnolo-
+gies,Volume1(LongPapers),pp.1112–1122,NewOrleans,Louisiana,June2018.Association
+forComputationalLinguistics. doi: 10.18653/v1/N18-1101. URLhttps://www.aclweb.
+org/anthology/N18-1101.
+ThomasWolf, LysandreDebut, VictorSanh, JulienChaumond, ClementDelangue, AnthonyMoi,
+Pierric Cistac, Tim Rault, Re´mi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer, Patrick
+von Platen, Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu, Teven Le Scao, Sylvain Gug-
+ger, Mariama Drame, Quentin Lhoest, and Alexander M. Rush. Transformers: State-of-the-art
+natural language processing. In Proceedings of the 2020 Conference on Empirical Methods in
+Natural Language Processing: System Demonstrations, pp. 38–45, Online, October 2020. As-
+sociationforComputationalLinguistics. URLhttps://www.aclweb.org/anthology/
+2020.emnlp-demos.6.
+Greg Yang and Edward J. Hu. Feature Learning in Infinite-Width Neural Networks.
+arXiv:2011.14522[cond-mat], May2021. URLhttp://arxiv.org/abs/2011.14522.
+arXiv: 2011.14522.
+EladBenZaken,ShauliRavfogel,andYoavGoldberg.Bitfit:Simpleparameter-efficientfine-tuning
+fortransformer-basedmaskedlanguage-models,2021.
+YuZhang, EkapolChuangsuwanich, andJamesGlass. Extractingdeepneuralnetworkbottleneck
+featuresusinglow-rankmatrixfactorization.In2014IEEEinternationalconferenceonacoustics,
+speechandsignalprocessing(ICASSP),pp.185–189.IEEE,2014.
+YongZhao,JinyuLi,andYifanGong. Low-rankplusdiagonaladaptationfordeepneuralnetworks.
+In 2016 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP),
+pp.5005–5009.IEEE,2016.
+Victor Zhong, Caiming Xiong, and Richard Socher. Seq2sql: Generating structured queries from
+natural language using reinforcement learning. CoRR, abs/1709.00103, 2017. URL http://
+arxiv.org/abs/1709.00103.
+A LARGE LANGUAGE MODELS STILL NEED PARAMETER UPDATES
+Few-shot learning, or prompt engineering, is very advantageous when we only have a handful of
+trainingsamples.However,inpractice,wecanoftenaffordtocurateafewthousandormoretraining
+examples for performance-sensitive applications. As shown in Table 8, fine-tuning improves the
+modelperformancedrasticallycomparedtofew-shotlearningondatasetslargeandsmall. Wetake
+theGPT-3few-shotresultonRTEfromtheGPT-3paper(Brownetal.,2020). ForMNLI-matched,
+weusetwodemonstrationsperclassandsixin-contextexamplesintotal.
+16
+
+Method MNLI-m(Val. Acc./%) RTE(Val. Acc./%)
+GPT-3Few-Shot 40.6 69.0
+GPT-3Fine-Tuned 89.5 85.4
+Table8: Fine-tuningsignificantlyoutperformsfew-shotlearningonGPT-3(Brownetal.,2020).
+B INFERENCE LATENCY INTRODUCED BY ADAPTER LAYERS
+Adapterlayersareexternalmodulesaddedtoapre-trainedmodelinasequentialmanner,whereas
+our proposal, LoRA, can be seen as external modules added in a parallel manner. Consequently,
+adapter layers must be computed in addition to the base model, inevitably introducing additional
+latency. WhileaspointedoutinRu¨ckle´ etal.(2020), thelatencyintroducedbyadapterlayerscan
+be mitigated when the model batch size and/or sequence length is large enough to full utilize the
+hardwareparallelism. WeconfirmtheirobservationwithasimilarlatencystudyonGPT-2medium
+andpointoutthattherearescenarios,notablyonlineinferencewherethebatchsizeissmall,where
+theaddedlatencycanbesignificant.
+We measure the latency of a single forward pass on an NVIDIA Quadro RTX8000 by averaging
+over100trials. Wevarytheinputbatchsize,sequencelength,andtheadapterbottleneckdimension
+r. Wetesttwoadapterdesigns: theoriginalonebyHoulsbyetal.(2019),whichwecallAdapterH,
+and a recent, more efficient variant by Lin et al. (2020), which we call AdapterL. See Section 5.1
+formoredetailsonthedesigns. Weplottheslow-downinpercentagecomparedtotheno-adapter
+baselineinFigure5.
+35
+30
+25
+20
+15
+10
+5
+0
+r
+HretpadA
+0
+01
+001
+052
+Seq Len = 128 Seq Len = 256 Seq Len = 512
+1 2 4 8 16 32
+Batch Size
+r LretpadA
+0
+01
+001
+052
+1 2 4 8 16 32 1 2 4 8 16 32
+Batch Size Batch Size
+Figure5: Percentageslow-downofinferencelatencycomparedtotheno-adapter(r = 0)baseline.
+The top row shows the result for AdapterH and the bottom row AdapterL. Larger batch size and
+sequence length help to mitigate the latency, but the slow-down can be as high as over 30% in an
+online,short-sequence-lengthscenario. Wetweakthecolormapforbettervisibility.
+C DATASET DETAILS
+GLUEBenchmarkisawide-rangingcollectionofnaturallanguageunderstandingtasks.Itincludes
+MNLI(inference,Williamsetal.(2018)),SST-2(sentimentanalysis,Socheretal.(2013)),MRPC
+(paraphrase detection, Dolan & Brockett (2005)), CoLA (linguistic acceptability, Warstadt et al.
+(2018)), QNLI (inference, Rajpurkar et al. (2018)), QQP8 (question-answering), RTE (inference),
+8https://quoradata.quora.com/First-Quora-Dataset-Release-Question-Pairs
+17
+
+and STS-B (textual similarity, Cer et al. (2017)). The broad coverage makes GLUE benchmark a
+standardmetrictoevaluateNLUmodelssuchasRoBERTaandDeBERTa. Theindividualdatasets
+arereleasedunderdifferentpermissivelicenses.
+WikiSQLisintroducedin Zhongetal.(2017)andcontains56,355/8,421training/validationex-
+amples. The task is to generate SQL queries from natural language questions and table schemata.
+Weencodecontextasx = {tableschema,query}andtargetasy = {SQL}. Thedatasetisrelease
+undertheBSD3-ClauseLicense.
+SAMSumisintroducedin Gliwaetal.(2019)andcontains14,732/819training/testexamples. It
+consistsofstagedchatconversationsbetweentwopeopleandcorrespondingabstractivesummaries
+written by linguists. We encode context as ”\n” concatenated utterances followed by a ”\n\n”,
+andtargetasy = {summary}. Thedatasetisreleasedunderthenon-commerciallicence: Creative
+CommonsBY-NC-ND4.0.
+E2ENLGChallengewasfirstintroducedin Novikovaetal.(2017)asadatasetfortrainingend-to-
+end,data-drivennaturallanguagegenerationsystemsandiscommonlyusedfordata-to-textevalua-
+tion. TheE2Edatasetconsistsofroughly42,000training,4,600validation,and4,600testexam-
+plesfromtherestaurantdomain. Eachsourcetableusedasinputcanhavemultiplereferences. Each
+sample input (x,y) consists of a sequence of slot-value pairs, along with a corresponding natural
+languagereferencetext. ThedatasetisreleasedunderCreativeCommonsBY-NC-SA4.0.
+DART is an open-domain data-to-text dataset described in Nan et al. (2020). DART inputs are
+structured as sequences of ENTITY — RELATION — ENTITY triples. With 82K examples in
+total, DART is a significantly larger and more complex data-to-text task compared to E2E. The
+datasetisreleasedundertheMITlicense.
+WebNLGisanothercommonlyuseddatasetfordata-to-textevaluation(Gardentetal.,2017). With
+22K examples in total WebNLG comprises 14 distinct categories, nine of which are seen during
+training. Since five of the 14 total categories are not seen during training, but are represented in
+the test set, evaluation is typically broken out by “seen” categories (S), “unseen” categories (U)
+and “all” (A). Each input example is represented by a sequence of SUBJECT — PROPERTY —
+OBJECTtriples. ThedatasetisreleasedunderCreativeCommonsBY-NC-SA4.0.
+D HYPERPARAMETERS USED IN EXPERIMENTS
+D.1 ROBERTA
+WetrainusingAdamWwithalinearlearningratedecayschedule. Wesweeplearningrate,number
+of training epochs, and batch size for LoRA. Following Liu et al. (2019), we initialize the LoRA
+modules to our best MNLI checkpoint when adapting to MRPC, RTE, and STS-B, instead of the
+usual initialization; the pre-trained model stays frozen for all tasks. We report the median over 5
+randomseeds; theresultforeachrunistakenfromthebestepoch. Forafaircomparisonwiththe
+setupinHoulsbyetal.(2019)andPfeifferetal.(2021),werestrictthemodelsequencelengthto128
+andusedafixedbatchsizeforalltasks. Importantly,westartwiththepre-trainedRoBERTalarge
+model when adapting to MRPC, RTE, and STS-B, instead of a model already adapted to MNLI.
+The runs with this restricted setup are marked with †. See the hyperparameters used in our runs
+inTable9.
+D.2 DEBERTA
+WeagaintrainusingAdamWwithalinearlearningratedecayschedule. FollowingHeetal.(2021),
+wetunelearningrate,dropoutprobability,warm-upsteps,andbatchsize. Weusethesamemodel
+sequencelengthusedby(Heetal.,2021)tokeepourcomparisonfair. FollowingHeetal.(2021),
+weinitializetheLoRAmodulestoourbestMNLIcheckpointwhenadaptingtoMRPC,RTE,and
+STS-B,insteadoftheusualinitialization;thepre-trainedmodelstaysfrozenforalltasks. Wereport
+the median over 5 random seeds; the result for each run is taken from the best epoch. See the
+hyperparametersusedinourrunsinTable10.
+18
+
+Method Dataset MNLI SST-2 MRPC CoLA QNLI QQP RTE STS-B
+Optimizer AdamW
+WarmupRatio 0.06
+LRSchedule Linear
+BatchSize 16 16 16 32 32 16 32 16
+#Epochs 30 60 30 80 25 25 80 40
+RoBERTabase
+LearningRate 5E-04 5E-04 4E-04 4E-04 4E-04 5E-04 5E-04 4E-04
+LoRA
+LoRAConfig. r =r =8
+q v
+LoRAα 8
+MaxSeq.Len. 512
+BatchSize 4 4 4 4 4 4 8 8
+#Epochs 10 10 20 20 10 20 20 30
+RoBERTalarge
+LearningRate 3E-04 4E-04 3E-04 2E-04 2E-04 3E-04 4E-04 2E-04
+LoRA
+LoRAConfig. r =r =8
+q v
+LoRAα 16
+MaxSeq.Len. 128 128 512 128 512 512 512 512
+BatchSize 4
+#Epochs 10 10 20 20 10 20 20 10
+RoBERTalarge
+LearningRate 3E-04 4E-04 3E-04 2E-04 2E-04 3E-04 4E-04 2E-04
+LoRA†
+LoRAConfig. r =r =8
+q v
+LoRAα 16
+MaxSeq.Len. 128
+BatchSize 32
+RoBERTalarge #Epochs 10 20 20 20 10 20 20 20
+AdptP(3M)† LearningRate 3E-05 3E-05 3E-04 3E-04 3E-04 3E-04 3E-04 3E-04
+Bottleneckr 64
+MaxSeq.Len. 128
+BatchSize 32
+RoBERTalarge #Epochs 5 20 20 20 10 20 20 20
+AdptP(0.8M)† LearningRate 3E-04 3E-04 3E-04 3E-04 3E-04 3E-04 3E-04 3E-04
+Bottleneckr 16
+MaxSeq.Len. 128
+BatchSize 32
+RoBERTalarge #Epochs 10 5 10 10 5 20 20 10
+AdptH(6M)† LearningRate 3E-05 3E-04 3E-04 3E-04 3E-04 3E-04 3E-04 3E-04
+Bottleneckr 64
+MaxSeq.Len. 128
+BatchSize 32
+RoBERTalarge #Epochs 10 5 10 10 5 20 20 10
+AdptH(0.8M)† LearningRate 3E-04 3E-04 3E-04 3E-04 3E-04 3E-04 3E-04 3E-04
+Bottleneckr 8
+MaxSeq.Len. 128
+Table9: ThehyperparametersweusedforRoBERTaontheGLUEbenchmark.
+D.3 GPT-2
+WetrainallofourGPT-2modelsusingAdamW(Loshchilov&Hutter,2017)withalinearlearning
+rateschedulefor5epochs.Weusethebatchsize,learningrate,andbeamsearchbeamsizedescribed
+inLi&Liang(2021).Accordingly,wealsotunetheabovehyperparametersforLoRA.Wereportthe
+meanover3randomseeds;theresultforeachrunistakenfromthebestepoch.Thehyperparameters
+usedforLoRAinGPT-2arelistedinTable11. Forthoseusedforotherbaselines,seeLi&Liang
+(2021).
+D.4 GPT-3
+ForallGPT-3experiments,wetrainusingAdamW(Loshchilov&Hutter,2017)for2epochswith
+abatchsizeof128samplesandaweightdecayfactorof0.1. Weuseasequencelengthof384for
+19
+
+Method Dataset MNLI SST-2 MRPC CoLA QNLI QQP RTE STS-B
+Optimizer AdamW
+WarmupRatio 0.1
+LRSchedule Linear
+BatchSize 8 8 32 4 6 8 4 4
+#Epochs 5 16 30 10 8 11 11 10
+DeBERTaXXL
+LearningRate 1E-04 6E-05 2E-04 1E-04 1E-04 1E-04 2E-04 2E-04
+LoRA
+WeightDecay 0 0.01 0.01 0 0.01 0.01 0.01 0.1
+CLSDropout 0.15 0 0 0.1 0.1 0.2 0.2 0.2
+LoRAConfig. r =r =8
+q v
+LoRAα 8
+MaxSeq.Len. 256 128 128 64 512 320 320 128
+Table10: ThehyperparametersforDeBERTaXXLontasksincludedintheGLUEbenchmark.
+Dataset E2E WebNLG DART
+Training
+Optimizer AdamW
+WeightDecay 0.01 0.01 0.0
+DropoutProb 0.1 0.1 0.0
+BatchSize 8
+#Epoch 5
+WarmupSteps 500
+LearningRateSchedule Linear
+LabelSmooth 0.1 0.1 0.0
+LearningRate 0.0002
+Adaptation r =r =4
+q v
+LoRAα 32
+Inference
+BeamSize 10
+LengthPenalty 0.9 0.8 0.8
+norepeatngramsize 4
+Table11: ThehyperparametersforGPT-2LoRAonE2E,WebNLGandDART.
+WikiSQL(Zhongetal.,2017),768forMNLI(Williamsetal.,2018),and2048forSAMSum(Gliwa
+etal.,2019). Wetunelearningrateforallmethod-datasetcombinations. SeeSectionD.4formore
+details on the hyperparameters used. For prefix-embedding tuning, we find the optimal l and l
+p i
+to be 256 and 8, respectively, totalling 3.2M trainable parameters. We use l = 8 and l = 8 for
+p i
+prefix-layer tuning with 20.2M trainable parameters to obtain the overall best performance. We
+presenttwoparameterbudgetsforLoRA:4.7M(r = r = 1orr = 2)and37.7M(r = r = 8
+q v v q v
+orr =r =r =r =2). Wereportthebestvalidationperformancefromeachrun. Thetraining
+q k v o
+hyperparametersusedinourGPT-3experimentsarelistedinTable12.
+E COMBINING LORA WITH PREFIX TUNING
+LoRAcanbenaturallycombinedwithexistingprefix-basedapproaches. Inthissection,weevaluate
+twocombinationsofLoRAandvariantsofprefix-tuningonWikiSQLandMNLI.
+LoRA+PrefixEmbed(LoRA+PE)combinesLoRAwithprefix-embeddingtuning,whereweinsert
+l +l special tokens whose embeddings are treated as trainable parameters. For more on prefix-
+p i
+embeddingtuning,seeSection5.1.
+LoRA+PrefixLayer(LoRA+PL)combinesLoRAwithprefix-layertuning. Wealsoinsertl +l
+p i
+special tokens; however, instead of letting the hidden representations of these tokens evolve natu-
+20
+
+Hyperparameters Fine-Tune PreEmbed PreLayer BitFit AdapterH LoRA
+Optimizer AdamW
+BatchSize 128
+#Epoch 2
+WarmupTokens 250,000
+LRSchedule Linear
+LearningRate 5.00E-06 5.00E-04 1.00E-04 1.6E-03 1.00E-04 2.00E-04
+Table 12: The training hyperparameters used for different GPT-3 adaption methods. We use the
+samehyperparametersforalldatasetsaftertuninglearningrate.
+rally,wereplacethemaftereveryTransformerblockwithaninputagnosticvector. Thus,boththe
+embeddingsandsubsequentTransformerblockactivationsaretreatedastrainableparameters. For
+moreonprefix-layertuning,seeSection5.1.
+InTable15,weshowtheevaluationresultsofLoRA+PEandLoRA+PLonWikiSQLandMultiNLI.
+First of all, LoRA+PE significantly outperforms both LoRA and prefix-embedding tuning on
+WikiSQL, which indicates that LoRA is somewhat orthogonal to prefix-embedding tuning. On
+MultiNLI,thecombinationofLoRA+PEdoesn’tperformbetterthanLoRA,possiblybecauseLoRA
+on its own already achieves performance comparable to the human baseline. Secondly, we notice
+that LoRA+PL performs slightly worse than LoRA even with more trainable parameters. We at-
+tributethistothefactthatprefix-layertuningisverysensitivetothechoiceoflearningrateandthus
+makestheoptimizationofLoRAweightsmoredifficultinLoRA+PL.
+F ADDITIONAL EMPIRICAL EXPERIMENTS
+F.1 ADDITIONALEXPERIMENTSONGPT-2
+We also repeat our experiment on DART (Nan et al., 2020) and WebNLG (Gardent et al., 2017)
+following the setup of Li & Liang (2021). The result is shown in Table 13. Similar to our result
+on E2E NLG Challenge, reported in Section 5, LoRA performs better than or at least on-par with
+prefix-basedapproachesgiventhesamenumberoftrainableparameters.
+Method #Trainable DART
+Parameters BLEU↑ MET↑ TER↓
+GPT-2Medium
+Fine-Tune 354M 46.2 0.39 0.46
+AdapterL 0.37M 42.4 0.36 0.48
+AdapterL 11M 45.2 0.38 0.46
+FTTop2 24M 41.0 0.34 0.56
+PrefLayer 0.35M 46.4 0.38 0.46
+LoRA 0.35M 47.1 0.39 0.46
+±.2
+GPT-2Large
+Fine-Tune 774M 47.0 0.39 0.46
+AdapterL 0.88M 45.7 0.38 0.46
+±.1
+AdapterL 23M 47.1 0.39 0.45
+±.1
+PrefLayer 0.77M 46.7 0.38 0.45
+LoRA 0.77M 47.5 0.39 0.45
+±.1
+Table13: GPT-2withdifferentadaptationmethodsonDART.ThevariancesofMETandTERare
+lessthan0.01foralladaptionapproaches.
+21
+
+Method WebNLG
+BLEU↑ MET↑ TER↓
+U S A U S A U S A
+GPT-2Medium
+Fine-Tune(354M) 27.7 64.2 46.5 .30 .45 .38 .76 .33 .53
+AdapterL(0.37M) 45.1 54.5 50.2 .36 .39 .38 .46 .40 .43
+AdapterL(11M) 48.3 60.4 54.9 .38 .43 .41 .45 .35 .39
+FTTop2(24M) 18.9 53.6 36.0 .23 .38 .31 .99 .49 .72
+Prefix(0.35M) 45.6 62.9 55.1 .38 .44 .41 .49 .35 .40
+LoRA(0.35M) 46.7 62.1 55.3 .38 .44 .41 .46 .33 .39
+±.4 ±.2 ±.2
+GPT-2Large
+Fine-Tune(774M) 43.1 65.3 55.5 .38 .46 .42 .53 .33 .42
+AdapterL(0.88M) 49.8 61.1 56.0 .38 .43 .41 .44 .35 .39
+±.0 ±.0 ±.0
+AdapterL(23M) 49.2 64.7 57.7 .39 .46 .43 .46 .33 .39
+±.1 ±.2 ±.1
+Prefix(0.77M) 47.7 63.4 56.3 .39 .45 .42 .48 .34 .40
+LoRA(0.77M) 48.4 64.0 57.0 .39 .45 .42 .45 .32 .38
+±.3 ±.3 ±.1
+Table14: GPT-2withdifferentadaptationmethodsonWebNLG.ThevariancesofMETandTER
+arelessthan0.01foralltheexperimentsweran.“U”indicatesunseencategories,“S”indicatesseen
+categories,and“A”indicatesallcategoriesinthetestsetofWebNLG.
+F.2 ADDITIONALEXPERIMENTSONGPT-3
+WepresentadditionalrunsonGPT-3withdifferentadaptationmethodsinTable15. Thefocusison
+identifyingthetrade-offbetweenperformanceandthenumberoftrainableparameters.
+F.3 LOW-DATAREGIME
+Toevaluatetheperformanceofdifferentadaptationapproachesinthelow-dataregime.werandomly
+sample100,1kand10ktrainingexamplesfromthefulltrainingsetofMNLItoformthelow-data
+MNLI-ntasks. InTable16,weshowtheperformanceofdifferentadaptationapproachesonMNLI-
+n. Tooursurprise,PrefixEmbedandPrefixLayerperformsverypoorlyonMNLI-100dataset,with
+PrefixEmbedperformingonlyslightlybetterthanrandomchance(37.6%vs. 33.3%). PrefixLayer
+performsbetterthanPrefixEmbedbutisstillsignificantlyworsethanFine-TuneorLoRAonMNLI-
+100. The gap between prefix-based approaches and LoRA/Fine-tuning becomes smaller as we in-
+creasethenumberoftrainingexamples, whichmightsuggestthatprefix-basedapproachesarenot
+suitable for low-data tasks in GPT-3. LoRA achieves better performance than fine-tuning on both
+MNLI-100 and MNLI-Full, and comparable results on MNLI-1k and MNLI-10K considering the
+(±0.3)varianceduetorandomseeds.
+The training hyperparameters of different adaptation approaches on MNLI-n are reported in Ta-
+ble17.WeuseasmallerlearningrateforPrefixLayerontheMNLI-100set,asthetraininglossdoes
+notdecreasewithalargerlearningrate.
+G MEASURING SIMILARITY BETWEEN SUBSPACES
+Inthispaperweusethemeasureφ(A,B,i,j)=ψ(Ui,Uj)= (cid:107)U A i(cid:62)UB(cid:107)2 F tomeasurethesubspace
+A B min{i,j}
+similarity between two column orthonormal matrices Ui ∈ Rd×i and Uj ∈ Rd×j, obtained by
+A B
+takingcolumnsoftheleftsingularmatricesofAandB. Wepointoutthatthissimilarityissimply
+areverseofthestandardProjectionMetricthatmeasuresdistancebetweensubspacesHam&Lee
+(2008).
+22
+
+Method Hyperparameters #TrainableParameters WikiSQL MNLI-m
+Fine-Tune - 175B 73.8 89.5
+l =32,l =8 0.4M 55.9 84.9
+p i
+l =64,l =8 0.9M 58.7 88.1
+p i
+PrefixEmbed l =128,l =8 1.7M 60.6 88.0
+p i
+l =256,l =8 3.2M 63.1 88.6
+p i
+l =512,l =8 6.4M 55.9 85.8
+p i
+l =2,l =2 5.1M 68.5 89.2
+p i
+l =8,l =0 10.1M 69.8 88.2
+p i
+PrefixLayer l =8,l =8 20.2M 70.1 89.5
+p i
+l =32,l =4 44.1M 66.4 89.6
+p i
+l =64,l =0 76.1M 64.9 87.9
+p i
+r =1 7.1M 71.9 89.8
+r =4 21.2M 73.2 91.0
+AdapterH r =8 40.1M 73.2 91.5
+r =16 77.9M 73.2 91.5
+r =64 304.4M 72.6 91.5
+r =2 4.7M 73.4 91.7
+v
+r =r =1 4.7M 73.4 91.3
+q v
+LoRA r =r =2 9.4M 73.3 91.4
+q v
+r =r =r =r =1 9.4M 74.1 91.2
+q k v o
+r =r =4 18.8M 73.7 91.3
+q v
+r =r =r =r =2 18.8M 73.7 91.7
+q k v o
+r =r =8 37.7M 73.8 91.6
+q v
+r =r =r =r =4 37.7M 74.0 91.7
+q k v o
+r =r =64 301.9M 73.6 91.4
+q v
+r =r =r =r =64 603.8M 73.9 91.4
+q k v o
+r =r =8,l =8,l =4 37.8M 75.0 91.4
+q v p i
+LoRA+PE r =r =32,l =8,l =4 151.1M 75.9 91.1
+q v p i
+r =r =64,l =8,l =4 302.1M 76.2 91.3
+q v p i
+LoRA+PL r =r =8,l =8,l =4 52.8M 72.9 90.2
+q v p i
+Table15:HyperparameteranalysisofdifferentadaptationapproachesonWikiSQLandMNLI.Both
+prefix-embeddingtuning(PrefixEmbed)andprefix-layertuning(PrefixLayer)performworseaswe
+increasethenumberoftrainableparameters,whileLoRA’sperformancestabilizes. Performanceis
+measuredinvalidationaccuracy.
+Method MNLI(m)-100 MNLI(m)-1k MNLI(m)-10k MNLI(m)-392K
+GPT-3(Fine-Tune) 60.2 85.8 88.9 89.5
+GPT-3(PrefixEmbed) 37.6 75.2 79.5 88.6
+GPT-3(PrefixLayer) 48.3 82.5 85.9 89.6
+GPT-3(LoRA) 63.8 85.6 89.2 91.7
+Table16: ValidationaccuracyofdifferentmethodsonsubsetsofMNLIusingGPT-3175B.MNLI-
+n describes a subset with n training examples. We evaluate with the full validation set. LoRA
+performsexhibitsfavorablesample-efficiencycomparedtoothermethods,includingfine-tuning.
+To be concrete, let the singular values of Ui(cid:62)Uj to be σ ,σ ,··· ,σ where p = min{i,j}. We
+A B 1 2 p
+knowthattheProjectionMetricHam&Lee(2008)isdefinedas:
+(cid:118)
+(cid:117) p
+d(Ui,Uj)= (cid:117) (cid:116)p− (cid:88) σ2 ∈[0, √ p]
+A B i
+i=1
+23
+
+Hyperparameters Adaptation MNLI-100 MNLI-1k MNLI-10K MNLI-392K
+Optimizer - AdamW
+WarmupTokens - 250,000
+LRSchedule - Linear
+BatchSize - 20 20 100 128
+#Epoch - 40 40 4 2
+FineTune 5.00E-6
+PrefixEmbed 2.00E-04 2.00E-04 4.00E-04 5.00E-04
+LearningRate
+PrefixLayer 5.00E-05 5.00E-05 5.00E-05 1.00E-04
+LoRA 2.00E-4
+PrefixEmbedl 16 32 64 256
+p
+Adaptation- PrefixEmbedl 8
+i
+Specific PrefixTune l =l =8
+p i
+LoRA r =r =8
+q v
+Table17: ThehyperparametersusedfordifferentGPT-3adaptationmethodsonMNLI(m)-n.
+whereoursimilarityisdefinedas:
+(cid:80)p σ2 1(cid:16) (cid:17)
+φ(A,B,i,j)=ψ(Ui,Uj)= i=1 i = 1−d(Ui,Uj)2
+A B p p A B
+ThissimilaritysatisfiesthatifUi andUj sharethesamecolumnspan, thenφ(A,B,i,j) = 1. If
+A B
+theyarecompletelyorthogonal,thenφ(A,B,i,j)=0. Otherwise,φ(A,B,i,j)∈(0,1).
+H ADDITIONAL EXPERIMENTS ON LOW-RANK MATRICES
+Wepresentadditionalresultsfromourinvestigationintothelow-rankupdatematrices.
+H.1 CORRELATIONBETWEENLORAMODULES
+SeeFigure6andFigure7forhowtheresultspresentedinFigure3andFigure4generalizetoother
+layers.
+H.2 EFFECTOFr ONGPT-2
+Werepeatourexperimentontheeffectofr(Section7.2)inGPT-2. UsingtheE2ENLGChallenge
+dataset as an example, we report the validation loss and test metrics achieved by different choices
+ofr aftertrainingfor26,000steps. WepresentourresultinTable18. TheoptimalrankforGPT-2
+Mediumisbetween4and16dependingonthemetricused,whichissimilartothatforGPT-3175B.
+Note that the relationship between model size and the optimal rank for adaptation is still an open
+question.
+H.3 CORRELATIONBETWEENW AND∆W
+SeeFigure8forthenormalizedsubspacesimilaritybetweenW and∆W withvaryingr.
+Noteagainthat∆W doesnotcontainthetopsingulardirectionsofW,sincethesimilaritybetween
+thetop4directionsin∆W andthetop-10%ofthoseinW barelyexceeds0.2. Thisgivesevidence
+that∆W containsthose“task-specific”directionsthatareotherwisenotemphasizedinW.
+An interesting next question to answer, is how “strong” do we need to amplify those task-specific
+directions,inorderforthemodeladaptationtoworkwell?
+24
+
+1.0
+0.8
+0.6
+0.4
+0.2
+0.0
+1
+reyaL
+i
+1
+2
+3
+4
+5
+6
+7
+8
+Wq Wv Wq Wv
+23
+reyaL
+46
+reyaL
+i
+i
+1
+2
+3
+4
+5
+6
+7
+8
+1
+2
+3
+4
+5
+6
+7
+8
+1 6 21 81 32 92 53 04 64 25 85
+j
+69
+reyaL
+i
+1
+2
+3
+4
+5
+6
+7
+8
+1 6 21 81 32 92 53 04 64 25 85
+(Ar=8,Ar=64,i,j)
+1 2 3 4 5 6 7 8 1 2 3 4 5 6 7 8
+j j j
+Figure6: NormalizedsubspacesimilaritybetweenthecolumnvectorsofA andA forboth
+r=8 r=64
+∆W and∆W fromthe1st,32nd,64th,and96thlayersina96-layerTransformer.
+q v
+H.4 AMPLIFICATIONFACTOR
+Onecannaturallyconsiderafeatureamplificationfactorastheratio (cid:107)∆W(cid:107)F ,whereU andV
+(cid:107)U(cid:62)WV(cid:62)(cid:107)F
+aretheleft-andright-singularmatricesoftheSVDdecompositionof∆W. (RecallUU(cid:62)WV(cid:62)V
+givesthe“projection”ofW ontothesubspacespannedby∆W.)
+Intuitively,when∆W mostlycontainstask-specificdirections,thisquantitymeasureshowmuchof
+themareamplifiedby∆W. AsshowninSection7.3,forr =4,thisamplificationfactorisaslarge
+as20. Inotherwords,thereare(generallyspeaking)fourfeaturedirectionsineachlayer(outofthe
+entirefeaturespacefromthepre-trainedmodelW),thatneedtobeamplifiedbyaverylargefactor
+20, in order to achieve our reported accuracy for the downstream specific task. And, one should
+expectaverydifferentsetoffeaturedirectionstobeamplifiedforeachdifferentdownstreamtask.
+One may notice, however, for r = 64, this amplification factor is only around 2, meaning that
+most directions learned in ∆W with r = 64 are not being amplified by much. This should not
+be surprising, and in fact gives evidence (once again) that the intrinsic rank needed to represent
+the“task-specificdirections”(thusformodeladaptation)islow. Incontrast,thosedirectionsinthe
+rank-4versionof∆W (correspondingtor =4)areamplifiedbyamuchlargerfactor20.
+25
+
+1
+7
+13
+19 0.8 25 31 0.7
+37
+43 0.6
+49
+55 0.5
+61
+0.4
+0.3
+0.2
+0.1
+0.0
+1 reyaL i
+Wq Wv
+23 reyaL
+Wq Wv
+1 6 11 61 12 62 13 63 14 64 15 65 16
+1
+7
+13
+19
+25
+31
+37
+43
+49
+55
+61
+j
+46
+reyaL i
+1 6 11 61 12 62 13 63 14 64 15 65 16
+j
+1 6 11 61 12 62 13 63 14 64 15 65 16
+j
+69
+reyaL
+1 6 11 61 12 62 13 63 14 64 15 65 16
+(Ar=64,A0r=64,i,j)
+j
+Figure7:NormalizedsubspacesimilaritybetweenthecolumnvectorsofA fromtworandomly
+r=64
+seededruns,forboth∆W and∆W fromthe1st,32nd,64th,and96thlayersina96-layerTrans-
+q v
+former.
+Rankr val loss BLEU NIST METEOR ROUGE L CIDEr
+1 1.23 68.72 8.7215 0.4565 0.7052 2.4329
+2 1.21 69.17 8.7413 0.4590 0.7052 2.4639
+4 1.18 70.38 8.8439 0.4689 0.7186 2.5349
+8 1.17 69.57 8.7457 0.4636 0.7196 2.5196
+16 1.16 69.61 8.7483 0.4629 0.7177 2.4985
+32 1.16 69.33 8.7736 0.4642 0.7105 2.5255
+64 1.16 69.24 8.7174 0.4651 0.7180 2.5070
+128 1.16 68.73 8.6718 0.4628 0.7127 2.5030
+256 1.16 68.92 8.6982 0.4629 0.7128 2.5012
+512 1.16 68.78 8.6857 0.4637 0.7128 2.5025
+1024 1.17 69.37 8.7495 0.4659 0.7149 2.5090
+Table 18: Validation loss and test set metrics on E2E NLG Challenge achieved by LoRA with
+differentrankrusingGPT-2Medium. UnlikeonGPT-3wherer = 1sufficesformanytasks,here
+the performance peaks at r = 16 for validation loss and r = 4 for BLEU, suggesting the GPT-2
+MediumhasasimilarintrinsicrankforadaptationcomparedtoGPT-3175B.Notethatsomeofour
+hyperparametersaretunedonr = 4, whichmatchestheparametercountofanotherbaseline, and
+thusmightnotbeoptimalforotherchoicesofr.
+451
+0.200
+555
+658 0.175
+762
+0.150
+865
+969 0.125
+1072
+0.100
+1176
+j
+i
+Wq Random
+(Wq,Ar=4,i,j) (Wq,Ar=8,i,j) (Wq,Ar=64,i,j) (Wq,Arand,i,j)
+j j j
+Figure8: NormalizedsubspacesimilaritybetweenthesingulardirectionsofW andthoseof∆W
+q q
+withvaryingrandarandombaseline. ∆W amplifiesdirectionsthatareimportantbutnotempha-
+q
+sized in W. ∆W with a larger r tends to pick up more directions that are already emphasized in
+W.
+26

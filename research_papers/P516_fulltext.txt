@@ -1,0 +1,889 @@
+PublishedasaconferencepaperatICLR2020
+ALBERT: A LITE BERT FOR SELF-SUPERVISED
+LEARNING OF LANGUAGE REPRESENTATIONS
+ZhenzhongLan1 MingdaChen2∗ SebastianGoodman1 KevinGimpel2
+PiyushSharma1 RaduSoricut1
+1GoogleResearch 2ToyotaTechnologicalInstituteatChicago
+{lanzhzh, seabass, piyushsharma, rsoricut}@google.com
+{mchen, kgimpel}@ttic.edu
+ABSTRACT
+Increasingmodelsizewhenpretrainingnaturallanguagerepresentationsoftenre-
+sultsinimprovedperformanceondownstreamtasks. However,atsomepointfur-
+ther model increases become harder due to GPU/TPU memory limitations and
+longer training times. To address these problems, we present two parameter-
+reduction techniques to lower memory consumption and increase the training
+speed of BERT (Devlin et al., 2019). Comprehensive empirical evidence shows
+that our proposed methods lead to models that scale much better compared to
+the original BERT. We also use a self-supervised loss that focuses on modeling
+inter-sentence coherence, and show it consistently helps downstream tasks with
+multi-sentenceinputs. Asaresult,ourbestmodelestablishesnewstate-of-the-art
+resultsontheGLUE,RACE,andSQuADbenchmarkswhilehavingfewerparam-
+eterscomparedtoBERT-large. Thecodeandthepretrainedmodelsareavailable
+athttps://github.com/google-research/ALBERT.
+1 INTRODUCTION
+Full network pre-training (Dai & Le, 2015; Radford et al., 2018; Devlin et al., 2019; Howard &
+Ruder,2018) hasled toa series ofbreakthroughs inlanguage representationlearning. Many non-
+trivialNLPtasks,includingthosethathavelimitedtrainingdata,havegreatlybenefitedfromthese
+pre-trainedmodels.Oneofthemostcompellingsignsofthesebreakthroughsistheevolutionofma-
+chine performance on a reading comprehension task designed for middle and high-school English
+examsinChina,theRACEtest(Laietal.,2017):thepaperthatoriginallydescribesthetaskandfor-
+mulatesthemodelingchallengereportsthenstate-of-the-artmachineaccuracyat44.1%; thelatest
+publishedresultreports theirmodelperformanceat 83.2% (Liuetal., 2019); the workwepresent
+here pushes it even higher to 89.4%, a stunning 45.3% improvement that is mainly attributable to
+ourcurrentabilitytobuildhigh-performancepretrainedlanguagerepresentations.
+Evidencefromtheseimprovementsrevealsthatalargenetworkisofcrucialimportanceforachiev-
+ingstate-of-the-artperformance(Devlinetal.,2019;Radfordetal.,2019). Ithasbecomecommon
+practicetopre-trainlargemodelsanddistillthemdowntosmallerones(Sunetal.,2019;Turcetal.,
+2019) for real applications. Given the importance of model size, we ask: Is having better NLP
+modelsaseasyashavinglargermodels?
+Anobstacletoansweringthisquestionisthememorylimitationsofavailablehardware. Giventhat
+currentstate-of-the-artmodelsoftenhavehundredsofmillionsorevenbillionsofparameters,itis
+easytohittheselimitationsaswetrytoscaleourmodels. Trainingspeedcanalsobesignificantly
+hampered in distributed training, as the communication overhead is directly proportional to the
+numberofparametersinthemodel.
+Existing solutions to the aforementioned problems include model parallelization (Shazeer et al.,
+2018;Shoeybietal.,2019)andclevermemorymanagement(Chenetal.,2016;Gomezetal.,2017).
+∗WorkdoneasaninternatGoogleResearch,drivingdataprocessinganddownstreamtaskevaluations.
+1
+0202
+beF
+9
+]LC.sc[
+6v24911.9091:viXra
+
+PublishedasaconferencepaperatICLR2020
+These solutions address the memory limitation problem, but not the communication overhead. In
+thispaper, weaddressalloftheaforementionedproblems, bydesigningALiteBERT(ALBERT)
+architecturethathassignificantlyfewerparametersthanatraditionalBERTarchitecture.
+ALBERT incorporates two parameter reduction techniques that lift the major obstacles in scaling
+pre-trained models. The first one is a factorized embedding parameterization. By decomposing
+thelargevocabularyembeddingmatrixintotwosmallmatrices,weseparatethesizeofthehidden
+layersfromthesizeofvocabularyembedding. Thisseparationmakesiteasiertogrowthehidden
+sizewithoutsignificantlyincreasingtheparametersizeofthevocabularyembeddings. Thesecond
+technique is cross-layer parameter sharing. This technique prevents the parameter from growing
+with the depth of the network. Both techniques significantly reduce the number of parameters for
+BERT without seriously hurting performance, thus improving parameter-efficiency. An ALBERT
+configurationsimilartoBERT-largehas18xfewerparametersandcanbetrainedabout1.7xfaster.
+Theparameterreduction techniquesalsoactasa formofregularizationthatstabilizes the training
+andhelpswithgeneralization.
+To further improve the performance of ALBERT, we also introduce a self-supervised loss for
+sentence-orderprediction(SOP).SOPprimaryfocusesoninter-sentencecoherenceandisdesigned
+to address the ineffectiveness (Yang et al., 2019; Liu et al., 2019) of the next sentence prediction
+(NSP)lossproposedintheoriginalBERT.
+Asaresultofthesedesigndecisions,weareabletoscaleuptomuchlargerALBERTconfigurations
+thatstillhavefewerparametersthanBERT-largebutachievesignificantlybetterperformance. We
+establish new state-of-the-art results on the well-known GLUE, SQuAD, and RACE benchmarks
+fornaturallanguageunderstanding. Specifically,wepushtheRACEaccuracyto89.4%,theGLUE
+benchmarkto89.4,andtheF1scoreofSQuAD2.0to92.2.
+2 RELATED WORK
+2.1 SCALINGUPREPRESENTATIONLEARNINGFORNATURALLANGUAGE
+LearningrepresentationsofnaturallanguagehasbeenshowntobeusefulforawiderangeofNLP
+tasksandhasbeenwidelyadopted(Mikolovetal.,2013;Le&Mikolov,2014;Dai&Le,2015;Pe-
+tersetal.,2018;Devlinetal.,2019;Radfordetal.,2018;2019).Oneofthemostsignificantchanges
+in the last two years is the shift from pre-training word embeddings, whether standard (Mikolov
+et al., 2013; Pennington et al., 2014) or contextualized (McCann et al., 2017; Peters et al., 2018),
+to full-network pre-training followed by task-specific fine-tuning (Dai & Le, 2015; Radford et al.,
+2018; Devlin et al., 2019). In this line of work, it is often shown that larger model size improves
+performance. For example, Devlin et al. (2019) show that across three selected natural language
+understandingtasks,usinglargerhiddensize,morehiddenlayers,andmoreattentionheadsalways
+leadstobetterperformance. However,theystopatahiddensizeof1024,presumablybecauseofthe
+modelsizeandcomputationcostproblems.
+Itisdifficulttoexperimentwithlargemodelsduetocomputationalconstraints,especiallyinterms
+ofGPU/TPUmemorylimitations. Giventhatcurrentstate-of-the-artmodelsoftenhavehundredsof
+millionsorevenbillionsofparameters,wecaneasilyhitmemorylimits.Toaddressthisissue,Chen
+etal.(2016)proposeamethodcalledgradientcheckpointingtoreducethememoryrequirementtobe
+sublinearatthecostofanextraforwardpass.Gomezetal.(2017)proposeawaytoreconstructeach
+layer’sactivationsfromthenextlayersothattheydonotneedtostoretheintermediateactivations.
+Bothmethodsreducethememoryconsumptionatthecostofspeed. Raffeletal.(2019)proposed
+tousemodelparallelizationtotrainagiantmodel. Incontrast,ourparameter-reductiontechniques
+reducememoryconsumptionandincreasetrainingspeed.
+2.2 CROSS-LAYERPARAMETERSHARING
+The idea of sharing parameters across layers has been previously explored with the Transformer
+architecture(Vaswanietal.,2017),butthispriorworkhasfocusedontrainingforstandardencoder-
+decoder tasks rather than the pretraining/finetuning setting. Different from our observations, De-
+hghanietal.(2018)showthatnetworkswithcross-layerparametersharing(UniversalTransformer,
+UT) get better performance on language modeling and subject-verb agreement than the standard
+2
+
+PublishedasaconferencepaperatICLR2020
+transformer. Very recently, Bai et al. (2019) propose a Deep Equilibrium Model (DQE) for trans-
+formernetworksandshowthatDQEcanreachanequilibriumpointforwhichtheinputembedding
+and the output embedding of a certain layer stay the same. Our observations show that our em-
+beddings are oscillating rather than converging. Hao et al. (2019) combine a parameter-sharing
+transformerwiththestandardone,whichfurtherincreasesthenumberofparametersofthestandard
+transformer.
+2.3 SENTENCEORDERINGOBJECTIVES
+ALBERT uses a pretraining loss based on predicting the ordering of two consecutive segments
+of text. Several researchers have experimented with pretraining objectives that similarly relate to
+discourse coherence. Coherence and cohesion in discourse have been widely studied and many
+phenomenahavebeenidentifiedthatconnectneighboringtextsegments(Hobbs,1979;Halliday&
+Hasan,1976;Groszetal.,1995). Mostobjectivesfoundeffectiveinpracticearequitesimple. Skip-
+thought(Kirosetal.,2015)andFastSent(Hilletal.,2016)sentenceembeddingsarelearnedbyusing
+anencodingofasentencetopredictwordsinneighboringsentences. Otherobjectivesforsentence
+embeddinglearningincludepredictingfuturesentencesratherthanonlyneighbors(Ganetal.,2017)
+and predicting explicit discourse markers (Jernite et al., 2017; Nie et al., 2019). Our loss is most
+similar to the sentence ordering objective of Jernite et al. (2017), where sentence embeddings are
+learnedinordertodeterminetheorderingoftwoconsecutivesentences. Unlikemostoftheabove
+work,however,ourlossisdefinedontextualsegmentsratherthansentences. BERT(Devlinetal.,
+2019) uses a loss based on predicting whether the second segment in a pair has been swapped
+with a segment from another document. We compare to this loss in our experiments and find that
+sentence ordering is a more challenging pretraining task and more useful for certain downstream
+tasks. Concurrentlytoourwork,Wangetal.(2019)alsotrytopredicttheorderoftwoconsecutive
+segments of text, but they combine it with the original next sentence prediction in a three-way
+classificationtaskratherthanempiricallycomparingthetwo.
+3 THE ELEMENTS OF ALBERT
+In this section, we present the design decisions for ALBERT and provide quantified comparisons
+againstcorrespondingconfigurationsoftheoriginalBERTarchitecture(Devlinetal.,2019).
+3.1 MODELARCHITECTURECHOICES
+The backbone of the ALBERT architecture is similar to BERT in that it uses a transformer en-
+coder(Vaswanietal.,2017)withGELUnonlinearities(Hendrycks&Gimpel,2016). Wefollowthe
+BERTnotationconventionsanddenotethevocabularyembeddingsizeasE,thenumberofencoder
+layersasL,andthehiddensizeasH. FollowingDevlinetal.(2019),wesetthefeed-forward/filter
+sizetobe4H andthenumberofattentionheadstobeH/64.
+TherearethreemaincontributionsthatALBERTmakesoverthedesignchoicesofBERT.
+Factorized embedding parameterization. In BERT, as well as subsequent modeling improve-
+mentssuchasXLNet(Yangetal.,2019)andRoBERTa(Liuetal.,2019),theWordPieceembedding
+sizeE istiedwiththehiddenlayersizeH,i.e.,E ≡H. Thisdecisionappearssuboptimalforboth
+modelingandpracticalreasons,asfollows.
+Fromamodelingperspective,WordPieceembeddingsaremeanttolearncontext-independentrepre-
+sentations,whereashidden-layerembeddingsaremeanttolearncontext-dependentrepresentations.
+As experiments with context length indicate (Liu et al., 2019), the power of BERT-like represen-
+tations comes from the use of context to provide the signal for learning such context-dependent
+representations. As such, untying the WordPiece embedding size E from the hidden layer size H
+allows us to make a more efficient usage of the total model parameters as informed by modeling
+needs,whichdictatethatH (cid:29)E.
+Fromapracticalperspective,naturallanguageprocessingusuallyrequirethevocabularysizeV to
+belarge.1 IfE ≡H,thenincreasingH increasesthesizeoftheembeddingmatrix,whichhassize
+1SimilartoBERT,alltheexperimentsinthispaperuseavocabularysizeV of30,000.
+3
+
+PublishedasaconferencepaperatICLR2020
+V ×E.Thiscaneasilyresultinamodelwithbillionsofparameters,mostofwhichareonlyupdated
+sparselyduringtraining.
+Therefore, for ALBERT we use a factorization of the embedding parameters, decomposing them
+intotwosmallermatrices. Insteadofprojectingtheone-hotvectorsdirectlyintothehiddenspaceof
+sizeH,wefirstprojectthemintoalowerdimensionalembeddingspaceofsizeE,andthenproject
+it to the hidden space. By using this decomposition, we reduce the embedding parameters from
+O(V ×H) to O(V ×E +E ×H). This parameter reduction is significant when H (cid:29) E. We
+choosetousethesameEforallwordpiecesbecausetheyaremuchmoreevenlydistributedacross
+documents compared to whole-word embedding, where having different embedding size (Grave
+etal.(2017);Baevski&Auli(2018);Daietal.(2019))fordifferentwordsisimportant.
+Cross-layerparametersharing. ForALBERT,weproposecross-layerparametersharingasan-
+otherwaytoimproveparameterefficiency. Therearemultiplewaystoshareparameters,e.g.,only
+sharingfeed-forwardnetwork(FFN)parametersacrosslayers,oronlysharingattentionparameters.
+The default decision for ALBERT is to share all parameters across layers. All our experiments
+usethisdefaultdecisionunlessotherwisespecified. Wecomparethisdesigndecisionagainstother
+strategiesinourexperimentsinSec.4.5.
+Similar strategies have been explored by Dehghani et al. (2018) (Universal Transformer, UT) and
+Bai et al. (2019) (Deep Equilibrium Models, DQE) for Transformer networks. Different from our
+observations, Dehghani et al. (2018) show that UT outperforms a vanilla Transformer. Bai et al.
+(2019)showthattheirDQEsreachanequilibriumpointforwhichtheinputandoutputembedding
+ofacertainlayerstaythesame. OurmeasurementontheL2distancesandcosinesimilarityshow
+thatourembeddingsareoscillatingratherthanconverging.
+18
+16
+14
+12
+10
+8
+6
+4
+2
+0
+0 5 10 15 20 25
+LayerID
+ecnatsid2L
+45
+BERT-large 40
+ALBERT-large 35
+30
+25
+20
+15
+10
+5
+0
+0 5 10 15 20 25
+LayerID
+)eergeD(ytiralimiSenisoC BERT-large
+ALBERT-large
+Figure1:TheL2distancesandcosinesimilarity(intermsofdegree)oftheinputandoutputembed-
+dingofeachlayerforBERT-largeandALBERT-large.
+Figure1showstheL2distancesandcosinesimilarityoftheinputandoutputembeddingsforeach
+layer,usingBERT-largeandALBERT-largeconfigurations(seeTable1). Weobservethatthetran-
+sitionsfromlayertolayeraremuchsmootherforALBERTthanforBERT.Theseresultsshowthat
+weight-sharing has an effect on stabilizing network parameters. Although there is a drop for both
+metricscomparedtoBERT,theyneverthelessdonotconvergeto0evenafter24layers. Thisshows
+thatthesolutionspaceforALBERTparametersisverydifferentfromtheonefoundbyDQE.
+Inter-sentence coherence loss. In addition to the masked language modeling (MLM) loss (De-
+vlin et al., 2019), BERT uses an additional loss called next-sentence prediction (NSP). NSP is a
+binaryclassificationlossforpredictingwhethertwosegmentsappearconsecutivelyintheoriginal
+text, as follows: positive examples are created by taking consecutive segments from the training
+corpus; negativeexamplesarecreatedbypairingsegmentsfromdifferentdocuments; positiveand
+negativeexamplesaresampledwithequalprobability. TheNSPobjectivewasdesignedtoimprove
+performanceondownstreamtasks,suchasnaturallanguageinference,thatrequirereasoningabout
+therelationshipbetweensentencepairs. However,subsequentstudies(Yangetal.,2019;Liuetal.,
+2019) found NSP’s impact unreliable and decided to eliminate it, a decision supported by an im-
+provementindownstreamtaskperformanceacrossseveraltasks.
+We conjecture that the main reason behind NSP’s ineffectiveness is its lack of difficulty as a task,
+ascomparedtoMLM.Asformulated,NSPconflatestopicpredictionandcoherencepredictionina
+4
+
+PublishedasaconferencepaperatICLR2020
+Model Parameters Layers Hidden Embedding Parameter-sharing
+base 108M 12 768 768 False
+BERT large 334M 24 1024 1024 False
+base 12M 12 768 128 True
+large 18M 24 1024 128 True
+ALBERT
+xlarge 60M 24 2048 128 True
+xxlarge 235M 12 4096 128 True
+Table1: TheconfigurationsofthemainBERTandALBERTmodelsanalyzedinthispaper.
+singletask2. However,topicpredictioniseasiertolearncomparedtocoherenceprediction,andalso
+overlapsmorewithwhatislearnedusingtheMLMloss.
+Wemaintainthatinter-sentencemodelingisanimportantaspectoflanguageunderstanding,butwe
+propose a loss based primarily on coherence. That is, for ALBERT, we use a sentence-order pre-
+diction (SOP) loss, which avoids topic prediction and instead focuses on modeling inter-sentence
+coherence. The SOP loss uses as positive examples the same technique as BERT (two consecu-
+tive segments from the same document), and as negative examples the same two consecutive seg-
+mentsbutwiththeirorderswapped. Thisforcesthemodeltolearnfiner-graineddistinctionsabout
+discourse-levelcoherenceproperties. AsweshowinSec.4.6,itturnsoutthatNSPcannotsolvethe
+SOPtaskatall(i.e.,itendsuplearningtheeasiertopic-predictionsignal,andperformsatrandom-
+baseline level on the SOP task), while SOP can solve the NSP task to a reasonable degree, pre-
+sumablybasedonanalyzingmisalignedcoherencecues. Asaresult,ALBERTmodelsconsistently
+improvedownstreamtaskperformanceformulti-sentenceencodingtasks.
+3.2 MODELSETUP
+WepresentthedifferencesbetweenBERTandALBERTmodelswithcomparablehyperparameter
+settingsinTable1. Duetothedesignchoicesdiscussedabove,ALBERTmodelshavemuchsmaller
+parametersizecomparedtocorrespondingBERTmodels.
+For example, ALBERT-large has about 18x fewer parameters compared to BERT-large, 18M ver-
+sus 334M. An ALBERT-xlarge configuration with H = 2048 has only 60M parameters and an
+ALBERT-xxlargeconfigurationwithH = 4096has233Mparameters,i.e.,around70%ofBERT-
+large’sparameters. NotethatforALBERT-xxlarge,wemainlyreportresultsona12-layernetwork
+becausea24-layernetwork(withthesameconfiguration)obtainssimilarresultsbutiscomputation-
+allymoreexpensive.
+This improvement in parameter efficiency is the most important advantage of ALBERT’s design
+choices. Before we can quantify this advantage, we need to introduce our experimental setup in
+moredetail.
+4 EXPERIMENTAL RESULTS
+4.1 EXPERIMENTALSETUP
+Tokeepthecomparisonasmeaningfulaspossible,wefollowtheBERT(Devlinetal.,2019)setupin
+usingtheBOOKCORPUS(Zhuetal.,2015)andEnglishWikipedia(Devlinetal.,2019)forpretrain-
+ingbaselinemodels. Thesetwocorporaconsistofaround16GBofuncompressedtext. Weformat
+ourinputsas“[CLS] x [SEP] x [SEP]”,wherex = x ,x ··· andx = x ,x ··· are
+1 2 1 1,1 1,2 2 1,1 1,2
+two segments.3 We always limit the maximum input length to 512, and randomly generate input
+sequences shorter than 512 with a probability of 10%. Like BERT, we use a vocabulary size of
+30,000,tokenizedusingSentencePiece(Kudo&Richardson,2018)asinXLNet(Yangetal.,2019).
+2Sinceanegativeexampleisconstructedusingmaterialfromadifferentdocument,thenegative-example
+segmentismisalignedbothfromatopicandfromacoherenceperspective.
+3A segment is usually comprised of more than one natural sentence, which has been shown to benefit
+performancebyLiuetal.(2019).
+5
+
+PublishedasaconferencepaperatICLR2020
+WegeneratemaskedinputsfortheMLMtargetsusingn-grammasking(Joshietal.,2019),withthe
+lengthofeachn-grammaskselectedrandomly. Theprobabilityforthelengthnisgivenby
+1/n
+p(n)=
+(cid:80)N
+1/k
+k=1
+Wesetthemaximumlengthofn-gram(i.e.,n)tobe3(i.e.,theMLMtargetcanconsistofuptoa
+3-gramofcompletewords,suchas“WhiteHousecorrespondents”).
+All the model updates use a batch size of 4096 and a LAMB optimizer with learning rate
+0.00176(Youetal.,2019). Wetrainallmodelsfor125,000stepsunlessotherwisespecified. Train-
+ing was done on Cloud TPU V3. The number of TPUs used for training ranged from 64 to 512,
+dependingonmodelsize.
+TheexperimentalsetupdescribedinthissectionisusedforallofourownversionsofBERTaswell
+asALBERTmodels,unlessotherwisespecified.
+4.2 EVALUATIONBENCHMARKS
+4.2.1 INTRINSICEVALUATION
+Tomonitorthetrainingprogress,wecreateadevelopmentsetbasedonthedevelopmentsetsfrom
+SQuADandRACEusingthesameprocedureasinSec.4.1.WereportaccuraciesforbothMLMand
+sentenceclassificationtasks. Notethatweonlyusethissettocheckhowthemodelisconverging;
+ithasnotbeenusedinawaythatwouldaffecttheperformanceofanydownstreamevaluation,such
+asviamodelselection.
+4.2.2 DOWNSTREAMEVALUATION
+FollowingYangetal.(2019)andLiuetal.(2019),weevaluateourmodelsonthreepopularbench-
+marks: TheGeneralLanguageUnderstandingEvaluation(GLUE)benchmark(Wangetal.,2018),
+twoversionsoftheStanfordQuestionAnsweringDataset(SQuAD;Rajpurkaretal.,2016;2018),
+andtheReAdingComprehensionfromExaminations(RACE)dataset(Laietal.,2017). Forcom-
+pleteness, we provide description of these benchmarks in Appendix A.3. As in (Liu et al., 2019),
+weperformearlystoppingonthedevelopmentsets,onwhichwereportallcomparisonsexceptfor
+ourfinalcomparisonsbasedonthetaskleaderboards,forwhichwealsoreporttestsetresults. For
+GLUEdatasetsthathavelargevariancesonthedevset,wereportmedianover5runs.
+4.3 OVERALLCOMPARISONBETWEENBERTANDALBERT
+WearenowreadytoquantifytheimpactofthedesignchoicesdescribedinSec.3,specificallythe
+ones around parameter efficiency. The improvement in parameter efficiency showcases the most
+importantadvantageofALBERT’sdesignchoices,asshowninTable2: withonlyaround70%of
+BERT-large’sparameters,ALBERT-xxlargeachievessignificantimprovementsoverBERT-large,as
+measuredbythedifferenceondevelopmentsetscoresforseveralrepresentativedownstreamtasks:
+SQuADv1.1(+1.9%),SQuADv2.0(+3.1%),MNLI(+1.4%),SST-2(+2.2%),andRACE(+8.4%).
+Anotherinterestingobservationisthespeedofdatathroughputattrainingtimeunderthesametrain-
+ingconfiguration(samenumberofTPUs). Becauseoflesscommunicationandfewercomputations,
+ALBERTmodelshavehigherdatathroughputcomparedtotheircorrespondingBERTmodels.Ifwe
+useBERT-largeasthebaseline,weobservethatALBERT-largeisabout1.7timesfasteriniterating
+throughthedatawhileALBERT-xxlargeisabout3timesslowerbecauseofthelargerstructure.
+Next,weperformablationexperimentsthatquantifytheindividualcontributionofeachofthedesign
+choicesforALBERT.
+4.4 FACTORIZEDEMBEDDINGPARAMETERIZATION
+Table 3 shows the effect of changing the vocabulary embedding size E using an ALBERT-base
+configuration setting (see Table 1), using the same set of representative downstream tasks. Under
+thenon-sharedcondition(BERT-style),largerembeddingsizesgivebetterperformance,butnotby
+6
+
+PublishedasaconferencepaperatICLR2020
+Model Parameters SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg Speedup
+base 108M 90.4/83.2 80.4/77.6 84.5 92.8 68.2 82.3 4.7x
+BERT large 334M 92.2/85.5 85.0/82.2 86.6 93.0 73.9 85.2 1.0
+base 12M 89.3/82.3 80.0/77.1 81.6 90.3 64.0 80.1 5.6x
+large 18M 90.6/83.9 82.3/79.4 83.5 91.7 68.5 82.4 1.7x
+ALBERT
+xlarge 60M 92.5/86.1 86.1/83.1 86.4 92.4 74.8 85.5 0.6x
+xxlarge 235M 94.1/88.3 88.1/85.1 88.0 95.2 82.3 88.7 0.3x
+Table 2: Dev set results for models pretrained over BOOKCORPUS and Wikipedia for 125k steps.
+Hereandeverywhereelse,theAvgcolumniscomputedbyaveragingthescoresofthedownstream
+taskstoitsleft(thetwonumbersofF1andEMforeachSQuADarefirstaveraged).
+much. Undertheall-sharedcondition(ALBERT-style),anembeddingofsize128appearstobethe
+best.Basedontheseresults,weuseanembeddingsizeE =128inallfuturesettings,asanecessary
+steptodofurtherscaling.
+Model E Parameters SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg
+64 87M 89.9/82.9 80.1/77.8 82.9 91.5 66.7 81.3
+ALBERT
+128 89M 89.9/82.8 80.3/77.3 83.7 91.5 67.9 81.7
+base
+256 93M 90.2/83.2 80.3/77.4 84.1 91.9 67.3 81.8
+not-shared
+768 108M 90.4/83.2 80.4/77.6 84.5 92.8 68.2 82.3
+64 10M 88.7/81.4 77.5/74.8 80.8 89.4 63.5 79.0
+ALBERT
+128 12M 89.3/82.3 80.0/77.1 81.6 90.3 64.0 80.1
+base
+256 16M 88.8/81.5 79.1/76.3 81.5 90.3 63.4 79.6
+all-shared
+768 31M 88.6/81.5 79.2/76.6 82.0 90.6 63.3 79.8
+Table3: TheeffectofvocabularyembeddingsizeontheperformanceofALBERT-base.
+4.5 CROSS-LAYERPARAMETERSHARING
+Table 4 presents experiments for various cross-layer parameter-sharing strategies, using an
+ALBERT-base configuration (Table 1) with two embedding sizes (E = 768 and E = 128). We
+compare the all-shared strategy (ALBERT-style), the not-shared strategy (BERT-style), and inter-
+mediatestrategiesinwhichonlytheattentionparametersareshared(butnottheFNNones)oronly
+theFFNparametersareshared(butnottheattentionones).
+Theall-sharedstrategyhurtsperformanceunderbothconditions,butitislesssevereforE =128(-
+1.5onAvg)comparedtoE =768(-2.5onAvg). Inaddition,mostoftheperformancedropappears
+tocomefromsharingtheFFN-layerparameters,whilesharingtheattentionparametersresultsinno
+dropwhenE =128(+0.1onAvg),andaslightdropwhenE =768(-0.7onAvg).
+Thereareotherstrategiesofsharingtheparameterscrosslayers. Forexample,WecandividetheL
+layersintoN groupsofsizeM,andeachsize-M groupsharesparameters. Overall,ourexperimen-
+talresultsshowsthatthesmallerthegroupsizeM is,thebettertheperformanceweget. However,
+decreasinggroupsizeM alsodramaticallyincreasethenumberofoverallparameters. Wechoose
+all-sharedstrategyasourdefaultchoice.
+Model Parameters SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg
+all-shared 31M 88.6/81.5 79.2/76.6 82.0 90.6 63.3 79.8
+ALBERT
+shared-attention 83M 89.9/82.7 80.0/77.2 84.0 91.4 67.7 81.6
+base
+E=768 shared-FFN 57M 89.2/82.1 78.2/75.4 81.5 90.8 62.6 79.5
+not-shared 108M 90.4/83.2 80.4/77.6 84.5 92.8 68.2 82.3
+all-shared 12M 89.3/82.3 80.0/77.1 82.0 90.3 64.0 80.1
+ALBERT
+shared-attention 64M 89.9/82.8 80.7/77.9 83.4 91.9 67.6 81.7
+base
+E=128 shared-FFN 38M 88.9/81.6 78.6/75.6 82.3 91.7 64.4 80.2
+not-shared 89M 89.9/82.8 80.3/77.3 83.2 91.5 67.9 81.6
+Table4: Theeffectofcross-layerparameter-sharingstrategies,ALBERT-baseconfiguration.
+7
+
+PublishedasaconferencepaperatICLR2020
+4.6 SENTENCEORDERPREDICTION(SOP)
+Wecomparehead-to-headthreeexperimentalconditionsfortheadditionalinter-sentenceloss: none
+(XLNet- and RoBERTa-style), NSP (BERT-style), and SOP (ALBERT-style), using an ALBERT-
+baseconfiguration. ResultsareshowninTable5,bothoverintrinsic(accuracyfortheMLM,NSP,
+andSOPtasks)anddownstreamtasks.
+IntrinsicTasks DownstreamTasks
+SPtasks MLM NSP SOP SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg
+None 54.9 52.4 53.3 88.6/81.5 78.1/75.3 81.5 89.9 61.7 79.0
+NSP 54.5 90.5 52.0 88.4/81.5 77.2/74.6 81.6 91.1 62.3 79.2
+SOP 54.0 78.9 86.5 89.3/82.3 80.0/77.1 82.0 90.3 64.0 80.1
+Table5: Theeffectofsentence-predictionloss,NSPvs. SOP,onintrinsicanddownstreamtasks.
+TheresultsontheintrinsictasksrevealthattheNSPlossbringsnodiscriminativepowertotheSOP
+task (52.0% accuracy, similar to the random-guess performance for the “None” condition). This
+allows us to conclude that NSP ends up modeling only topic shift. In contrast, the SOP loss does
+solvetheNSPtaskrelativelywell(78.9%accuracy),andtheSOPtaskevenbetter(86.5%accuracy).
+Evenmoreimportantly,theSOPlossappearstoconsistentlyimprovedownstreamtaskperformance
+for multi-sentence encoding tasks (around +1% for SQuAD1.1, +2% for SQuAD2.0, +1.7% for
+RACE),foranAvgscoreimprovementofaround+1%.
+4.7 WHATIFWETRAINFORTHESAMEAMOUNTOFTIME?
+Thespeed-upresultsinTable2indicatethatdata-throughputforBERT-largeisabout3.17xhigher
+comparedtoALBERT-xxlarge. Sincelongertrainingusuallyleadstobetterperformance, weper-
+formacomparisoninwhich,insteadofcontrollingfordatathroughput(numberoftrainingsteps),
+wecontrolfortheactualtrainingtime(i.e.,letthemodelstrainforthesamenumberofhours). In
+Table 6, we compare the performance of a BERT-large model after 400k training steps (after 34h
+oftraining),roughlyequivalentwiththeamountoftimeneededtotrainanALBERT-xxlargemodel
+with125ktrainingsteps(32hoftraining).
+Models Steps Time SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg
+BERT-large 400k 34h 93.5/87.4 86.9/84.3 87.8 94.6 77.3 87.2
+ALBERT-xxlarge 125k 32h 94.0/88.1 88.3/85.3 87.8 95.4 82.5 88.7
+Table6:Theeffectofcontrollingfortrainingtime,BERT-largevsALBERT-xxlargeconfigurations.
+After training for roughly the same amount of time, ALBERT-xxlarge is significantly better than
+BERT-large: +1.5%betteronAvg,withthedifferenceonRACEashighas+5.2%.
+4.8 ADDITIONALTRAININGDATAANDDROPOUTEFFECTS
+The experiments done up to this point use only the Wikipedia and BOOKCORPUS datasets, as in
+(Devlinetal.,2019). Inthissection, wereportmeasurementsontheimpactoftheadditionaldata
+usedbybothXLNet(Yangetal.,2019)andRoBERTa(Liuetal.,2019).
+Fig.2aplotsthedevsetMLMaccuracyundertwoconditions,withoutandwithadditionaldata,with
+the latter condition giving a significant boost. We also observe performance improvements on the
+downstreamtasksinTable7,exceptfortheSQuADbenchmarks(whichareWikipedia-based,and
+thereforearenegativelyaffectedbyout-of-domaintrainingmaterial).
+SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg
+Noadditionaldata 89.3/82.3 80.0/77.1 81.6 90.3 64.0 80.1
+Withadditionaldata 88.8/81.7 79.1/76.3 82.4 92.8 66.0 80.8
+Table7: TheeffectofadditionaltrainingdatausingtheALBERT-baseconfiguration.
+We also note that, even after training for 1M steps, our largest models still do not overfit to their
+trainingdata. Asaresult,wedecidetoremovedropouttofurtherincreaseourmodelcapacity. The
+8
+
+PublishedasaconferencepaperatICLR2020
+70.0
+69.5
+69.0
+68.5
+68.0
+67.5
+67.0
+66.5
+66.0
+35 40 45 50 55
+Steps(1e4)
+%)MLM(ycaruccaveD
+72.5
+72.0
+71.5
+71.0
+W/Oadditionaldata 70.5
+Wadditionaldata
+70.0
+90 100 110 120 130 140 150
+Steps(1e4)
+(a)Addingdata
+%)MLM(ycaruccaveD
+W/Dropout
+W/ODropout
+(b)Removingdropout
+Figure2: Theeffectsofaddingdataandremovingdropoutduringtraining.
+plot in Fig. 2b shows that removing dropout significantly improves MLM accuracy. Intermediate
+evaluationonALBERT-xxlargeataround1Mtrainingsteps(Table8)alsoconfirmsthatremoving
+dropout helps the downstream tasks. There is empirical (Szegedy et al., 2017) and theoretical (Li
+etal.,2019)evidenceshowingthatacombinationofbatchnormalizationanddropoutinConvolu-
+tionalNeuralNetworksmayhaveharmfulresults. Tothebestofourknowledge,wearethefirstto
+showthatdropoutcanhurtperformanceinlargeTransformer-basedmodels. However,theunderly-
+ingnetworkstructureofALBERTisaspecialcaseofthetransformerandfurtherexperimentation
+isneededtoseeifthisphenomenonappearswithothertransformer-basedarchitecturesornot.
+SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg
+Withdropout 94.7/89.2 89.6/86.9 90.0 96.3 85.7 90.4
+Withoutdropout 94.8/89.5 89.9/87.2 90.4 96.5 86.1 90.7
+Table8: Theeffectofremovingdropout,measuredforanALBERT-xxlargeconfiguration.
+4.9 CURRENTSTATE-OF-THE-ARTONNLUTASKS
+TheresultswereportinthissectionmakeuseofthetrainingdatausedbyDevlinetal.(2019), as
+wellastheadditionaldatausedbyLiuetal.(2019)andYangetal.(2019).Wereportstate-of-the-art
+resultsundertwosettingsforfine-tuning: single-modelandensembles. Inbothsettings,weonlydo
+single-taskfine-tuning4. FollowingLiuetal.(2019),onthedevelopmentsetwereportthemedian
+resultoverfiveruns.
+Models MNLI QNLI QQP RTE SST MRPC CoLA STS WNLI Avg
+Single-tasksinglemodelsondev
+BERT-large 86.6 92.3 91.3 70.4 93.2 88.0 60.6 90.0 - -
+XLNet-large 89.8 93.9 91.8 83.8 95.6 89.2 63.6 91.8 - -
+RoBERTa-large 90.2 94.7 92.2 86.6 96.4 90.9 68.0 92.4 - -
+ALBERT(1M) 90.4 95.2 92.0 88.1 96.8 90.2 68.7 92.7 - -
+ALBERT(1.5M) 90.8 95.3 92.2 89.2 96.9 90.9 71.4 93.0 - -
+Ensemblesontest(fromleaderboardasofSept.16,2019)
+ALICE 88.2 95.7 90.7 83.5 95.2 92.6 69.2 91.1 80.8 87.0
+MT-DNN 87.9 96.0 89.9 86.3 96.5 92.7 68.4 91.1 89.0 87.6
+XLNet 90.2 98.6 90.3 86.3 96.8 93.0 67.8 91.6 90.4 88.4
+RoBERTa 90.8 98.9 90.2 88.2 96.7 92.3 67.8 92.2 89.0 88.5
+Adv-RoBERTa 91.1 98.8 90.3 88.7 96.8 93.1 68.0 92.4 89.0 88.8
+ALBERT 91.3 99.2 90.5 89.2 97.1 93.4 69.1 92.5 91.8 89.4
+Table9: State-of-the-artresultsontheGLUEbenchmark. Forsingle-tasksingle-modelresults,we
+reportALBERTat1Msteps(comparabletoRoBERTa)andat1.5Msteps. TheALBERTensemble
+usesmodelstrainedwith1M,1.5M,andothernumbersofsteps.
+The single-model ALBERT configuration incorporates the best-performing settings discussed: an
+ALBERT-xxlarge configuration (Table 1) using combined MLM and SOP losses, and no dropout.
+4FollowingLiuetal.(2019),wefine-tuneforRTE,STS,andMRPCusinganMNLIcheckpoint.
+9
+
+PublishedasaconferencepaperatICLR2020
+Thecheckpointsthatcontributetothefinalensemblemodelareselectedbasedondevelopmentset
+performance;thenumberofcheckpointsconsideredforthisselectionrangefrom6to17,depending
+on the task. For the GLUE (Table 9) and RACE (Table 10) benchmarks, we average the model
+predictions for the ensemble models, where the candidates are fine-tuned from different training
+steps using the 12-layer and 24-layer architectures. For SQuAD (Table 10), we average the pre-
+diction scores for those spans that have multiple probabilities; we also average the scores of the
+“unanswerable”decision.
+Bothsingle-modelandensembleresultsindicatethatALBERTimprovesthestate-of-the-artsignif-
+icantly for all three benchmarks, achieving a GLUE score of 89.4, a SQuAD 2.0 test F1 score of
+92.2,andaRACEtestaccuracyof89.4. Thelatterappearstobeaparticularlystrongimprovement,
+ajumpof+17.4%absolutepointsoverBERT(Devlinetal.,2019;Clarketal.,2019),+7.6%over
+XLNet(Yangetal.,2019),+6.2%overRoBERTa(Liuetal.,2019),and5.3%overDCMI+(Zhang
+etal.,2019),anensembleofmultiplemodelsspecificallydesignedforreadingcomprehensiontasks.
+Oursinglemodelachievesanaccuracyof86.5%,whichisstill2.4%betterthanthestate-of-the-art
+ensemblemodel.
+Models SQuAD1.1dev SQuAD2.0dev SQuAD2.0test RACEtest(Middle/High)
+Singlemodel(fromleaderboardasofSept.23,2019)
+BERT-large 90.9/84.1 81.8/79.0 89.1/86.3 72.0(76.6/70.1)
+XLNet 94.5/89.0 88.8/86.1 89.1/86.3 81.8(85.5/80.2)
+RoBERTa 94.6/88.9 89.4/86.5 89.8/86.8 83.2(86.5/81.3)
+UPM - - 89.9/87.2 -
+XLNet+SG-NetVerifier++ - - 90.1/87.2 -
+ALBERT(1M) 94.8/89.2 89.9/87.2 - 86.0(88.2/85.1)
+ALBERT(1.5M) 94.8/89.3 90.2/87.4 90.9/88.1 86.5(89.0/85.5)
+Ensembles(fromleaderboardasofSept.23,2019)
+BERT-large 92.2/86.2 - - -
+XLNet+SG-NetVerifier - - 90.7/88.2 -
+UPM - - 90.7/88.2
+XLNet+DAAF+Verifier - - 90.9/88.6 -
+DCMN+ - - - 84.1(88.5/82.3)
+ALBERT 95.5/90.1 91.4/88.9 92.2/89.7 89.4(91.2/88.6)
+Table10: State-of-the-artresultsontheSQuADandRACEbenchmarks.
+5 DISCUSSION
+WhileALBERT-xxlargehaslessparametersthanBERT-largeandgetssignificantlybetterresults,it
+iscomputationallymoreexpensiveduetoitslargerstructure.Animportantnextstepisthustospeed
+upthetrainingandinferencespeedofALBERTthroughmethodslikesparseattention(Childetal.,
+2019)andblockattention(Shenetal.,2018). Anorthogonallineofresearch,whichcouldprovide
+additional representation power, includes hard example mining (Mikolov et al., 2013) and more
+efficientlanguagemodelingtraining(Yangetal.,2019). Additionally,althoughwehaveconvincing
+evidencethatsentenceorderpredictionisamoreconsistently-usefullearningtaskthatleadstobetter
+languagerepresentations,wehypothesizethattherecouldbemoredimensionsnotyetcapturedby
+thecurrentself-supervisedtraininglossesthatcouldcreateadditionalrepresentationpowerforthe
+resultingrepresentations.
+ACKNOWLEDGEMENT
+TheauthorswouldliketothankBeerChangpinyo,NanDing,NoamShazeer,andTomerLevinboim
+for discussion and providing useful feedback on the project; Omer Levy and Naman Goyal for
+clarifying experimental setup for RoBERTa; Zihang Dai for clarifying XLNet; Brandon Norick,
+EmmaStrubell,ShaojieBai,ChasLeichner,andSachinMehtaforprovidingusefulfeedbackonthe
+paper;JacobDevlinforprovidingtheEnglishandmultilingualversionoftrainingdata;LiangXu,
+ChenjieCaoandtheCLUEcommunityforprovidingthetrainingdataandevaluationbenechmark
+oftheChineseversionofALBERTmodels.
+10
+
+PublishedasaconferencepaperatICLR2020
+REFERENCES
+Alexei Baevski and Michael Auli. Adaptive input representations for neural language modeling.
+arXivpreprintarXiv:1809.10853,2018.
+ShaojieBai,J.ZicoKolter,andVladlenKoltun. Deepequilibriummodels. InNeuralInformation
+ProcessingSystems(NeurIPS),2019.
+Roy Bar-Haim, Ido Dagan, Bill Dolan, Lisa Ferro, Danilo Giampiccolo, Bernardo Magnini, and
+IdanSzpektor. ThesecondPASCALrecognisingtextualentailmentchallenge. InProceedingsof
+thesecondPASCALchallengesworkshoponrecognisingtextualentailment, volume6, pp.6–4.
+Venice,2006.
+LuisaBentivogli,PeterClark,IdoDagan,andDaniloGiampiccolo. ThefifthPASCALrecognizing
+textualentailmentchallenge. InTAC,2009.
+DanielCer,MonaDiab,EnekoAgirre,In˜igoLopez-Gazpio,andLuciaSpecia. SemEval-2017task
+1:Semantictextualsimilaritymultilingualandcrosslingualfocusedevaluation.InProceedingsof
+the11thInternationalWorkshoponSemanticEvaluation(SemEval-2017),pp.1–14,Vancouver,
+Canada, August 2017. Association for Computational Linguistics. doi: 10.18653/v1/S17-2001.
+URLhttps://www.aclweb.org/anthology/S17-2001.
+Tianqi Chen, Bing Xu, Chiyuan Zhang, and Carlos Guestrin. Training deep nets with sublinear
+memorycost. arXivpreprintarXiv:1604.06174,2016.
+RewonChild,ScottGray,AlecRadford,andIlyaSutskever. Generatinglongsequenceswithsparse
+transformers. arXivpreprintarXiv:1904.10509,2019.
+Kevin Clark, Minh-Thang Luong, Urvashi Khandelwal, Christopher D Manning, and Quoc V
+Le. Bam! born-again multi-task networks for natural language understanding. arXiv preprint
+arXiv:1907.04829,2019.
+Ido Dagan, Oren Glickman, and Bernardo Magnini. The PASCAL recognising textual entailment
+challenge. InMachineLearningChallengesWorkshop,pp.177–190.Springer,2005.
+AndrewMDaiandQuocVLe. Semi-supervisedsequencelearning. InAdvancesinneuralinfor-
+mationprocessingsystems,pp.3079–3087,2015.
+ZihangDai,ZhilinYang,YimingYang,WilliamWCohen,JaimeCarbonell,QuocVLe,andRuslan
+Salakhutdinov. Transformer-xl: Attentivelanguagemodelsbeyondafixed-lengthcontext. arXiv
+preprintarXiv:1901.02860,2019.
+MostafaDehghani,StephanGouws,OriolVinyals,JakobUszkoreit,andŁukaszKaiser. Universal
+transformers. arXivpreprintarXiv:1807.03819,2018.
+JacobDevlin,Ming-WeiChang,KentonLee,andKristinaToutanova. BERT:Pre-trainingofdeep
+bidirectionaltransformersforlanguageunderstanding. InProceedingsofthe2019Conferenceof
+theNorthAmericanChapteroftheAssociationforComputationalLinguistics:HumanLanguage
+Technologies,Volume1(LongandShortPapers),pp.4171–4186,Minneapolis,Minnesota,June
+2019. Association for Computational Linguistics. doi: 10.18653/v1/N19-1423. URL https:
+//www.aclweb.org/anthology/N19-1423.
+WilliamB.DolanandChrisBrockett.Automaticallyconstructingacorpusofsententialparaphrases.
+In Proceedings of the Third International Workshop on Paraphrasing (IWP2005), 2005. URL
+https://www.aclweb.org/anthology/I05-5002.
+Zhe Gan, Yunchen Pu, Ricardo Henao, Chunyuan Li, Xiaodong He, and Lawrence Carin. Learn-
+ing generic sentence representations using convolutional neural networks. In Proceedings of
+the 2017 Conference on Empirical Methods in Natural Language Processing, pp. 2390–2400,
+Copenhagen, Denmark, September 2017. Association for Computational Linguistics. doi:
+10.18653/v1/D17-1254. URLhttps://www.aclweb.org/anthology/D17-1254.
+11
+
+PublishedasaconferencepaperatICLR2020
+DaniloGiampiccolo,BernardoMagnini,IdoDagan,andBillDolan.ThethirdPASCALrecognizing
+textual entailment challenge. In Proceedings of the ACL-PASCAL Workshop on Textual Entail-
+mentandParaphrasing,pp.1–9,Prague,June2007.AssociationforComputationalLinguistics.
+URLhttps://www.aclweb.org/anthology/W07-1401.
+AidanNGomez,MengyeRen,RaquelUrtasun,andRogerBGrosse. Thereversibleresidualnet-
+work:Backpropagationwithoutstoringactivations.InAdvancesinneuralinformationprocessing
+systems,pp.2214–2224,2017.
+LinyuanGong,DiHe,ZhuohanLi,TaoQin,LiweiWang,andTieyanLiu. Efficienttrainingofbert
+by progressively stacking. In International Conference on Machine Learning, pp. 2337–2346,
+2019.
+EdouardGrave,ArmandJoulin,MoustaphaCisse´,Herve´Je´gou,etal. Efficientsoftmaxapproxima-
+tionforgpus. InProceedingsofthe34thInternationalConferenceonMachineLearning-Volume
+70,pp.1302–1310.JMLR.org,2017.
+BarbaraJ.Grosz,AravindK.Joshi,andScottWeinstein. Centering: Aframeworkformodelingthe
+local coherence of discourse. Computational Linguistics, 21(2):203–225, 1995. URL https:
+//www.aclweb.org/anthology/J95-2003.
+M.A.K.HallidayandRuqaiyaHasan. CohesioninEnglish. Routledge,1976.
+JieHao,XingWang,BaosongYang,LongyueWang,JinfengZhang,andZhaopengTu. Modeling
+recurrence for transformer. Proceedings of the 2019 Conference of the North, 2019. doi: 10.
+18653/v1/n19-1122. URLhttp://dx.doi.org/10.18653/v1/n19-1122.
+Dan Hendrycks and Kevin Gimpel. Gaussian Error Linear Units (GELUs). arXiv preprint
+arXiv:1606.08415,2016.
+FelixHill,KyunghyunCho,andAnnaKorhonen. Learningdistributedrepresentationsofsentences
+fromunlabelleddata. InProceedingsofthe2016ConferenceoftheNorthAmericanChapterof
+theAssociationforComputationalLinguistics: HumanLanguageTechnologies,pp.1367–1377.
+Association for Computational Linguistics, 2016. doi: 10.18653/v1/N16-1162. URL http:
+//aclweb.org/anthology/N16-1162.
+JerryR.Hobbs. Coherenceandcoreference. CognitiveScience,3(1):67–90,1979.
+JeremyHowardandSebastianRuder. Universallanguagemodelfine-tuningfortextclassification.
+arXivpreprintarXiv:1801.06146,2018.
+Shankar Iyer, Nikhil Dandekar, and Kornl Csernai. First quora dataset release: Ques-
+tion pairs, January 2017. URL https://www.quora.com/q/quoradata/
+First-Quora-Dataset-Release-Question-Pairs.
+YacineJernite,SamuelRBowman,andDavidSontag. Discourse-basedobjectivesforfastunsuper-
+visedsentencerepresentationlearning. arXivpreprintarXiv:1705.00557,2017.
+Mandar Joshi, Danqi Chen, Yinhan Liu, Daniel S Weld, Luke Zettlemoyer, and Omer Levy.
+SpanBERT: Improving pre-training by representing and predicting spans. arXiv preprint
+arXiv:1907.10529,2019.
+Ryan Kiros, Yukun Zhu, Ruslan Salakhutdinov, Richard S. Zemel, Antonio Torralba, Raquel Ur-
+tasun, and Sanja Fidler. Skip-thought vectors. In Proceedings of the 28th International Con-
+ference on Neural Information Processing Systems - Volume 2, NIPS’15, pp. 3294–3302, Cam-
+bridge, MA, USA, 2015. MIT Press. URL http://dl.acm.org/citation.cfm?id=
+2969442.2969607.
+Taku Kudo and John Richardson. SentencePiece: A simple and language independent sub-
+word tokenizer and detokenizer for neural text processing. In Proceedings of the 2018 Con-
+ference on Empirical Methods in Natural Language Processing: System Demonstrations, pp.
+66–71, Brussels, Belgium, November 2018. Association for Computational Linguistics. doi:
+10.18653/v1/D18-2012. URLhttps://www.aclweb.org/anthology/D18-2012.
+12
+
+PublishedasaconferencepaperatICLR2020
+GuokunLai,QizheXie,HanxiaoLiu,YimingYang,andEduardHovy.RACE:Large-scaleReAding
+comprehensiondatasetfromexaminations. InProceedingsofthe2017ConferenceonEmpirical
+MethodsinNaturalLanguageProcessing,pp.785–794,Copenhagen,Denmark,September2017.
+AssociationforComputationalLinguistics. doi:10.18653/v1/D17-1082. URLhttps://www.
+aclweb.org/anthology/D17-1082.
+QuocLeandTomasMikolov. Distributedrepresentationsofsentencesanddocuments. InProceed-
+ingsofthe31stICML,Beijing,China,2014.
+HectorLevesque,ErnestDavis,andLeoraMorgenstern. TheWinogradschemachallenge. InThir-
+teenthInternationalConferenceonthePrinciplesofKnowledgeRepresentationandReasoning,
+2012.
+XiangLi,ShuoChen,XiaolinHu,andJianYang. Understandingthedisharmonybetweendropout
+andbatchnormalizationbyvarianceshift. InProceedingsoftheIEEEConferenceonComputer
+VisionandPatternRecognition,pp.2682–2690,2019.
+Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike
+Lewis, Luke Zettlemoyer, and Veselin Stoyanov. RoBERTa: A robustly optimized BERT pre-
+trainingapproach. arXivpreprintarXiv:1907.11692,2019.
+Bryan McCann, James Bradbury, Caiming Xiong, and Richard Socher. Learned in translation:
+Contextualized word vectors. In I. Guyon, U. V. Luxburg, S. Bengio, H. Wallach, R. Fergus,
+S.Vishwanathan,andR.Garnett(eds.),AdvancesinNeuralInformationProcessingSystems30,
+pp. 6294–6305. Curran Associates, Inc., 2017. URL http://papers.nips.cc/paper/
+7209-learned-in-translation-contextualized-word-vectors.pdf.
+Tomas Mikolov, Ilya Sutskever, Kai Chen, Greg S Corrado, and Jeff Dean. Distributed represen-
+tationsofwordsandphrasesandtheircompositionality. InAdvancesinneuralinformationpro-
+cessingsystems,pp.3111–3119,2013.
+AllenNie,ErinBennett,andNoahGoodman. DisSent: Learningsentencerepresentationsfromex-
+plicitdiscourserelations. InProceedingsofthe57thAnnualMeetingoftheAssociationforCom-
+putationalLinguistics,pp.4497–4510,Florence,Italy,July2019.AssociationforComputational
+Linguistics. doi: 10.18653/v1/P19-1442. URLhttps://www.aclweb.org/anthology/
+P19-1442.
+JeffreyPennington,RichardSocher,andChristopherManning. Glove:Globalvectorsforwordrep-
+resentation. InProceedingsofthe2014ConferenceonEmpiricalMethodsinNaturalLanguage
+Processing(EMNLP),pp.1532–1543,Doha,Qatar,October2014.AssociationforComputational
+Linguistics. doi: 10.3115/v1/D14-1162. URLhttps://www.aclweb.org/anthology/
+D14-1162.
+Matthew Peters, Mark Neumann, Mohit Iyyer, Matt Gardner, Christopher Clark, Kenton Lee, and
+LukeZettlemoyer. Deepcontextualizedwordrepresentations. InProceedingsofthe2018Con-
+ference of the North American Chapter of the Association for Computational Linguistics: Hu-
+manLanguageTechnologies,Volume1(LongPapers),pp.2227–2237,NewOrleans,Louisiana,
+June 2018. Association for Computational Linguistics. doi: 10.18653/v1/N18-1202. URL
+https://www.aclweb.org/anthology/N18-1202.
+Alec Radford, Karthik Narasimhan, Tim Salimans, and Ilya Sutskever. Improving language
+understanding by generative pre-training. https://s3-us-west-2.amazonaws.com/
+openai-assets/research-covers/language-unsupervised/language_
+understanding_paper.pdf,2018.
+AlecRadford,JeffreyWu,RewonChild,DavidLuan,DarioAmodei,andIlyaSutskever. Language
+modelsareunsupervisedmultitasklearners. OpenAIBlog,1(8),2019.
+ColinRaffel,NoamShazeer,AdamRoberts,KatherineLee,SharanNarang,MichaelMatena,Yanqi
+Zhou,WeiLi,andPeterJLiu. Exploringthelimitsoftransferlearningwithaunifiedtext-to-text
+transformer. arXivpreprintarXiv:1910.10683,2019.
+13
+
+PublishedasaconferencepaperatICLR2020
+PranavRajpurkar,JianZhang,KonstantinLopyrev,andPercyLiang. SQuAD:100,000+questions
+formachinecomprehensionoftext.InProceedingsofthe2016ConferenceonEmpiricalMethods
+in Natural Language Processing, pp. 2383–2392, Austin, Texas, November 2016. Association
+forComputationalLinguistics. doi: 10.18653/v1/D16-1264. URLhttps://www.aclweb.
+org/anthology/D16-1264.
+PranavRajpurkar,RobinJia,andPercyLiang.Knowwhatyoudon’tknow:Unanswerablequestions
+for SQuAD. In Proceedings of the 56th Annual Meeting of the Association for Computational
+Linguistics(Volume2:ShortPapers),pp.784–789,Melbourne,Australia,July2018.Association
+for Computational Linguistics. doi: 10.18653/v1/P18-2124. URL https://www.aclweb.
+org/anthology/P18-2124.
+NoamShazeer,YoulongCheng,NikiParmar,DustinTran,AshishVaswani,PenpornKoanantakool,
+PeterHawkins,HyoukJoongLee,MingshengHong,CliffYoung,etal. Mesh-tensorflow: Deep
+learningforsupercomputers. InAdvancesinNeuralInformationProcessingSystems,pp.10414–
+10423,2018.
+TaoShen,TianyiZhou,GuodongLong,JingJiang,andChengqiZhang. Bi-directionalblockself-
+attention for fast and memory-efficient sequence modeling. arXiv preprint arXiv:1804.00857,
+2018.
+Mohammad Shoeybi, Mostofa Patwary, Raul Puri, Patrick LeGresley, Jared Casper, and Bryan
+Catanzaro. Megatron-LM: Training multi-billion parameter language models using model par-
+allelism,2019.
+Richard Socher, Alex Perelygin, Jean Wu, Jason Chuang, Christopher D. Manning, Andrew Ng,
+and Christopher Potts. Recursive deep models for semantic compositionality over a sentiment
+treebank. In Proceedings of the 2013 Conference on Empirical Methods in Natural Language
+Processing,pp.1631–1642,Seattle,Washington,USA,October2013.AssociationforComputa-
+tionalLinguistics. URLhttps://www.aclweb.org/anthology/D13-1170.
+Siqi Sun, Yu Cheng, Zhe Gan, and Jingjing Liu. Patient knowledge distillation for BERT model
+compression. arXivpreprintarXiv:1908.09355,2019.
+Christian Szegedy, Sergey Ioffe, Vincent Vanhoucke, and Alexander A Alemi. Inception-v4,
+inception-resnetandtheimpactofresidualconnectionsonlearning. InThirty-FirstAAAIConfer-
+enceonArtificialIntelligence,2017.
+IuliaTurc,Ming-WeiChang,KentonLee,andKristinaToutanova. Well-readstudentslearnbetter:
+Theimpactofstudentinitializationonknowledgedistillation. arXivpreprintarXiv:1908.08962,
+2019.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
+ŁukaszKaiser,andIlliaPolosukhin. Attentionisallyouneed. InAdvancesinneuralinformation
+processingsystems,pp.5998–6008,2017.
+AlexWang,AmanpreetSingh,JulianMichael,FelixHill,OmerLevy,andSamuelBowman.GLUE:
+Amulti-taskbenchmarkandanalysisplatformfornaturallanguageunderstanding. InProceed-
+ingsofthe2018EMNLPWorkshopBlackboxNLP:AnalyzingandInterpretingNeuralNetworks
+forNLP,pp.353–355,Brussels,Belgium,November2018.AssociationforComputationalLin-
+guistics. doi: 10.18653/v1/W18-5446. URL https://www.aclweb.org/anthology/
+W18-5446.
+Wei Wang, Bin Bi, Ming Yan, Chen Wu, Zuyi Bao, Liwei Peng, and Luo Si. StructBERT: Incor-
+porating language structures into pre-training for deep language understanding. arXiv preprint
+arXiv:1908.04577,2019.
+AlexWarstadt,AmanpreetSingh,andSamuelRBowman. Neuralnetworkacceptabilityjudgments.
+arXivpreprintarXiv:1805.12471,2018.
+AdinaWilliams,NikitaNangia,andSamuelBowman. Abroad-coveragechallengecorpusforsen-
+tence understanding through inference. In Proceedings of the 2018 Conference of the North
+14
+
+PublishedasaconferencepaperatICLR2020
+AmericanChapteroftheAssociationforComputationalLinguistics:HumanLanguageTechnolo-
+gies,Volume1(LongPapers),pp.1112–1122,NewOrleans,Louisiana,June2018.Association
+forComputationalLinguistics. doi: 10.18653/v1/N18-1101. URLhttps://www.aclweb.
+org/anthology/N18-1101.
+Zhilin Yang, Zihang Dai, Yiming Yang, Jaime Carbonell, Ruslan Salakhutdinov, and Quoc V
+Le. XLNet: Generalized autoregressive pretraining for language understanding. arXiv preprint
+arXiv:1906.08237,2019.
+Yang You, Jing Li, Jonathan Hseu, Xiaodan Song, James Demmel, and Cho-Jui Hsieh. Reducing
+BERTpre-trainingtimefrom3daysto76minutes. arXivpreprintarXiv:1904.00962,2019.
+Shuailiang Zhang, Hai Zhao, Yuwei Wu, Zhuosheng Zhang, Xi Zhou, and Xiang Zhou.
+DCMN+: Dual co-matching network for multi-choice reading comprehension. arXiv preprint
+arXiv:1908.11511,2019.
+YukunZhu,RyanKiros,RichZemel,RuslanSalakhutdinov,RaquelUrtasun,AntonioTorralba,and
+Sanja Fidler. Aligning books and movies: Towards story-like visual explanations by watching
+movies and reading books. In Proceedings of the IEEE international conference on computer
+vision,pp.19–27,2015.
+A APPENDIX
+A.1 EFFECTOFNETWORKDEPTHANDWIDTH
+In this section, we check how depth (number of layers) and width (hidden size) affect the perfor-
+mance of ALBERT. Table 11 shows the performance of an ALBERT-large configuration (see Ta-
+ble1)usingdifferentnumbersoflayers. Networkswith3ormorelayersaretrainedbyfine-tuning
+using the parameters from the depth before (e.g., the 12-layer network parameters are fine-tuned
+fromthecheckpointofthe6-layernetworkparameters).5 SimilartechniquehasbeenusedinGong
+et al. (2019). If we compare a 3-layer ALBERT model with a 1-layer ALBERT model, although
+theyhavethesamenumberofparameters,theperformanceincreasessignificantly. However,there
+arediminishingreturnswhencontinuingtoincreasethenumberoflayers: theresultsofa12-layer
+networkarerelativelyclosetotheresultsofa24-layernetwork,andtheperformanceofa48-layer
+networkappearstodecline.
+Numberoflayers Parameters SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg
+1 18M 31.1/22.9 50.1/50.1 66.4 80.8 40.1 52.9
+3 18M 79.8/69.7 64.4/61.7 77.7 86.7 54.0 71.2
+6 18M 86.4/78.4 73.8/71.1 81.2 88.9 60.9 77.2
+12 18M 89.8/83.3 80.7/77.9 83.3 91.7 66.7 81.5
+24 18M 90.3/83.3 81.8/79.0 83.3 91.5 68.7 82.1
+48 18M 90.0/83.1 81.8/78.9 83.4 91.9 66.9 81.8
+Table11: TheeffectofincreasingthenumberoflayersforanALBERT-largeconfiguration.
+A similar phenomenon, this time for width, can be seen in Table 12 for a 3-layer ALBERT-large
+configuration. Asweincreasethehiddensize,wegetanincreaseinperformancewithdiminishing
+returns.Atahiddensizeof6144,theperformanceappearstodeclinesignificantly.Wenotethatnone
+ofthesemodelsappeartooverfitthetrainingdata,andtheyallhavehighertraininganddevelopment
+losscomparedtothebest-performingALBERTconfigurations.
+5IfwecomparetheperformanceofALBERT-largeheretotheperformanceinTable2,wecanseethatthis
+warm-starttechniquedoesnothelptoimprovethedownstreamperformance.However,itdoeshelpthe48-layer
+networktoconverge.AsimilartechniquehasbeenappliedtoourALBERT-xxlarge,wherewewarm-startfrom
+a6-layernetwork.
+15
+
+PublishedasaconferencepaperatICLR2020
+Hiddensize Parameters SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg
+1024 18M 79.8/69.7 64.4/61.7 77.7 86.7 54.0 71.2
+2048 60M 83.3/74.1 69.1/66.6 79.7 88.6 58.2 74.6
+4096 225M 85.0/76.4 71.0/68.1 80.3 90.4 60.4 76.3
+6144 499M 84.7/75.8 67.8/65.4 78.1 89.1 56.0 74.0
+Table12: Theeffectofincreasingthehidden-layersizeforanALBERT-large3-layerconfiguration.
+A.2 DOVERYWIDEALBERTMODELSNEEDTOBEDEEP(ER)TOO?
+InSectionA.1,weshowthatforALBERT-large(H=1024),thedifferencebetweena12-layeranda
+24-layerconfigurationissmall. DoesthisresultstillholdformuchwiderALBERTconfigurations,
+suchasALBERT-xxlarge(H=4096)?
+Numberoflayers SQuAD1.1 SQuAD2.0 MNLI SST-2 RACE Avg
+12 94.0/88.1 88.3/85.3 87.8 95.4 82.5 88.7
+24 94.1/88.3 88.1/85.1 88.0 95.2 82.3 88.7
+Table13: TheeffectofadeepernetworkusinganALBERT-xxlargeconfiguration.
+The answer is given by the results from Table 13. The difference between 12-layer and 24-layer
+ALBERT-xxlargeconfigurationsintermsofdownstreamaccuracyisnegligible,withtheAvgscore
+beingthesame. Weconcludethat,whensharingallcross-layerparameters(ALBERT-style),there
+isnoneedformodelsdeeperthana12-layerconfiguration.
+A.3 DOWNSTREAMEVALUATIONTASKS
+GLUE GLUE is comprised of 9 tasks, namely Corpus of Linguistic Acceptability
+(CoLA;Warstadtetal.,2018), StanfordSentimentTreebank(SST;Socheretal.,2013), Microsoft
+ResearchParaphraseCorpus(MRPC;Dolan&Brockett,2005),SemanticTextualSimilarityBench-
+mark (STS; Cer et al., 2017), Quora Question Pairs (QQP; Iyer et al., 2017), Multi-Genre NLI
+(MNLI;Williamsetal.,2018),QuestionNLI(QNLI;Rajpurkaretal.,2016),RecognizingTextual
+Entailment (RTE; Dagan et al., 2005; Bar-Haim et al., 2006; Giampiccolo et al., 2007; Bentivogli
+et al., 2009) and Winograd NLI (WNLI; Levesque et al., 2012). It focuses on evaluating model
+capabilitiesfornaturallanguageunderstanding. WhenreportingMNLIresults, weonlyreportthe
+“match”condition(MNLI-m). Wefollowthefinetuningproceduresfrompriorwork(Devlinetal.,
+2019;Liuetal.,2019;Yangetal.,2019)andreporttheheld-outtestsetperformanceobtainedfrom
+GLUEsubmissions. Fortestsetsubmissions,weperformtask-specificmodificationsforWNLIand
+QNLIasdescribedbyLiuetal.(2019)andYangetal.(2019).
+SQuAD SQuAD is an extractive question answering dataset built from Wikipedia. The answers
+aresegmentsfromthecontextparagraphsandthetaskistopredictanswerspans. Weevaluateour
+models on two versions of SQuAD: v1.1 and v2.0. SQuAD v1.1 has 100,000 human-annotated
+question/answer pairs. SQuAD v2.0 additionally introduced 50,000 unanswerable questions. For
+SQuADv1.1,weusethesametrainingprocedureasBERT,whereasforSQuADv2.0,modelsare
+jointly trained with a span extraction loss and an additional classifier for predicting answerabil-
+ity(Yangetal.,2019;Liuetal.,2019). Wereportbothdevelopmentsetandtestsetperformance.
+RACE RACEisalarge-scaledatasetformulti-choicereadingcomprehension,collectedfromEn-
+glishexaminationsinChinawithnearly100,000questions. EachinstanceinRACEhas4candidate
+answers. Followingpriorwork(Yangetal.,2019;Liuetal.,2019),weusetheconcatenationofthe
+passage, question, and each candidate answer as the input to models. Then, we use the represen-
+tationsfromthe“[CLS]”tokenforpredictingtheprobabilityofeachanswer. Thedatasetconsists
+oftwodomains: middleschoolandhighschool. Wetrainourmodelsonbothdomainsandreport
+accuraciesonboththedevelopmentsetandtestset.
+16
+
+PublishedasaconferencepaperatICLR2020
+A.4 HYPERPARAMETERS
+Hyperparameters for downstream tasks are shown in Table 14. We adapt these hyperparameters
+fromLiuetal.(2019),Devlinetal.(2019),andYangetal.(2019).
+LR BSZ ALBERTDR ClassifierDR TS WS MSL
+CoLA 1.00E-05 16 0 0.1 5336 320 512
+STS 2.00E-05 16 0 0.1 3598 214 512
+SST-2 1.00E-05 32 0 0.1 20935 1256 512
+MNLI 3.00E-05 128 0 0.1 10000 1000 512
+QNLI 1.00E-05 32 0 0.1 33112 1986 512
+QQP 5.00E-05 128 0.1 0.1 14000 1000 512
+RTE 3.00E-05 32 0.1 0.1 800 200 512
+MRPC 2.00E-05 32 0 0.1 800 200 512
+WNLI 2.00E-05 16 0.1 0.1 2000 250 512
+SQuADv1.1 5.00E-05 48 0 0.1 3649 365 384
+SQuADv2.0 3.00E-05 48 0 0.1 8144 814 512
+RACE 2.00E-05 32 0.1 0.1 12000 1000 512
+Table 14: Hyperparameters for ALBERT in downstream tasks. LR: Learning Rate. BSZ: Batch
+Size. DR: Dropout Rate. TS: Training Steps. WS: Warmup Steps. MSL: Maximum Sequence
+Length.
+17

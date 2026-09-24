@@ -1,0 +1,1023 @@
+Retrieval-Augmented Generation for
+Knowledge-Intensive NLP Tasks
+PatrickLewis†‡,EthanPerez(cid:63),
+AleksandraPiktus†,FabioPetroni†,VladimirKarpukhin†,NamanGoyal†,HeinrichKüttler†,
+MikeLewis†,Wen-tauYih†,TimRocktäschel†‡,SebastianRiedel†‡,DouweKiela†
+†FacebookAIResearch;‡UniversityCollegeLondon;(cid:63)NewYorkUniversity;
+plewis@fb.com
+Abstract
+Largepre-trainedlanguagemodelshavebeenshowntostorefactualknowledge
+intheirparameters,andachievestate-of-the-artresultswhenfine-tunedondown-
+streamNLPtasks. However,theirabilitytoaccessandpreciselymanipulateknowl-
+edgeisstilllimited,andhenceonknowledge-intensivetasks,theirperformance
+lagsbehindtask-specificarchitectures.Additionally,providingprovenancefortheir
+decisionsandupdatingtheirworldknowledgeremainopenresearchproblems. Pre-
+trainedmodelswithadifferentiableaccessmechanismtoexplicitnon-parametric
+memoryhavesofarbeenonlyinvestigatedforextractivedownstreamtasks. We
+exploreageneral-purposefine-tuningrecipeforretrieval-augmentedgeneration
+(RAG)—modelswhichcombinepre-trainedparametricandnon-parametricmem-
+ory for language generation. We introduce RAG models where the parametric
+memoryisapre-trainedseq2seqmodelandthenon-parametricmemoryisadense
+vectorindexofWikipedia,accessedwithapre-trainedneuralretriever. Wecom-
+paretwoRAGformulations,onewhichconditionsonthesameretrievedpassages
+acrossthewholegeneratedsequence,andanotherwhichcanusedifferentpassages
+pertoken. Wefine-tuneandevaluateourmodelsonawiderangeofknowledge-
+intensiveNLPtasksandsetthestateoftheartonthreeopendomainQAtasks,
+outperformingparametricseq2seqmodelsandtask-specificretrieve-and-extract
+architectures. Forlanguagegenerationtasks,wefindthatRAGmodelsgenerate
+morespecific,diverseandfactuallanguagethanastate-of-the-artparametric-only
+seq2seqbaseline.
+1 Introduction
+Pre-trainedneurallanguagemodelshavebeenshowntolearnasubstantialamountofin-depthknowl-
+edgefromdata[47]. Theycandosowithoutanyaccesstoanexternalmemory,asaparameterized
+implicitknowledgebase[51,52]. Whilethisdevelopmentisexciting,suchmodelsdohavedown-
+sides: Theycannoteasilyexpandorrevisetheirmemory,can’tstraightforwardlyprovideinsightinto
+theirpredictions,andmayproduce“hallucinations”[38]. Hybridmodelsthatcombineparametric
+memorywithnon-parametric(i.e.,retrieval-based)memories[20,26,48]canaddresssomeofthese
+issuesbecauseknowledgecanbedirectlyrevisedandexpanded,andaccessedknowledgecanbe
+inspected and interpreted. REALM [20] and ORQA [31], two recently introduced models that
+combinemaskedlanguagemodels[8]withadifferentiableretriever,haveshownpromisingresults,
+1202
+rpA
+21
+]LC.sc[
+4v10411.5002:viXra
+
+Define "middle ear"(x) The middle ear includes
+End-to-End Backprop through q and p θ the tympanic cavity and
+Question Answering: the three ossicles. (y)
+Question Query
+E
+Q
+nc
+u
+o
+e
+d
+ry
+er
+Retriever p
+η
+Do
+I
+c
+n
+u
+d
+m
+ex
+ent Generator pθ Q
+A
+u
+n
+e
+s
+s
+w
+ti
+e
+o
+r
+n
+G
+A
+e
+n
+n
+s
+e
+w
+ra
+e
+t
+r
+i
+i
+o
+n
+n
+g:
+(Non-Parametric) (Parametric)
+B b a o r r a n c k i n O b H a a m w a a i w i a .( s x) q(x) d(z) z4 supports (y)
+Fact Verification: Fact Query z3 Margin- Fact Verification:
+z2 alize Label Generation
+T C h o e m e D d i y v ( i x n ) e q MIPS z1 p θ T i h s i s d i 1 v 4 i t d h e d c e i n n t t u o r y 3 work
+Jeopardy Question sections: "Inferno",
+Generation: "Purgatorio" &
+Answer Query "Paradiso" (y)
+Question Generation
+Figure1:Overviewofourapproach.Wecombineapre-trainedretriever(QueryEncoder+Document
+Index)withapre-trainedseq2seqmodel(Generator)andfine-tuneend-to-end. Forqueryx,weuse
+MaximumInnerProductSearch(MIPS)tofindthetop-Kdocumentsz . Forfinalpredictiony,we
+i
+treatzasalatentvariableandmarginalizeoverseq2seqpredictionsgivendifferentdocuments.
+buthaveonlyexploredopen-domainextractivequestionanswering. Here,webringhybridparametric
+andnon-parametricmemorytothe“workhorseofNLP,”i.e. sequence-to-sequence(seq2seq)models.
+Weendowpre-trained,parametric-memorygenerationmodelswithanon-parametricmemorythrough
+ageneral-purposefine-tuningapproachwhichwerefertoasretrieval-augmentedgeneration(RAG).
+WebuildRAGmodelswheretheparametricmemoryisapre-trainedseq2seqtransformer,andthe
+non-parametricmemoryisadensevectorindexofWikipedia,accessedwithapre-trainedneural
+retriever. Wecombinethesecomponentsinaprobabilisticmodeltrainedend-to-end(Fig. 1). The
+retriever(DensePassageRetriever[26],henceforthDPR)provideslatentdocumentsconditionedon
+theinput,andtheseq2seqmodel(BART[32])thenconditionsontheselatentdocumentstogetherwith
+theinputtogeneratetheoutput. Wemarginalizethelatentdocumentswithatop-Kapproximation,
+eitheronaper-outputbasis(assumingthesamedocumentisresponsibleforalltokens)oraper-token
+basis(wheredifferentdocumentsareresponsiblefordifferenttokens). LikeT5[51]orBART,RAG
+canbefine-tunedonanyseq2seqtask,wherebyboththegeneratorandretrieverarejointlylearned.
+Therehasbeenextensivepreviousworkproposingarchitecturestoenrichsystemswithnon-parametric
+memorywhicharetrainedfromscratchforspecifictasks, e.g. memorynetworks[64,55], stack-
+augmented networks [25] and memory layers [30]. In contrast, we explore a setting where both
+parametricandnon-parametricmemorycomponentsarepre-trainedandpre-loadedwithextensive
+knowledge. Crucially,byusingpre-trainedaccessmechanisms,theabilitytoaccessknowledgeis
+presentwithoutadditionaltraining.
+Ourresultshighlightthebenefitsofcombiningparametricandnon-parametricmemorywithgenera-
+tionforknowledge-intensivetasks—tasksthathumanscouldnotreasonablybeexpectedtoperform
+withoutaccesstoanexternalknowledgesource. OurRAGmodelsachievestate-of-the-artresults
+onopenNaturalQuestions[29],WebQuestions[3]andCuratedTrec[2]andstronglyoutperform
+recentapproachesthatusespecialisedpre-trainingobjectivesonTriviaQA[24]. Despitethesebeing
+extractivetasks,wefindthatunconstrainedgenerationoutperformspreviousextractiveapproaches.
+Forknowledge-intensivegeneration,weexperimentwithMS-MARCO[1]andJeopardyquestion
+generation, and we find that our models generate responses that are more factual, specific, and
+diversethanaBARTbaseline. ForFEVER[56]factverification,weachieveresultswithin4.3%of
+state-of-the-artpipelinemodelswhichusestrongretrievalsupervision. Finally,wedemonstratethat
+thenon-parametricmemorycanbereplacedtoupdatethemodels’knowledgeastheworldchanges.1
+2 Methods
+WeexploreRAGmodels,whichusetheinputsequencextoretrievetextdocumentszandusethem
+as additional context when generating the target sequence y. As shown in Figure 1, our models
+leveragetwocomponents: (i)aretrieverp (z|x)withparametersη thatreturns(top-Ktruncated)
+η
+distributionsovertextpassagesgivenaqueryxand(ii)ageneratorp (y |x,z,y )parametrized
+θ i 1:i−1
+1Code to run experiments with RAG has been open-sourced as part of the HuggingFace Transform-
+ersLibrary[66]andcanbefoundathttps://github.com/huggingface/transformers/blob/master/
+examples/rag/.AninteractivedemoofRAGmodelscanbefoundathttps://huggingface.co/rag/
+2
+
+byθthatgeneratesacurrenttokenbasedonacontextofthepreviousi−1tokensy ,theoriginal
+1:i−1
+inputxandaretrievedpassagez.
+Totraintheretrieverandgeneratorend-to-end,wetreattheretrieveddocumentasalatentvariable.
+Weproposetwomodelsthatmarginalizeoverthelatentdocumentsindifferentwaystoproducea
+distributionovergeneratedtext. Inoneapproach,RAG-Sequence,themodelusesthesamedocument
+topredicteachtargettoken. Thesecondapproach,RAG-Token,canpredicteachtargettokenbased
+onadifferentdocument. Inthefollowing,weformallyintroducebothmodelsandthendescribethe
+p andp components,aswellasthetraininganddecodingprocedure.
+η θ
+2.1 Models
+RAG-SequenceModel TheRAG-Sequencemodelusesthesameretrieveddocumenttogenerate
+thecompletesequence. Technically,ittreatstheretrieveddocumentasasinglelatentvariablethat
+ismarginalizedtogettheseq2seqprobabilityp(y|x)viaatop-Kapproximation. Concretely,the
+topKdocumentsareretrievedusingtheretriever,andthegeneratorproducestheoutputsequence
+probabilityforeachdocument,whicharethenmarginalized,
+N
+(cid:88) (cid:88) (cid:89)
+p (y|x) ≈ p (z|x)p (y|x,z) = p (z|x) p (y |x,z,y )
+RAG-Sequence η θ η θ i 1:i−1
+z∈top-k(p(·|x)) z∈top-k(p(·|x)) i
+RAG-TokenModel IntheRAG-Tokenmodelwecandrawadifferentlatentdocumentforeach
+targettokenandmarginalizeaccordingly. Thisallowsthegeneratortochoosecontentfromseveral
+documents when producing an answer. Concretely, the top K documents are retrieved using the
+retriever,andthenthegeneratorproducesadistributionforthenextoutputtokenforeachdocument,
+beforemarginalizing,andrepeatingtheprocesswiththefollowingoutputtoken,Formally,wedefine:
+N
+(cid:89) (cid:88)
+p (y|x) ≈ p (z|x)p (y |x,z,y )
+RAG-Token η θ i 1:i−1
+i z∈top-k(p(·|x))
+Finally,wenotethatRAGcanbeusedforsequenceclassificationtasksbyconsideringthetargetclass
+asatargetsequenceoflengthone,inwhichcaseRAG-SequenceandRAG-Tokenareequivalent.
+2.2 Retriever: DPR
+Theretrievalcomponentp (z|x)isbasedonDPR[26]. DPRfollowsabi-encoderarchitecture:
+η
+p (z|x)∝exp (cid:0) d(z)(cid:62)q(x) (cid:1) d(z)=BERT (z), q(x)=BERT (x)
+η d q
+whered(z)isadenserepresentationofadocumentproducedbyaBERT documentencoder[8],
+BASE
+andq(x)aqueryrepresentationproducedbyaqueryencoder,alsobasedonBERT . Calculating
+BASE
+top-k(p (·|x)),thelistofkdocumentszwithhighestpriorprobabilityp (z|x),isaMaximumInner
+η η
+ProductSearch(MIPS)problem,whichcanbeapproximatelysolvedinsub-lineartime[23]. Weuse
+apre-trainedbi-encoderfromDPRtoinitializeourretrieverandtobuildthedocumentindex. This
+retrieverwastrainedtoretrievedocumentswhichcontainanswerstoTriviaQA[24]questionsand
+NaturalQuestions[29]. Werefertothedocumentindexasthenon-parametricmemory.
+2.3 Generator: BART
+Thegeneratorcomponentp (y |x,z,y )couldbemodelledusinganyencoder-decoder. Weuse
+θ i 1:i−1
+BART-large[32],apre-trainedseq2seqtransformer[58]with400Mparameters.Tocombinetheinput
+xwiththeretrievedcontentzwhengeneratingfromBART,wesimplyconcatenatethem. BARTwas
+pre-trainedusingadenoisingobjectiveandavarietyofdifferentnoisingfunctions. Ithasobtained
+state-of-the-artresultsonadiversesetofgenerationtasksandoutperformscomparably-sizedT5
+models[32]. WerefertotheBARTgeneratorparametersθastheparametricmemoryhenceforth.
+2.4 Training
+We jointly train the retriever and generator components without any direct supervision on what
+documentshouldberetrieved. Givenafine-tuningtrainingcorpusofinput/outputpairs(x ,y ),we
+j j
+3
+
+(cid:80)
+minimizethenegativemarginallog-likelihoodofeachtarget, −logp(y |x )usingstochastic
+j j j
+gradientdescentwithAdam[28]. UpdatingthedocumentencoderBERT duringtrainingiscostlyas
+d
+itrequiresthedocumentindextobeperiodicallyupdatedasREALMdoesduringpre-training[20].
+We do not find this step necessary for strong performance, and keep the document encoder (and
+index)fixed,onlyfine-tuningthequeryencoderBERT andtheBARTgenerator.
+q
+2.5 Decoding
+Attesttime,RAG-SequenceandRAG-Tokenrequiredifferentwaystoapproximateargmax p(y|x).
+y
+RAG-Token The RAG-Token model can be seen as a standard, autoregressive seq2seq genera-
+tor with transition probability: p(cid:48)(y |x,y ) = (cid:80) p (z |x)p (y |x,z ,y ) To
+θ i 1:i−1 z∈top-k(p(·|x)) η i θ i i 1:i−1
+decode,wecanplugp(cid:48)(y |x,y )intoastandardbeamdecoder.
+θ i 1:i−1
+RAG-Sequence ForRAG-Sequence,thelikelihoodp(y|x)doesnotbreakintoaconventionalper-
+tokenlikelihood,hencewecannotsolveitwithasinglebeamsearch. Instead,werunbeamsearchfor
+eachdocumentz,scoringeachhypothesisusingp (y |x,z,y ). Thisyieldsasetofhypotheses
+θ i 1:i−1
+Y,someofwhichmaynothaveappearedinthebeamsofalldocuments. Toestimatetheprobability
+of an hypothesis y we run an additional forward pass for each document z for which y does not
+appearinthebeam,multiplygeneratorprobabilitywithp (z|x)andthensumtheprobabilitiesacross
+η
+beamsforthemarginals. Werefertothisdecodingprocedureas“ThoroughDecoding.” Forlonger
+outputsequences,|Y|canbecomelarge,requiringmanyforwardpasses. Formoreefficientdecoding,
+wecanmakeafurtherapproximationthatp (y|x,z )≈0whereywasnotgeneratedduringbeam
+θ i
+searchfromx,z . ThisavoidstheneedtorunadditionalforwardpassesoncethecandidatesetY has
+i
+beengenerated. Werefertothisdecodingprocedureas“FastDecoding.”
+3 Experiments
+WeexperimentwithRAGinawiderangeofknowledge-intensivetasks. Forallexperiments,weuse
+asingleWikipediadumpforournon-parametricknowledgesource. FollowingLeeetal.[31]and
+Karpukhinetal.[26],weusetheDecember2018dump. EachWikipediaarticleissplitintodisjoint
+100-wordchunks,tomakeatotalof21Mdocuments. Weusethedocumentencodertocomputean
+embeddingforeachdocument,andbuildasingleMIPSindexusingFAISS[23]withaHierarchical
+NavigableSmallWorldapproximationforfastretrieval[37]. Duringtraining,weretrievethetop
+kdocumentsforeachquery. Weconsiderk ∈{5,10}fortrainingandsetkfortesttimeusingdev
+data. Wenowdiscussexperimentaldetailsforeachtask.
+3.1 Open-domainQuestionAnswering
+Open-domainquestionanswering(QA)isanimportantreal-worldapplicationandcommontestbed
+forknowledge-intensivetasks[20]. Wetreatquestionsandanswersasinput-outputtextpairs(x,y)
+andtrainRAGbydirectlyminimizingthenegativelog-likelihoodofanswers. WecompareRAGto
+thepopularextractiveQAparadigm[5,7,31,26],whereanswersareextractedspansfromretrieved
+documents, relying primarily on non-parametric knowledge. We also compare to “Closed-Book
+QA”approaches[52],which,likeRAG,generateanswers,butwhichdonotexploitretrieval,instead
+relyingpurelyonparametricknowledge.Weconsiderfourpopularopen-domainQAdatasets:Natural
+Questions(NQ)[29],TriviaQA(TQA)[24]. WebQuestions(WQ)[3]andCuratedTrec(CT)[2]. As
+CTandWQaresmall,wefollowDPR[26]byinitializingCTandWQmodelswithourNQRAG
+model. Weusethesametrain/dev/testsplitsaspriorwork[31,26]andreportExactMatch(EM)
+scores. ForTQA,tocomparewithT5[52],wealsoevaluateontheTQAWikitestset.
+3.2 AbstractiveQuestionAnswering
+RAGmodelscangobeyondsimpleextractiveQAandanswerquestionswithfree-form,abstractive
+textgeneration. TotestRAG’snaturallanguagegeneration(NLG)inaknowledge-intensivesetting,
+we use the MSMARCO NLG task v2.1 [43]. The task consists of questions, ten gold passages
+retrieved from a search engine for each question, and a full sentence answer annotated from the
+retrievedpassages. Wedonotusethesuppliedpassages,onlythequestionsandanswers,totreat
+4
+
+MSMARCOasanopen-domainabstractiveQAtask. MSMARCOhassomequestionsthatcannotbe
+answeredinawaythatmatchesthereferenceanswerwithoutaccesstothegoldpassages,suchas
+“WhatistheweatherinVolcano,CA?”soperformancewillbelowerwithoutusinggoldpassages.
+WealsonotethatsomeMSMARCOquestionscannotbeansweredusingWikipediaalone. Here,
+RAGcanrelyonparametricknowledgetogeneratereasonableresponses.
+3.3 JeopardyQuestionGeneration
+ToevaluateRAG’sgenerationabilitiesinanon-QAsetting,westudyopen-domainquestiongen-
+eration. Ratherthanusequestionsfromstandardopen-domainQAtasks,whichtypicallyconsist
+ofshort,simplequestions,weproposethemoredemandingtaskofgeneratingJeopardyquestions.
+Jeopardyisanunusualformatthatconsistsoftryingtoguessanentityfromafactaboutthatentity.
+Forexample,“TheWorldCup”istheanswertothequestion“In1986Mexicoscoredasthefirst
+country to host this international sports competition twice.” As Jeopardy questions are precise,
+factualstatements,generatingJeopardyquestionsconditionedontheiranswerentitiesconstitutesa
+challengingknowledge-intensivegenerationtask.
+We use the splits from SearchQA [10], with 100K train, 14K dev, and 27K test examples. As
+thisisanewtask,wetrainaBARTmodelforcomparison. Following[67],weevaluateusingthe
+SQuAD-tuned Q-BLEU-1 metric [42]. Q-BLEU is a variant of BLEU with a higher weight for
+matching entities and has higher correlation with human judgment for question generation than
+standardmetrics. Wealsoperformtwohumanevaluations,onetoassessgenerationfactuality,and
+oneforspecificity.Wedefinefactualityaswhetherastatementcanbecorroboratedbytrustedexternal
+sources,andspecificityashighmutualdependencebetweentheinputandoutput[33]. Wefollow
+bestpracticeandusepairwisecomparativeevaluation[34]. Evaluatorsareshownananswerandtwo
+generatedquestions,onefromBARTandonefromRAG.Theyarethenaskedtopickoneoffour
+options—quuestionAisbetter,questionBisbetter,botharegood,orneitherisgood.
+3.4 FactVerification
+FEVER [56] requires classifying whether a natural language claim is supported or refuted by
+Wikipedia, or whether there is not enough information to decide. The task requires retrieving
+evidence from Wikipedia relating to the claim and then reasoning over this evidence to classify
+whethertheclaimistrue,false,orunverifiablefromWikipediaalone. FEVERisaretrievalproblem
+coupledwithanchallengingentailmentreasoningtask. Italsoprovidesanappropriatetestbedfor
+exploringtheRAGmodels’abilitytohandleclassificationratherthangeneration. WemapFEVER
+classlabels(supports, refutes, ornotenoughinfo)tosingleoutputtokensanddirectlytrainwith
+claim-classpairs. Crucially,unlikemostotherapproachestoFEVER,wedonotusesupervisionon
+retrievedevidence. Inmanyreal-worldapplications,retrievalsupervisionsignalsaren’tavailable,and
+modelsthatdonotrequiresuchsupervisionwillbeapplicabletoawiderrangeoftasks. Weexplore
+twovariants: thestandard3-wayclassificationtask(supports/refutes/notenoughinfo)andthe2-way
+(supports/refutes)taskstudiedinThorneandVlachos[57]. Inbothcaseswereportlabelaccuracy.
+4 Results
+4.1 Open-domainQuestionAnswering
+Table 1 shows results for RAG along with state-of-the-art models. On all four open-domain QA
+tasks,RAGsetsanewstateoftheart(onlyontheT5-comparablesplitforTQA).RAGcombines
+thegenerationflexibilityofthe“closed-book”(parametriconly)approachesandtheperformanceof
+"open-book"retrieval-basedapproaches. UnlikeREALMandT5+SSM,RAGenjoysstrongresults
+withoutexpensive,specialized“salientspanmasking”pre-training[20]. ItisworthnotingthatRAG’s
+retrieverisinitializedusingDPR’sretriever,whichusesretrievalsupervisiononNaturalQuestions
+andTriviaQA.RAGcomparesfavourablytotheDPRQAsystem,whichusesaBERT-based“cross-
+encoder”tore-rankdocuments,alongwithanextractivereader. RAGdemonstratesthatneithera
+re-rankernorextractivereaderisnecessaryforstate-of-the-artperformance.
+Thereareseveraladvantagestogeneratinganswersevenwhenitispossibletoextractthem. Docu-
+mentswithcluesabouttheanswerbutdonotcontaintheanswerverbatimcanstillcontributetowards
+acorrectanswerbeinggenerated,whichisnotpossiblewithstandardextractiveapproaches,leading
+5
+
+Table1:Open-DomainQATestScores.ForTQA, Table2:GenerationandclassificationTestScores.
+left column uses the standard test set for Open- MS-MARCOSotAis[4],FEVER-3is[68]and
+Domain QA, right column uses the TQA-Wiki FEVER-2 is [57] *Uses gold context/evidence.
+testset. SeeAppendixDforfurtherdetails. Bestmodelwithoutgoldaccessunderlined.
+Model NQ TQA WQ CT
+Model Jeopardy MSMARCO FVR3 FVR2
+Closed T5-11B[52] 34.5 - /50.1 37.4 -
+B-1 QB-1 R-L B-1 LabelAcc.
+Book T5-11B+SSM[52] 36.6 - /60.5 44.7 -
+SotA - - 49.8* 49.9* 76.8 92.2*
+Open REALM[20] 40.4 - / - 40.7 46.8
+Book DPR[26] 41.5 57.9/ - 41.1 50.6 BART 15.1 19.7 38.2 41.6 64.0 81.1
+RAG-Token 44.1 55.2/66.1 45.5 50.0 RAG-Tok. 17.3 22.2 40.1 41.5
+72.5 89.5
+RAG-Seq. 44.5 56.8/68.0 45.2 52.2 RAG-Seq. 14.7 21.4 40.8 44.2
+tomoreeffectivemarginalizationoverdocuments. Furthermore,RAGcangeneratecorrectanswers
+evenwhenthecorrectanswerisnotinanyretrieveddocument,achieving11.8%accuracyinsuch
+casesforNQ,whereanextractivemodelwouldscore0%.
+4.2 AbstractiveQuestionAnswering
+AsshowninTable2,RAG-SequenceoutperformsBARTonOpenMS-MARCONLGby2.6Bleu
+points and 2.6 Rouge-L points. RAG approaches state-of-the-art model performance, which is
+impressivegiventhat(i)thosemodelsaccessgoldpassageswithspecificinformationrequiredto
+generatethereferenceanswer,(ii)manyquestionsareunanswerablewithoutthegoldpassages,and
+(iii)notallquestionsareanswerablefromWikipediaalone. Table3showssomegeneratedanswers
+fromourmodels. Qualitatively,wefindthatRAGmodelshallucinatelessandgeneratefactually
+correcttextmoreoftenthanBART.Later,wealsoshowthatRAGgenerationsaremorediversethan
+BARTgenerations(see§4.5).
+4.3 JeopardyQuestionGeneration
+Table2showsthatRAG-TokenperformsbetterthanRAG-SequenceonJeopardyquestiongeneration,
+withbothmodelsoutperformingBARTonQ-BLEU-1. 4showshumanevaluationresults,over452
+pairsofgenerationsfromBARTandRAG-Token. EvaluatorsindicatedthatBARTwasmorefactual
+thanRAGinonly7.1%ofcases,whileRAGwasmorefactualin42.7%ofcases,andbothRAGand
+BARTwerefactualinafurther17%ofcases,clearlydemonstratingtheeffectivenessofRAGon
+thetaskoverastate-of-the-artgenerationmodel. EvaluatorsalsofindRAGgenerationstobemore
+specificbyalargemargin. Table3showstypicalgenerationsfromeachmodel.
+Jeopardyquestionsoftencontaintwoseparatepiecesofinformation,andRAG-Tokenmayperform
+bestbecauseitcangenerateresponsesthatcombinecontentfromseveraldocuments. Figure2shows
+anexample. Whengenerating“Sun”, theposteriorishighfordocument2whichmentions“The
+Sun Also Rises”. Similarly, document 1 dominates the posterior when “A Farewell to Arms” is
+generated. Intriguingly,afterthefirsttokenofeachbookisgenerated,thedocumentposteriorflattens.
+Thisobservationsuggeststhatthegeneratorcancompletethetitleswithoutdependingonspecific
+documents. Inotherwords,themodel’sparametricknowledgeissufficienttocompletethetitles. We
+findevidenceforthishypothesisbyfeedingtheBART-onlybaselinewiththepartialdecoding"The
+Sun. BARTcompletesthegeneration"TheSunAlsoRises"isanovelbythisauthorof"TheSun
+AlsoRises"indicatingthetitle"TheSunAlsoRises"isstoredinBART’sparameters. Similarly,
+BART will complete the partial decoding "TheSunAlsoRises"isanovelbythisauthorof"A
+with"TheSunAlsoRises"isanovelbythisauthorof"AFarewelltoArms". Thisexampleshows
+howparametricandnon-parametricmemoriesworktogether—thenon-parametriccomponenthelps
+toguidethegeneration,drawingoutspecificknowledgestoredintheparametricmemory.
+4.4 FactVerification
+Table 2 shows our results on FEVER. For 3-way classification, RAG scores are within 4.3% of
+state-of-the-artmodels,whicharecomplexpipelinesystemswithdomain-specificarchitecturesand
+substantialengineering,trainedusingintermediateretrievalsupervision,whichRAGdoesnotrequire.
+6
+
+Document1:hisworksareconsideredclassicsofAmerican Doc1
+literature...Hiswartimeexperiencesformedthebasisforhisnovel Doc2
+”AFarewelltoArms”(1929)...
+Doc3
+Document2:...artistsofthe1920s”LostGeneration”expatriate
+Doc4
+community.Hisdebutnovel,”TheSunAlsoRises”,waspublished
+in1926. Doc5
+B
+OS” The Sun AlsoR ises”isa novelby this authorof”A Fare wellto
+Ar
+ms”
+Figure2: RAG-Tokendocumentposteriorp(z |x,y ,y )foreachgeneratedtokenforinput“Hem-
+i i −i
+ingway"forJeopardygenerationwith5retrieveddocuments. Theposteriorfordocument1ishigh
+whengenerating“AFarewelltoArms"andfordocument2whengenerating“TheSunAlsoRises".
+Table3: Examplesfromgenerationtasks. RAGmodelsgeneratemorespecificandfactuallyaccurate
+responses. ‘?’ indicatesfactuallyincorrectresponses,*indicatespartiallycorrectresponses.
+Task Input Model Generation
+BART ?Themiddleearisthepartoftheearbetweenthemiddleearandthenose.
+definemiddle
+RAG-T Themiddleearistheportionoftheearinternaltotheeardrum.
+ear
+MS- RAG-S Themiddleearincludesthetympaniccavityandthethreeossicles.
+MARCO
+whatcurrency BART ThecurrencyneededinScotlandisPoundsterling.
+neededin RAG-T PoundisthecurrencyneededinScotland.
+scotland RAG-S ThecurrencyneededinScotlandisthepoundsterling.
+BART ?ThisstatehasthelargestnumberofcountiesintheU.S.
+Jeopardy Washington RAG-T It’stheonlyU.S.statenamedforaU.S.president
+Question RAG-S It’sthestatewhereyou’llfindMountRainierNationalPark
+Gener
+BART *ThisepicpoembyDanteisdividedinto3parts:theInferno,thePurgatorio&thePurgatorio
+-ation TheDivine
+RAG-T Dante’s"Inferno"isthefirstpartofthisepicpoem
+Comedy
+RAG-S This14thcenturyworkisdividedinto3sections:"Inferno","Purgatorio"&"Paradiso"
+For2-wayclassification,wecompareagainstThorneandVlachos[57],whotrainRoBERTa[35]
+toclassifytheclaimastrueorfalsegiventhegoldevidencesentence. RAGachievesanaccuracy
+within2.7%ofthismodel,despitebeingsuppliedwithonlytheclaimandretrievingitsownevidence.
+WealsoanalyzewhetherdocumentsretrievedbyRAGcorrespondtodocumentsannotatedasgold
+evidenceinFEVER.Wecalculatetheoverlapinarticletitlesbetweenthetopkdocumentsretrieved
+byRAGandgoldevidenceannotations. Wefindthatthetopretrieveddocumentisfromagoldarticle
+in71%ofcases,andagoldarticleispresentinthetop10retrievedarticlesin90%ofcases.
+4.5 AdditionalResults
+Generation Diversity Section 4.3 shows that RAG models are more factual and specific than
+BARTforJeopardyquestiongeneration. Followingrecentworkondiversity-promotingdecoding
+[33,59,39],wealsoinvestigategenerationdiversitybycalculatingtheratioofdistinctngramsto
+totalngramsgeneratedbydifferentmodels. Table5showsthatRAG-Sequence’sgenerationsare
+morediversethanRAG-Token’s,andbotharesignificantlymorediversethanBARTwithoutneeding
+anydiversity-promotingdecoding.
+RetrievalAblations AkeyfeatureofRAGislearningtoretrieverelevantinformationforthetask.
+Toassesstheeffectivenessoftheretrievalmechanism,werunablationswherewefreezetheretriever
+duringtraining. AsshowninTable6,learnedretrievalimprovesresultsforalltasks.
+WecompareRAG’sdenseretrievertoawordoverlap-basedBM25retriever[53]. Here,wereplace
+RAG’sretrieverwithafixedBM25system,anduseBM25retrievalscoresaslogitswhencalculating
+p(z|x).Table6showstheresults.ForFEVER,BM25performsbest,perhapssinceFEVERclaimsare
+heavilyentity-centricandthuswell-suitedforwordoverlap-basedretrieval. Differentiableretrieval
+improvesresultsonallothertasks,especiallyforOpen-DomainQA,whereitiscrucial.
+Indexhot-swapping Anadvantageofnon-parametricmemorymodelslikeRAGisthatknowledge
+canbeeasilyupdatedattesttime. Parametric-onlymodelslikeT5orBARTneedfurthertrainingto
+updatetheirbehaviorastheworldchanges. Todemonstrate,webuildanindexusingtheDrQA[5]
+WikipediadumpfromDecember2016andcompareoutputsfromRAGusingthisindextothenewer
+indexfromourmainresults(December2018). Wepreparealistof82worldleaderswhohadchanged
+7
+
+Table 4: Human assessments for the Jeopardy Table 5: Ratio of distinct to total tri-grams for
+QuestionGenerationTask. generationtasks.
+Factuality Specificity
+MSMARCO JeopardyQGen
+BARTbetter 7.1% 16.8%
+Gold 89.6% 90.0%
+RAGbetter 42.7% 37.4%
+BART 70.7% 32.4%
+Bothgood 11.7% 11.8%
+RAG-Token 77.8% 46.8%
+Bothpoor 17.7% 6.9%
+RAG-Seq. 83.5% 53.8%
+Nomajority 20.8% 20.1%
+Table6:Ablationsonthedevset.AsFEVERisaclassificationtask,bothRAGmodelsareequivalent.
+Model NQ TQA WQ CT Jeopardy-QGen MSMarco FVR-3 FVR-2
+ExactMatch B-1 QB-1 R-L B-1 LabelAccuracy
+RAG-Token-BM25 29.7 41.5 32.1 33.1 17.5 22.3 55.5 48.4
+75.1 91.6
+RAG-Sequence-BM25 31.8 44.1 36.6 33.8 11.1 19.5 56.5 46.9
+RAG-Token-Frozen 37.8 50.1 37.1 51.1 16.7 21.7 55.9 49.4
+72.9 89.4
+RAG-Sequence-Frozen 41.2 52.1 41.8 52.6 11.8 19.6 56.7 47.3
+RAG-Token 43.5 54.8 46.5 51.9 17.9 22.6 56.2 49.4
+74.5 90.6
+RAG-Sequence 44.0 55.8 44.9 53.4 15.3 21.5 57.2 47.5
+betweenthesedatesanduseatemplate“Whois{position}?” (e.g. “WhoisthePresidentofPeru?”)
+toqueryourNQRAGmodelwitheachindex. RAGanswers70%correctlyusingthe2016indexfor
+2016worldleadersand68%usingthe2018indexfor2018worldleaders. Accuracywithmismatched
+indicesislow(12%withthe2018indexand2016leaders,4%withthe2016indexand2018leaders).
+ThisshowswecanupdateRAG’sworldknowledgebysimplyreplacingitsnon-parametricmemory.
+Effect of Retrieving more documents Models are trained with either 5 or 10 retrieved latent
+documents,andwedonotobservesignificantdifferencesinperformancebetweenthem. Wehavethe
+flexibilitytoadjustthenumberofretrieveddocumentsattesttime,whichcanaffectperformanceand
+runtime. Figure3(left)showsthatretrievingmoredocumentsattesttimemonotonicallyimproves
+Open-domainQAresultsforRAG-Sequence,butperformancepeaksforRAG-Tokenat10retrieved
+documents. Figure 3 (right) shows that retrieving more documents leads to higher Rouge-L for
+RAG-TokenattheexpenseofBleu-1,buttheeffectislesspronouncedforRAG-Sequence.
+44
+43
+42
+41
+40
+39
+10 20 30 40 50
+KRetrievedDocs
+hctaMtcaxEQN
+80
+70
+60
+50 RAG-Tok
+RAG-Seq 40
+10 20 30 40 50
+KRetrievedDocs
+K@llaceRrewsnAQN
+56
+54
+52 RAG-Tok
+RAG-Seq 50 FixedDPR
+BM25 48
+10 20 30 40 50
+KRetrievedDocs
+erocsL-eguoR/1-uelB
+RAG-TokR-L
+RAG-TokB-1
+RAG-SeqR-L
+RAG-SeqB-1
+Figure3: Left: NQperformanceasmoredocumentsareretrieved. Center: Retrievalrecallperfor-
+manceinNQ.Right: MS-MARCOBleu-1andRouge-Lasmoredocumentsareretrieved.
+5 RelatedWork
+Single-TaskRetrieval Priorworkhasshownthatretrievalimprovesperformanceacrossavarietyof
+NLPtaskswhenconsideredinisolation. Suchtasksincludeopen-domainquestionanswering[5,29],
+fact checking [56], fact completion [48], long-form question answering [12], Wikipedia article
+generation [36], dialogue [41, 65, 9, 13], translation [17], and language modeling [19, 27]. Our
+workunifiesprevioussuccessesinincorporatingretrievalintoindividualtasks,showingthatasingle
+retrieval-basedarchitectureiscapableofachievingstrongperformanceacrossseveraltasks.
+8
+
+General-PurposeArchitecturesforNLP Priorworkongeneral-purposearchitecturesforNLP
+taskshasshowngreatsuccesswithouttheuseofretrieval. Asingle, pre-trainedlanguagemodel
+hasbeenshowntoachievestrongperformanceonvariousclassificationtasksintheGLUEbench-
+marks[60,61]afterfine-tuning[49,8].GPT-2[50]latershowedthatasingle,left-to-right,pre-trained
+languagemodelcouldachievestrongperformanceacrossbothdiscriminativeandgenerativetasks.
+Forfurtherimprovement,BART[32]andT5[51,52]proposeasingle,pre-trainedencoder-decoder
+model that leverages bi-directional attention to achieve stronger performance on discriminative
+andgenerativetasks. Ourworkaimstoexpandthespaceofpossibletaskswithasingle, unified
+architecture,bylearningaretrievalmoduletoaugmentpre-trained,generativelanguagemodels.
+Learned Retrieval There is significant work on learning to retrieve documents in information
+retrieval, more recently with pre-trained, neural language models [44, 26] similar to ours. Some
+workoptimizestheretrievalmoduletoaidinaspecific,downstreamtasksuchasquestionanswering,
+usingsearch[46],reinforcementlearning[6,63,62],oralatentvariableapproach[31,20]asinour
+work. Thesesuccessesleveragedifferentretrieval-basedarchitecturesandoptimizationtechniquesto
+achievestrongperformanceonasingletask,whileweshowthatasingleretrieval-basedarchitecture
+canbefine-tunedforstrongperformanceonavarietyoftasks.
+Memory-basedArchitectures Ourdocumentindexcanbeseenasalargeexternalmemoryfor
+neuralnetworkstoattendto,analogoustomemorynetworks[64,55]. Concurrentwork[14]learns
+toretrieveatrainedembeddingforeachentityintheinput,ratherthantoretrieverawtextasinour
+work. Otherworkimprovestheabilityofdialogmodelstogeneratefactualtextbyattendingover
+factembeddings[15,13]. Akeyfeatureofourmemoryisthatitiscomprisedofrawtextrather
+distributedrepresentations,whichmakesthememoryboth(i)human-readable,lendingaformof
+interpretabilitytoourmodel,and(ii)human-writable,enablingustodynamicallyupdatethemodel’s
+memorybyeditingthedocumentindex. Thisapproachhasalsobeenusedinknowledge-intensive
+dialog,wheregeneratorshavebeenconditionedonretrievedtextdirectly,albeitobtainedviaTF-IDF
+ratherthanend-to-endlearntretrieval[9].
+Retrieve-and-Editapproaches Ourmethodsharessomesimilaritieswithretrieve-and-editstyle
+approaches,whereasimilartraininginput-outputpairisretrievedforagiveninput,andthenedited
+toprovideafinaloutput. Theseapproacheshaveprovedsuccessfulinanumberofdomainsincluding
+MachineTranslation [18,22]andSemanticParsing[21].Ourapproachdoeshaveseveraldifferences,
+includinglessofemphasisonlightlyeditingaretrieveditem,butonaggregatingcontentfromseveral
+piecesofretrievedcontent,aswellaslearninglatentretrieval,andretrievingevidencedocuments
+ratherthanrelatedtrainingpairs. Thissaid,RAGtechniquesmayworkwellinthesesettings,and
+couldrepresentpromisingfuturework.
+6 Discussion
+Inthiswork,wepresentedhybridgenerationmodelswithaccesstoparametricandnon-parametric
+memory. WeshowedthatourRAGmodelsobtainstateoftheartresultsonopen-domainQA.We
+foundthatpeoplepreferRAG’sgenerationoverpurelyparametricBART,findingRAGmorefactual
+andspecific. Weconductedanthoroughinvestigationofthelearnedretrievalcomponent,validating
+itseffectiveness,andweillustratedhowtheretrievalindexcanbehot-swappedtoupdatethemodel
+withoutrequiringanyretraining.Infuturework,itmaybefruitfultoinvestigateifthetwocomponents
+canbejointlypre-trainedfromscratch,eitherwithadenoisingobjectivesimilartoBARTorsome
+anotherobjective. Ourworkopensupnewresearchdirectionsonhowparametricandnon-parametric
+memoriesinteractandhowtomosteffectivelycombinethem,showingpromiseinbeingappliedtoa
+widevarietyofNLPtasks.
+9
+
+BroaderImpact
+This work offers several positive societal benefits over previous work: the fact that it is more
+strongly grounded in real factual knowledge (in this case Wikipedia) makes it “hallucinate” less
+withgenerationsthataremorefactual,andoffersmorecontrolandinterpretability. RAGcouldbe
+employedinawidevarietyofscenarioswithdirectbenefittosociety,forexamplebyendowingit
+withamedicalindexandaskingitopen-domainquestionsonthattopic,orbyhelpingpeoplebemore
+effectiveattheirjobs.
+Withtheseadvantagesalsocomepotentialdownsides:Wikipedia,oranypotentialexternalknowledge
+source,willprobablyneverbeentirelyfactualandcompletelydevoidofbias. SinceRAGcanbe
+employedasalanguagemodel,similarconcernsasforGPT-2[50]arevalidhere,althougharguably
+toalesserextent,includingthatitmightbeusedtogenerateabuse,fakedormisleadingcontentin
+thenewsoronsocialmedia;toimpersonateothers;ortoautomatetheproductionofspam/phishing
+content [54]. Advanced language models may also lead to the automation of various jobs in the
+comingdecades[16]. Inordertomitigatetheserisks,AIsystemscouldbeemployedtofightagainst
+misleadingcontentandautomatedspam/phishing.
+Acknowledgments
+Theauthorswouldliketothankthereviewersfortheirthoughtfulandconstructivefeedbackonthis
+paper,aswellasHuggingFacefortheirhelpinopen-sourcingcodetorunRAGmodels. Theauthors
+wouldalsoliketothankKyunghyunChoandSewonMinforproductivediscussionsandadvice. EP
+thankssupportsfromtheNSFGraduateResearchFellowship. PLissupportedbytheFAIRPhD
+program.
+References
+[1] PayalBajaj,DanielCampos,NickCraswell,LiDeng,JianfengGao,XiaodongLiu,Rangan
+Majumder,AndrewMcNamara,BhaskarMitra,TriNguyen,MirRosenberg,XiaSong,Alina
+Stoica, Saurabh Tiwary, and Tong Wang. MS MARCO: A Human Generated MAchine
+Reading COmprehension Dataset. arXiv:1611.09268 [cs], November 2016. URL http:
+//arxiv.org/abs/1611.09268. arXiv: 1611.09268.
+[2] PetrBaudišandJanŠedivy`. Modelingofthequestionansweringtaskintheyodaqasystem. In
+InternationalConferenceoftheCross-LanguageEvaluationForumforEuropeanLanguages,
+pages222–228.Springer,2015. URLhttps://link.springer.com/chapter/10.1007%
+2F978-3-319-24027-5_20.
+[3] JonathanBerant,AndrewChou,RoyFrostig,andPercyLiang. SemanticParsingonFreebase
+fromQuestion-AnswerPairs. InProceedingsofthe2013ConferenceonEmpiricalMethods
+inNaturalLanguageProcessing,pages1533–1544,Seattle,Washington,USA,October2013.
+Association for Computational Linguistics. URL http://www.aclweb.org/anthology/
+D13-1160.
+[4] BinBi,ChenliangLi,ChenWu,MingYan,andWeiWang. Palm: Pre-traininganautoencod-
+ing&autoregressivelanguagemodelforcontext-conditionedgeneration. ArXiv,abs/2004.07159,
+2020. URLhttps://arxiv.org/abs/2004.07159.
+[5] DanqiChen,AdamFisch,JasonWeston,andAntoineBordes. ReadingWikipediatoAnswer
+Open-DomainQuestions. InProceedingsofthe55thAnnualMeetingoftheAssociationfor
+ComputationalLinguistics(Volume1: LongPapers),pages1870–1879,Vancouver,Canada,
+July 2017. Association for Computational Linguistics. doi: 10.18653/v1/P17-1171. URL
+https://www.aclweb.org/anthology/P17-1171.
+[6] Eunsol Choi, Daniel Hewlett, Jakob Uszkoreit, Illia Polosukhin, Alexandre Lacoste, and
+JonathanBerant. Coarse-to-finequestionansweringforlongdocuments. InProceedingsofthe
+55thAnnualMeetingoftheAssociationforComputationalLinguistics(Volume1:LongPapers),
+pages209–220,Vancouver,Canada,July2017.AssociationforComputationalLinguistics. doi:
+10.18653/v1/P17-1020. URLhttps://www.aclweb.org/anthology/P17-1020.
+10
+
+[7] ChristopherClarkandMattGardner. SimpleandEffectiveMulti-ParagraphReadingCompre-
+hension. arXiv:1710.10723[cs],October2017. URLhttp://arxiv.org/abs/1710.10723.
+arXiv: 1710.10723.
+[8] JacobDevlin,Ming-WeiChang,KentonLee,andKristinaToutanova. BERT:Pre-trainingof
+DeepBidirectionalTransformersforLanguageUnderstanding. InProceedingsofthe2019Con-
+ferenceoftheNorthAmericanChapteroftheAssociationforComputationalLinguistics:Human
+LanguageTechnologies,Volume1(LongandShortPapers),pages4171–4186,Minneapolis,
+Minnesota,June2019.AssociationforComputationalLinguistics. doi: 10.18653/v1/N19-1423.
+URLhttps://www.aclweb.org/anthology/N19-1423.
+[9] EmilyDinan,StephenRoller,KurtShuster,AngelaFan,MichaelAuli,andJasonWeston. Wiz-
+ardofwikipedia: Knowledge-poweredconversationalagents. InInternationalConferenceon
+LearningRepresentations,2019. URLhttps://openreview.net/forum?id=r1l73iRqKm.
+[10] MatthewDunn,LeventSagun,MikeHiggins,V.UgurGuney,VolkanCirik,andKyunghyun
+Cho. SearchQA: A New Q&A Dataset Augmented with Context from a Search Engine.
+arXiv:1704.05179 [cs], April 2017. URL http://arxiv.org/abs/1704.05179. arXiv:
+1704.05179.
+[11] AngelaFan,MikeLewis,andYannDauphin. Hierarchicalneuralstorygeneration. InProceed-
+ingsofthe56thAnnualMeetingoftheAssociationforComputationalLinguistics(Volume1:
+LongPapers),pages889–898,Melbourne,Australia,July2018.AssociationforComputational
+Linguistics. doi: 10.18653/v1/P18-1082. URL https://www.aclweb.org/anthology/
+P18-1082.
+[12] AngelaFan,YacineJernite,EthanPerez,DavidGrangier,JasonWeston,andMichaelAuli.ELI5:
+Longformquestionanswering. InProceedingsofthe57thAnnualMeetingoftheAssociation
+forComputationalLinguistics,pages3558–3567,Florence,Italy,July2019.Associationfor
+ComputationalLinguistics. doi: 10.18653/v1/P19-1346. URLhttps://www.aclweb.org/
+anthology/P19-1346.
+[13] Angela Fan, Claire Gardent, Chloe Braud, and Antoine Bordes. Augmenting transformers
+withKNN-basedcompositememory, 2020. URLhttps://openreview.net/forum?id=
+H1gx1CNKPH.
+[14] ThibaultFévry,LivioBaldiniSoares,NicholasFitzGerald,EunsolChoi,andTomKwiatkowski.
+Entitiesasexperts: Sparsememoryaccesswithentitysupervision. ArXiv, abs/2004.07202,
+2020. URLhttps://arxiv.org/abs/2004.07202.
+[15] Marjan Ghazvininejad, Chris Brockett, Ming-Wei Chang, Bill Dolan, Jianfeng Gao, Wen
+tau Yih, and Michel Galley. A knowledge-grounded neural conversation model. In AAAI
+ConferenceonArtificialIntelligence,2018.URLhttps://www.aaai.org/ocs/index.php/
+AAAI/AAAI18/paper/view/16710.
+[16] KatjaGrace,JohnSalvatier,AllanDafoe,BaobaoZhang,andOwainEvans. WhenwillAI
+exceedhumanperformance? evidencefromAIexperts. CoRR,abs/1705.08807,2017. URL
+http://arxiv.org/abs/1705.08807.
+[17] Jiatao Gu, Yong Wang, Kyunghyun Cho, and Victor O.K. Li. Search engine guided neural
+machine translation. In AAAI Conference on Artificial Intelligence, 2018. URL https:
+//www.aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/17282.
+[18] Jiatao Gu, Yong Wang, Kyunghyun Cho, and Victor O.K. Li. Search engine guided neural
+machinetranslation. In 32ndAAAIConferenceonArtificialIntelligence, AAAI 2018, 32nd
+AAAIConferenceonArtificialIntelligence,AAAI2018,pages5133–5140.AAAIpress,2018.
+32ndAAAIConferenceonArtificialIntelligence,AAAI2018;Conferencedate: 02-02-2018
+Through07-02-2018.
+[19] KelvinGuu,TatsunoriB.Hashimoto,YonatanOren,andPercyLiang. Generatingsentencesby
+editingprototypes. TransactionsoftheAssociationforComputationalLinguistics,6:437–450,
+2018. doi: 10.1162/tacl_a_00030. URLhttps://www.aclweb.org/anthology/Q18-1031.
+11
+
+[20] Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat, and Ming-Wei Chang. REALM:
+Retrieval-augmentedlanguagemodelpre-training. ArXiv,abs/2002.08909,2020. URLhttps:
+//arxiv.org/abs/2002.08909.
+[21] Tatsunori B Hashimoto, Kelvin Guu, Yonatan Oren, and Percy S Liang. A
+retrieve-and-edit framework for predicting structured outputs. In S. Bengio,
+H. Wallach, H. Larochelle, K. Grauman, N. Cesa-Bianchi, and R. Garnett, ed-
+itors, Advances in Neural Information Processing Systems 31, pages 10052–
+10062. Curran Associates, Inc., 2018. URL http://papers.nips.cc/paper/
+8209-a-retrieve-and-edit-framework-for-predicting-structured-outputs.
+pdf.
+[22] NabilHossain,MarjanGhazvininejad,andLukeZettlemoyer. Simpleandeffectiveretrieve-
+edit-reranktextgeneration. InProceedingsofthe58thAnnualMeetingoftheAssociationfor
+ComputationalLinguistics,pages2532–2538,Online,July2020.AssociationforComputa-
+tionalLinguistics. doi: 10.18653/v1/2020.acl-main.228. URLhttps://www.aclweb.org/
+anthology/2020.acl-main.228.
+[23] JeffJohnson,MatthijsDouze,andHervéJégou. Billion-scalesimilaritysearchwithgpus. arXiv
+preprintarXiv:1702.08734,2017. URLhttps://arxiv.org/abs/1702.08734.
+[24] MandarJoshi,EunsolChoi,DanielWeld,andLukeZettlemoyer. TriviaQA:ALargeScale
+DistantlySupervisedChallengeDatasetforReadingComprehension. InProceedingsofthe
+55thAnnualMeetingoftheAssociationforComputationalLinguistics(Volume1:LongPapers),
+pages1601–1611,Vancouver,Canada,July2017.AssociationforComputationalLinguistics.
+doi: 10.18653/v1/P17-1147. URLhttps://www.aclweb.org/anthology/P17-1147.
+[25] Armand Joulin and Tomas Mikolov. Inferring algorithmic patterns with stack-
+augmented recurrent nets. In Proceedings of the 28th International Conference on
+Neural Information Processing Systems - Volume 1, NIPS’15, page 190–198, Cam-
+bridge, MA, USA, 2015. MIT Press. URL https://papers.nips.cc/paper/
+5857-inferring-algorithmic-patterns-with-stack-augmented-recurrent-nets.
+[26] VladimirKarpukhin,BarlasOguz,SewonMin,LedellWu,SergeyEdunov,DanqiChen,and
+Wen-tauYih. Densepassageretrievalforopen-domainquestionanswering. arXivpreprint
+arXiv:2004.04906,2020. URLhttps://arxiv.org/abs/2004.04906.
+[27] UrvashiKhandelwal,OmerLevy,DanJurafsky,LukeZettlemoyer,andMikeLewis.Generaliza-
+tionthroughmemorization: Nearestneighborlanguagemodels. InInternationalConferenceon
+LearningRepresentations,2020. URLhttps://openreview.net/forum?id=HklBjCEKvH.
+[28] DiederikP.KingmaandJimmyBa. Adam: Amethodforstochasticoptimization. InYoshua
+BengioandYannLeCun,editors,3rdInternationalConferenceonLearningRepresentations,
+ICLR2015,SanDiego,CA,USA,May7-9,2015,ConferenceTrackProceedings,2015. URL
+http://arxiv.org/abs/1412.6980.
+[29] Tom Kwiatkowski, Jennimaria Palomaki, Olivia Redfield, Michael Collins, Ankur Parikh,
+Chris Alberti, Danielle Epstein, Illia Polosukhin, Matthew Kelcey, Jacob Devlin, Ken-
+ton Lee, Kristina N. Toutanova, Llion Jones, Ming-Wei Chang, Andrew Dai, Jakob
+Uszkoreit, Quoc Le, and Slav Petrov. Natural Questions: a Benchmark for Ques-
+tion Answering Research. Transactions of the Association of Computational Lin-
+guistics, 2019. URL https://tomkwiat.users.x20web.corp.google.com/papers/
+natural-questions/main-1455-kwiatkowski.pdf.
+[30] GuillaumeLample,AlexandreSablayrolles,Marc’AurelioRanzato,LudovicDenoyer,and
+Herve Jegou. Large memory layers with product keys. In H. Wallach, H. Larochelle,
+A. Beygelzimer, F. d’ Alché-Buc, E. Fox, and R. Garnett, editors, Advances in Neural In-
+formationProcessingSystems32,pages8548–8559.CurranAssociates,Inc.,2019. URLhttp:
+//papers.nips.cc/paper/9061-large-memory-layers-with-product-keys.pdf.
+[31] KentonLee,Ming-WeiChang,andKristinaToutanova. Latentretrievalforweaklysupervised
+opendomainquestionanswering. InProceedingsofthe57thAnnualMeetingoftheAssociation
+12
+
+forComputationalLinguistics,pages6086–6096,Florence,Italy,July2019.Associationfor
+ComputationalLinguistics. doi: 10.18653/v1/P19-1612. URLhttps://www.aclweb.org/
+anthology/P19-1612.
+[32] Mike Lewis, Yinhan Liu, Naman Goyal, Marjan Ghazvininejad, Abdelrahman Mohamed,
+OmerLevy,VeselinStoyanov,andLukeZettlemoyer. BART:Denoisingsequence-to-sequence
+pre-trainingfornaturallanguagegeneration,translation,andcomprehension. arXivpreprint
+arXiv:1910.13461,2019. URLhttps://arxiv.org/abs/1910.13461.
+[33] JiweiLi,MichelGalley,ChrisBrockett,JianfengGao,andBillDolan. Adiversity-promoting
+objectivefunctionforneuralconversationmodels. InProceedingsofthe2016Conferenceofthe
+NorthAmericanChapteroftheAssociationforComputationalLinguistics: HumanLanguage
+Technologies,pages110–119,SanDiego,California,June2016.AssociationforComputational
+Linguistics. doi: 10.18653/v1/N16-1014. URL https://www.aclweb.org/anthology/
+N16-1014.
+[34] MargaretLi, JasonWeston, andStephenRoller. Acute-eval: Improveddialogueevaluation
+with optimizedquestions and multi-turn comparisons. ArXiv, abs/1909.03087, 2019. URL
+https://arxiv.org/abs/1909.03087.
+[35] HairongLiu,MingboMa,LiangHuang,HaoXiong,andZhongjunHe. Robustneuralmachine
+translation with joint textual and phonetic embedding. In Proceedings of the 57th Annual
+MeetingoftheAssociationforComputationalLinguistics,pages3044–3049,Florence,Italy,
+July 2019. Association for Computational Linguistics. doi: 10.18653/v1/P19-1291. URL
+https://www.aclweb.org/anthology/P19-1291.
+[36] PeterJ.Liu*,MohammadSaleh*,EtiennePot,BenGoodrich,RyanSepassi,LukaszKaiser,
+andNoamShazeer. Generatingwikipediabysummarizinglongsequences. InInternational
+ConferenceonLearningRepresentations,2018. URLhttps://openreview.net/forum?
+id=Hyg0vbWC-.
+[37] YuryA.MalkovandD.A.Yashunin. Efficientandrobustapproximatenearestneighborsearch
+usinghierarchicalnavigablesmallworldgraphs. IEEETransactionsonPatternAnalysisand
+MachineIntelligence,42:824–836,2016. URLhttps://arxiv.org/abs/1603.09320.
+[38] GaryMarcus. Thenextdecadeinai: fourstepstowardsrobustartificialintelligence. arXiv
+preprintarXiv:2002.06177,2020. URLhttps://arxiv.org/abs/2002.06177.
+[39] Luca Massarelli, Fabio Petroni, Aleksandra Piktus, Myle Ott, Tim Rocktäschel, Vassilis
+Plachouras, Fabrizio Silvestri, and Sebastian Riedel. How decoding strategies affect the
+verifiability of generated text. arXiv preprint arXiv:1911.03587, 2019. URL https:
+//arxiv.org/abs/1911.03587.
+[40] PauliusMicikevicius,SharanNarang,JonahAlben,GregoryDiamos,ErichElsen,DavidGarcia,
+BorisGinsburg,MichaelHouston,OleksiiKuchaiev,GaneshVenkatesh,andHaoWu. Mixed
+precisiontraining. InICLR,2018. URLhttps://openreview.net/forum?id=r1gs9JgRZ.
+[41] NikitaMoghe,SiddharthaArora,SumanBanerjee,andMiteshM.Khapra. Towardsexploit-
+ing background knowledge for building conversation systems. In Proceedings of the 2018
+ConferenceonEmpiricalMethodsinNaturalLanguageProcessing,pages2322–2332,Brus-
+sels, Belgium, October-November 2018. Association for Computational Linguistics. doi:
+10.18653/v1/D18-1255. URLhttps://www.aclweb.org/anthology/D18-1255.
+[42] PrekshaNemaandMiteshM.Khapra.Towardsabettermetricforevaluatingquestiongeneration
+systems. InProceedingsofthe2018ConferenceonEmpiricalMethodsinNaturalLanguage
+Processing,pages3950–3959,Brussels,Belgium,October-November2018.Associationfor
+ComputationalLinguistics. doi: 10.18653/v1/D18-1429. URLhttps://www.aclweb.org/
+anthology/D18-1429.
+[43] Tri Nguyen, Mir Rosenberg, Xia Song, Jianfeng Gao, Saurabh Tiwary, Rangan Majumder,
+andLiDeng. MSMARCO:Ahumangeneratedmachinereadingcomprehensiondataset. In
+Tarek Richard Besold, Antoine Bordes, Artur S. d’Avila Garcez, and Greg Wayne, editors,
+Proceedings of the Workshop on Cognitive Computation: Integrating neural and symbolic
+13
+
+approaches2016co-locatedwiththe30thAnnualConferenceonNeuralInformationProcessing
+Systems(NIPS2016),Barcelona,Spain,December9,2016,volume1773ofCEURWorkshop
+Proceedings. CEUR-WS.org, 2016. URL http://ceur-ws.org/Vol-1773/CoCoNIPS_
+2016_paper9.pdf.
+[44] Rodrigo Nogueira and Kyunghyun Cho. Passage re-ranking with BERT. arXiv preprint
+arXiv:1901.04085,2019. URLhttps://arxiv.org/abs/1901.04085.
+[45] MyleOtt,SergeyEdunov,AlexeiBaevski,AngelaFan,SamGross,NathanNg,DavidGrangier,
+andMichaelAuli. fairseq: Afast,extensibletoolkitforsequencemodeling. InProceedings
+ofthe2019ConferenceoftheNorthAmericanChapteroftheAssociationforComputational
+Linguistics(Demonstrations),pages48–53,Minneapolis,Minnesota,June2019.Association
+for Computational Linguistics. doi: 10.18653/v1/N19-4009. URL https://www.aclweb.
+org/anthology/N19-4009.
+[46] EthanPerez,SiddharthKaramcheti,RobFergus,JasonWeston,DouweKiela,andKyunghyun
+Cho. Findinggeneralizableevidencebylearningtoconvinceq&amodels. InProceedings
+ofthe2019ConferenceonEmpiricalMethodsinNaturalLanguageProcessingandthe9th
+International Joint Conference on Natural Language Processing (EMNLP-IJCNLP), pages
+2402–2411,HongKong,China,November2019.AssociationforComputationalLinguistics.
+doi: 10.18653/v1/D19-1244. URLhttps://www.aclweb.org/anthology/D19-1244.
+[47] FabioPetroni,TimRocktäschel,SebastianRiedel,PatrickLewis,AntonBakhtin,YuxiangWu,
+andAlexanderMiller. Languagemodelsasknowledgebases? InProceedingsofthe2019
+ConferenceonEmpiricalMethodsinNaturalLanguageProcessingandthe9thInternational
+JointConferenceonNaturalLanguageProcessing(EMNLP-IJCNLP),pages2463–2473,Hong
+Kong,China,November2019.AssociationforComputationalLinguistics. doi: 10.18653/v1/
+D19-1250. URLhttps://www.aclweb.org/anthology/D19-1250.
+[48] FabioPetroni,PatrickLewis,AleksandraPiktus,TimRocktäschel,YuxiangWu,AlexanderH.
+Miller,andSebastianRiedel. Howcontextaffectslanguagemodels’factualpredictions. In
+AutomatedKnowledgeBaseConstruction,2020. URLhttps://openreview.net/forum?
+id=025X0zPfn.
+[49] Alec Radford, Karthik Narasimhan, Tim Salimans, and Ilya Sutskever. Im-
+proving Language Understanding by Generative Pre-Training, 2018. URL
+https://s3-us-west-2.amazonaws.com/openai-assets/research-covers/
+language-unsupervised/language_understanding_paper.pdf.
+[50] Alec Radford, Jeff Wu, Rewon Child, David Luan, Dario Amodei, and Ilya
+Sutskever. Language models are unsupervised multitask learners, 2019. URL
+https://d4mucfpksywv.cloudfront.net/better-language-models/language_
+models_are_unsupervised_multitask_learners.pdf.
+[51] ColinRaffel,NoamShazeer,AdamRoberts,KatherineLee,SharanNarang,MichaelMatena,
+YanqiZhou,WeiLi,andPeterJ.Liu. Exploringthelimitsoftransferlearningwithaunified
+text-to-texttransformer. arXive-prints,2019. URLhttps://arxiv.org/abs/1910.10683.
+[52] AdamRoberts, ColinRaffel, andNoamShazeer. Howmuchknowledgecanyoupackinto
+theparametersofalanguagemodel? arXive-prints,2020. URLhttps://arxiv.org/abs/
+2002.08910.
+[53] StephenRobertsonandHugoZaragoza. Theprobabilisticrelevanceframework: Bm25and
+beyond. Found.TrendsInf.Retr.,3(4):333–389,April2009. ISSN1554-0669. doi: 10.1561/
+1500000019. URLhttps://doi.org/10.1561/1500000019.
+[54] IreneSolaiman,MilesBrundage,JackClark,AmandaAskell,ArielHerbert-Voss,JeffWu,Alec
+Radford,andJian-BingWang. Releasestrategiesandthesocialimpactsoflanguagemodels.
+ArXiv,abs/1908.09203,2019.
+[55] SainbayarSukhbaatar,ArthurSzlam,JasonWeston,andRobFergus. End-to-endmemorynet-
+works.InC.Cortes,N.D.Lawrence,D.D.Lee,M.Sugiyama,andR.Garnett,editors,Advances
+inNeuralInformationProcessingSystems28,pages2440–2448.CurranAssociates,Inc.,2015.
+URLhttp://papers.nips.cc/paper/5846-end-to-end-memory-networks.pdf.
+14
+
+[56] JamesThorne,AndreasVlachos,ChristosChristodoulopoulos,andArpitMittal. FEVER:a
+large-scaledatasetforfactextractionandVERification. InProceedingsofthe2018Conference
+of the North American Chapter of the Association for Computational Linguistics: Human
+LanguageTechnologies, Volume1(LongPapers), pages809–819, NewOrleans, Louisiana,
+June 2018. Association for Computational Linguistics. doi: 10.18653/v1/N18-1074. URL
+https://www.aclweb.org/anthology/N18-1074.
+[57] JamesH.ThorneandAndreasVlachos. Avoidingcatastrophicforgettinginmitigatingmodel
+biasesinsentence-pairclassificationwithelasticweightconsolidation. ArXiv,abs/2004.14366,
+2020. URLhttps://arxiv.org/abs/2004.14366.
+[58] AshishVaswani,NoamShazeer,NikiParmar,JakobUszkoreit,LlionJones,AidanNGomez,
+ŁukaszKaiser,andIlliaPolosukhin. Attentionisallyouneed. InI.Guyon,U.V.Luxburg,
+S.Bengio,H.Wallach,R.Fergus,S.Vishwanathan,andR.Garnett,editors,AdvancesinNeural
+InformationProcessingSystems30,pages5998–6008.CurranAssociates,Inc.,2017. URL
+http://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf.
+[59] AshwinVijayakumar,MichaelCogswell,RamprasaathSelvaraju,QingSun,StefanLee,David
+Crandall,andDhruvBatra. Diversebeamsearchforimproveddescriptionofcomplexscenes.
+AAAIConferenceonArtificialIntelligence,2018. URLhttps://www.aaai.org/ocs/index.
+php/AAAI/AAAI18/paper/view/17329.
+[60] AlexWang,AmanpreetSingh,JulianMichael,FelixHill,OmerLevy,andSamuelBowman.
+GLUE: A multi-task benchmark and analysis platform for natural language understanding.
+In Proceedings of the 2018 EMNLP Workshop BlackboxNLP: Analyzing and Interpreting
+NeuralNetworksforNLP,pages353–355,Brussels,Belgium,November2018.Associationfor
+ComputationalLinguistics. doi: 10.18653/v1/W18-5446. URLhttps://www.aclweb.org/
+anthology/W18-5446.
+[61] Alex Wang, Yada Pruksachatkun, Nikita Nangia, Amanpreet Singh, Julian Michael, Felix
+Hill, Omer Levy, and Samuel Bowman. SuperGLUE: A Stickier Benchmark for General-
+Purpose Language Understanding Systems. In H. Wallach, H. Larochelle, A. Beygelzimer,
+F.d\textquotesingleAlché-Buc,E.Fox,andR.Garnett,editors,AdvancesinNeuralInformation
+Processing Systems 32, pages 3261–3275. Curran Associates, Inc., 2019. URL https://
+arxiv.org/abs/1905.00537.
+[62] ShuohangWang,MoYu,XiaoxiaoGuo,ZhiguoWang,TimKlinger,WeiZhang,ShiyuChang,
+3
+GerryTesauro,BowenZhou,andJingJiang. R : Reinforcedranker-readerforopen-domain
+questionanswering. InSheilaA.McIlraithandKilianQ.Weinberger,editors,Proceedingsof
+theThirty-SecondAAAIConferenceonArtificialIntelligence,(AAAI-18),the30thinnovative
+ApplicationsofArtificialIntelligence(IAAI-18),andthe8thAAAISymposiumonEducational
+AdvancesinArtificialIntelligence(EAAI-18), NewOrleans, Louisiana, USA,February2-7,
+2018, pages 5981–5988. AAAI Press, 2018. URL https://www.aaai.org/ocs/index.
+php/AAAI/AAAI18/paper/view/16712.
+[63] ShuohangWang,MoYu,JingJiang,WeiZhang,XiaoxiaoGuo,ShiyuChang,ZhiguoWang,
+Tim Klinger, Gerald Tesauro, and Murray Campbell. Evidence aggregation for answer re-
+rankinginopen-domainquestionanswering. InICLR,2018. URLhttps://openreview.
+net/forum?id=rJl3yM-Ab.
+[64] Jason Weston, Sumit Chopra, and Antoine Bordes. Memory networks. In Yoshua Bengio
+andYannLeCun,editors,3rdInternationalConferenceonLearningRepresentations,ICLR
+2015, San Diego, CA, USA, May 7-9, 2015, Conference Track Proceedings, 2015. URL
+http://arxiv.org/abs/1410.3916.
+[65] JasonWeston,EmilyDinan,andAlexanderMiller. Retrieveandrefine: Improvedsequence
+generationmodelsfordialogue. InProceedingsofthe2018EMNLPWorkshopSCAI:The2nd
+InternationalWorkshoponSearch-OrientedConversationalAI,pages87–92,Brussels,Belgium,
+October2018.AssociationforComputationalLinguistics. doi: 10.18653/v1/W18-5713. URL
+https://www.aclweb.org/anthology/W18-5713.
+15
+
+[66] ThomasWolf,LysandreDebut,VictorSanh,JulienChaumond,ClementDelangue,Anthony
+Moi, PierricCistac, TimRault, RémiLouf, MorganFuntowicz, JoeDavison, SamShleifer,
+PatrickvonPlaten,ClaraMa,YacineJernite,JulienPlu,CanwenXu,TevenLeScao,Sylvain
+Gugger,MariamaDrame,QuentinLhoest,andAlexanderM.Rush.Huggingface’stransformers:
+State-of-the-artnaturallanguageprocessing. ArXiv,abs/1910.03771,2019.
+[67] ShiyueZhangandMohitBansal. Addressingsemanticdriftinquestiongenerationforsemi-
+supervisedquestionanswering. InProceedingsofthe2019ConferenceonEmpiricalMeth-
+odsinNaturalLanguageProcessingandthe9thInternationalJointConferenceonNatural
+Language Processing (EMNLP-IJCNLP), pages 2495–2509, Hong Kong, China, Novem-
+ber 2019. Association for Computational Linguistics. doi: 10.18653/v1/D19-1253. URL
+https://www.aclweb.org/anthology/D19-1253.
+[68] WanjunZhong,JingjingXu,DuyuTang,ZenanXu,NanDuan,MingZhou,JiahaiWang,and
+JianYin. Reasoningoversemantic-levelgraphforfactchecking. ArXiv,abs/1909.03745,2019.
+URLhttps://arxiv.org/abs/1909.03745.
+16
+
+Appendices for Retrieval-Augmented Generation for
+Knowledge-Intensive NLP Tasks
+A ImplementationDetails
+ForOpen-domainQAwereporttestnumbersusing15retrieveddocumentsforRAG-Tokenmodels.
+For RAG-Sequence models, we report test results using 50 retrieved documents, and we use the
+ThoroughDecodingapproachsinceanswersaregenerallyshort. WeusegreedydecodingforQAas
+wedidnotfindbeamsearchimprovedresults. ForOpen-MSMarcoandJeopardyquestiongeneration,
+we report test numbers using ten retrieved documents for both RAG-Token and RAG-Sequence,
+andwealsotrainaBART-largemodelasabaseline. Weuseabeamsizeoffour,andusetheFast
+DecodingapproachforRAG-Sequencemodels,asThoroughDecodingdidnotimproveperformance.
+B HumanEvaluation
+Figure4: Annotationinterfaceforhumanevaluationoffactuality. Apop-outfordetailedinstructions
+andaworkedexampleappearwhenclicking"viewtoolguide".
+Figure 4showsthe userinterface forhuman evaluation. Toavoidanybiases forscreen position,
+whichmodelcorrespondedtosentenceAandsentenceBwasrandomlyselectedforeachexample.
+Annotatorswereencouragedtoresearchthetopicusingtheinternet,andweregivendetailedinstruc-
+tionsandworkedexamplesinafullinstructionstab. Weincludedsomegoldsentencesinorderto
+assesstheaccuracyoftheannotators. Twoannotatorsdidnotperformwellontheseexamplesand
+theirannotationswereremovedfromtheresults.
+C TrainingsetupDetails
+WetrainallRAGmodelsandBARTbaselinesusingFairseq[45].2 Wetrainwithmixedprecision
+floatingpointarithmetic[40],distributingtrainingacross8,32GBNVIDIAV100GPUs,though
+trainingandinferencecanberunononeGPU.WefindthatdoingMaximumInnerProductSearch
+withFAISSissufficientlyfastonCPU,sowestoredocumentindexvectorsonCPU,requiring∼100
+GBofCPUmemoryforallofWikipedia. Aftersubmission,WehaveportedourcodetoHuggingFace
+Transformers[66]3,whichachievesequivalentperformancetothepreviousversionbutisacleaner
+andeasiertouseimplementation. Thisversionisalsoopen-sourced. Wealsocompressthedocument
+indexusingFAISS’scompressiontools,reducingtheCPUmemoryrequirementto36GB.Scriptsto
+runexperimentswithRAGcanbefoundathttps://github.com/huggingface/transformers/
+blob/master/examples/rag/README.mdandaninteractivedemoofaRAGmodelcanbefound
+athttps://huggingface.co/rag/
+2https://github.com/pytorch/fairseq
+3https://github.com/huggingface/transformers
+17
+
+D FurtherDetailsonOpen-DomainQA
+Foropen-domainQA,multipleanswerannotationsareoftenavailableforagivenquestion. These
+answerannotationsareexploitedbyextractivemodelsduringtrainingastypicallyalltheanswer
+annotationsareusedtofindmatcheswithindocumentswhenpreparingtrainingdata. ForRAG,we
+alsomakeuseofmultipleannotationexamplesforNaturalQuestionsandWebQuestionsbytraining
+themodelwitheach(q,a)pairseparately,leadingtoasmallincreaseinaccuracy. ForTriviaQA,
+thereareoftenmanyvalidanswerstoagivenquestion,someofwhicharenotsuitabletrainingtargets,
+suchasemojiorspellingvariants. ForTriviaQA,wefilteroutanswercandidatesiftheydonotoccur
+intop1000documentsforthequery.
+CuratedTrecpreprocessing TheanswersforCuratedTrecaregivenintheformofregularexpres-
+sions,whichhasbeensuggestedasareasonwhyitisunsuitableforanswer-generationmodels[20].
+Toovercomethis,weuseapre-processingstepwherewefirstretrievethetop1000documentsfor
+eachquery,andusetheanswerthatmostfrequentlymatchestheregexpatternasthesupervision
+target. Ifnomatchesarefound,weresorttoasimpleheuristic: generateallpossiblepermutationsfor
+eachregex,replacingnon-deterministicsymbolsintheregexnestedtreestructurewithawhitespace.
+TriviaQAEvaluationsetups Theopen-domainQAcommunitycustomarilyusespublicdevelop-
+mentdatasetsastestdatasets,astestdataforQAdatasetsisoftenrestrictedanddedicatedtoreading
+compehensionpurposes. WereportourresultsusingthedatasetssplitsusedinDPR[26],whichare
+consistentwithcommonpracticeinOpen-domainQA.ForTriviaQA,thistestdatasetisthepublic
+TriviaQAWebDevelopmentsplit. Robertsetal.[52]usedtheTriviaQAofficialWikipediatestset
+instead. Févryetal.[14]followthisconventioninordertocomparewithRobertsetal.[52](See
+appendixof[14]). Wereportresultsonbothtestsetstoenablefaircomparisontobothapproaches.
+WefindthatourperformanceismuchhigherusingtheofficialWikitestset,ratherthanthemore
+conventionalopen-domaintestset,whichweattributetotheofficialWikitestsetquestionsbeing
+simplertoanswerfromWikipedia.
+E FurtherDetailsonFEVER
+For FEVER classification, we follow the practice from [32], and first re-generate the claim, and
+thenclassifyusingtherepresentationofthefinalhiddenstate,beforefinallymarginalizingacross
+documentstoobtaintheclassprobabilities. TheFEVERtasktraditionallyhastwosub-tasks. The
+firstistoclassifytheclaimaseither"Supported","Refuted"or"NotEnoughInfo",whichisthetask
+weexploreinthemainpaper. FEVER’sothersub-taskinvolvesextractingsentencesfromWikipedia
+asevidencesupportingtheclassificationprediction. AsFEVERusesadifferentWikipediadumpto
+us,directlytacklingthistaskisnotstraightforward. Wehopetoaddressthisinfuturework.
+F NullDocumentProbabilities
+Weexperimentedwithadding"Nulldocument"mechanismtoRAG,similartoREALM[20]inorder
+tomodelcaseswherenousefulinformationcouldberetrievedforagiveninput. Here,ifkdocuments
+wereretrieved,wewouldadditionally"retrieve"anemptydocumentandpredictalogitforthenull
+document,beforemarginalizingoverk+1predictions. Weexploredmodellingthisnulldocument
+logitbylearning(i)adocumentembeddingforthenulldocument,(ii)astaticlearntbiasterm,or
+(iii)aneuralnetworktopredictthelogit. Wedidnotfindthattheseimprovedperformance,soin
+theinterestsofsimplicity,weomitthem. ForOpenMS-MARCO,whereusefulretrieveddocuments
+cannotalwaysberetrieved,weobservethatthemodellearnstoalwaysretrieveaparticularsetof
+documentsforquestionsthatarelesslikelytobenefitfromretrieval,suggestingthatnulldocument
+mechanismsmaynotbenecessaryforRAG.
+G Parameters
+OurRAGmodelscontainthetrainableparametersfortheBERT-basequeryanddocumentencoderof
+DPR,with110Mparameterseach(althoughwedonottrainthedocumentencoderourselves)and
+406MtrainableparametersfromBART-large,406Mparameters,makingatotalof626Mtrainable
+18
+
+Table7: Numberofinstancesinthedatasetsused. *Ahiddensubsetofthisdataisusedforevaluation
+Task Train Development Test
+NaturalQuestions 79169 8758 3611
+TriviaQA 78786 8838 11314
+WebQuestions 3418 362 2033
+CuratedTrec 635 134 635
+JeopardyQuestionGeneration 97392 13714 26849
+MS-MARCO 153726 12468 101093*
+FEVER-3-way 145450 10000 10000
+FEVER-2-way 96966 6666 6666
+parameters. Thebestperforming"closed-book"(parametriconly)open-domainQAmodelisT5-11B
+with11Billiontrainableparameters. TheT5modelwiththeclosestnumberofparameterstoour
+modelsisT5-large(770Mparameters),whichachievesascoreof28.9EMonNaturalQuestions[52],
+substantiallybelowthe44.5thatRAG-Sequenceachieves,indicatingthathybridparametric/non-
+parametricmodelsrequirefarfewertrainableparametersforstrongopen-domainQAperformance.
+Thenon-parametricmemoryindexdoesnotconsistoftrainableparameters,butdoesconsistsof21M
+728dimensionalvectors,consistingof15.3Bvalues. Thesecanbeeasilybestoredat8-bitfloating
+pointprecisiontomanagememoryanddiskfootprints.
+H RetrievalCollapse
+In preliminary experiments, we observed that for some tasks such as story generation [11], the
+retrievalcomponentwould“collapse”andlearntoretrievethesamedocumentsregardlessofthe
+input. Inthesecases,onceretrievalhadcollapsed,thegeneratorwouldlearntoignorethedocuments,
+andtheRAGmodelwouldperformequivalentlytoBART.Thecollapsecouldbeduetoaless-explicit
+requirementforfactualknowledgeinsometasks,orthelongertargetsequences,whichcouldresult
+inlessinformativegradientsfortheretriever. Perezetal.[46]alsofoundspuriousretrievalresults
+whenoptimizingaretrievalcomponentinordertoimproveperformanceondownstreamtasks.
+I Numberofinstancesperdataset
+Thenumberoftraining,developmentandtestdatapointsineachofourdatasetsisshowninTable7.
+19

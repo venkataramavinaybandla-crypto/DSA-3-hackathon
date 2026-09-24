@@ -1,0 +1,6 @@
+Title: Authoritative Sources in a Hyperlinked Environment (HITS)
+Authors: Kleinberg
+Year: 1999
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Authoritative Sources in a Hyperlinked Environment (HITS)' by Kleinberg (1999). Classic foundational literature published in original journal/conference proceedings.

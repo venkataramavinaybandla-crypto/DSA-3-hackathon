@@ -1,0 +1,6 @@
+Title: A Note on Two Problems in Connexion with Graphs
+Authors: Dijkstra
+Year: 1959
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'A Note on Two Problems in Connexion with Graphs' by Dijkstra (1959). Classic foundational literature published in original journal/conference proceedings.

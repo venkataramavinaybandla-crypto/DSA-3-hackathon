@@ -1,0 +1,6 @@
+Title: ImageNet Classification with Deep Convolutional Neural Networks
+Authors: Krizhevsky et al.
+Year: 2012
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'ImageNet Classification with Deep Convolutional Neural Networks' by Krizhevsky et al. (2012). Classic foundational literature published in original journal/conference proceedings.

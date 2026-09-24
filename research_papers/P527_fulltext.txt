@@ -1,0 +1,533 @@
+Playing Atari with Deep Reinforcement Learning
+VolodymyrMnih KorayKavukcuoglu DavidSilver AlexGraves IoannisAntonoglou
+DaanWierstra MartinRiedmiller
+DeepMindTechnologies
+{vlad,koray,david,alex.graves,ioannis,daan,martin.riedmiller} @ deepmind.com
+Abstract
+Wepresentthefirstdeeplearningmodeltosuccessfullylearncontrolpoliciesdi-
+rectly from high-dimensional sensory input using reinforcement learning. The
+model is a convolutional neural network, trained with a variant of Q-learning,
+whoseinputisrawpixelsandwhoseoutputisavaluefunctionestimatingfuture
+rewards.WeapplyourmethodtosevenAtari2600gamesfromtheArcadeLearn-
+ingEnvironment,withnoadjustmentofthearchitectureorlearningalgorithm.We
+findthatitoutperformsallpreviousapproachesonsixofthegamesandsurpasses
+ahumanexpertonthreeofthem.
+1 Introduction
+Learningtocontrolagentsdirectlyfromhigh-dimensionalsensoryinputslikevisionandspeechis
+one of the long-standing challenges of reinforcement learning (RL). Most successful RL applica-
+tionsthatoperateonthesedomainshavereliedonhand-craftedfeaturescombinedwithlinearvalue
+functionsorpolicyrepresentations. Clearly,theperformanceofsuchsystemsheavilyreliesonthe
+qualityofthefeaturerepresentation.
+Recentadvancesindeeplearninghavemadeitpossibletoextracthigh-levelfeaturesfromrawsen-
+sory data, leading to breakthroughs in computer vision [11, 22, 16] and speech recognition [6, 7].
+These methods utilise a range of neural network architectures, including convolutional networks,
+multilayerperceptrons,restrictedBoltzmannmachinesandrecurrentneuralnetworks,andhaveex-
+ploited both supervised and unsupervised learning. It seems natural to ask whether similar tech-
+niquescouldalsobebeneficialforRLwithsensorydata.
+However reinforcement learning presents several challenges from a deep learning perspective.
+Firstly, most successful deep learning applications to date have required large amounts of hand-
+labelledtrainingdata. RLalgorithms,ontheotherhand,mustbeabletolearnfromascalarreward
+signalthatisfrequentlysparse,noisyanddelayed.Thedelaybetweenactionsandresultingrewards,
+whichcanbethousandsoftimestepslong,seemsparticularlydauntingwhencomparedtothedirect
+associationbetweeninputsandtargetsfoundinsupervisedlearning. Anotherissueisthatmostdeep
+learningalgorithmsassumethedatasamplestobeindependent,whileinreinforcementlearningone
+typically encounters sequences of highly correlated states. Furthermore, in RL the data distribu-
+tion changes as the algorithm learns new behaviours, which can be problematic for deep learning
+methodsthatassumeafixedunderlyingdistribution.
+Thispaperdemonstratesthataconvolutionalneuralnetworkcanovercomethesechallengestolearn
+successful control policies from raw video data in complex RL environments. The network is
+trained with a variant of the Q-learning [26] algorithm, with stochastic gradient descent to update
+the weights. To alleviate the problems of correlated data and non-stationary distributions, we use
+1
+3102
+ceD
+91
+]GL.sc[
+1v2065.2131:viXra
+
+Figure1: ScreenshotsfromfiveAtari2600Games:(Left-to-right)Pong,Breakout,SpaceInvaders,
+Seaquest,BeamRider
+an experience replay mechanism [13] which randomly samples previous transitions, and thereby
+smoothsthetrainingdistributionovermanypastbehaviors.
+WeapplyourapproachtoarangeofAtari2600gamesimplementedinTheArcadeLearningEnvi-
+ronment(ALE)[3]. Atari2600isachallengingRLtestbedthatpresentsagentswithahighdimen-
+sional visual input (210×160 RGB video at 60Hz) and a diverse and interesting set of tasks that
+weredesignedtobedifficultforhumansplayers. Ourgoalistocreateasingleneuralnetworkagent
+thatisabletosuccessfullylearntoplayasmanyofthegamesaspossible. Thenetworkwasnotpro-
+videdwithanygame-specificinformationorhand-designedvisualfeatures,andwasnotprivytothe
+internalstateoftheemulator; itlearnedfromnothingbutthevideoinput, therewardandterminal
+signals,andthesetofpossibleactions—justasahumanplayerwould. Furthermorethenetworkar-
+chitectureandallhyperparametersusedfortrainingwerekeptconstantacrossthegames. Sofarthe
+networkhasoutperformedallpreviousRLalgorithmsonsixofthesevengameswehaveattempted
+andsurpassedanexperthumanplayeronthreeofthem. Figure1providessamplescreenshotsfrom
+fiveofthegamesusedfortraining.
+2 Background
+WeconsidertasksinwhichanagentinteractswithanenvironmentE,inthiscasetheAtariemulator,
+in a sequence of actions, observations and rewards. At each time-step the agent selects an action
+a from the set of legal game actions, A = {1,...,K}. The action is passed to the emulator and
+t
+modifies its internal state and the game score. In general E may be stochastic. The emulator’s
+internalstateisnotobservedbytheagent;insteaditobservesanimagex ∈Rd fromtheemulator,
+t
+whichisavectorofrawpixelvaluesrepresentingthecurrentscreen. Inadditionitreceivesareward
+r representingthechangeingamescore. Notethatingeneralthegamescoremaydependonthe
+t
+whole prior sequence of actions and observations; feedback about an action may only be received
+aftermanythousandsoftime-stepshaveelapsed.
+Sincetheagentonlyobservesimagesofthecurrentscreen,thetaskispartiallyobservedandmany
+emulatorstatesareperceptuallyaliased,i.e. itisimpossibletofullyunderstandthecurrentsituation
+fromonlythecurrentscreenx . Wethereforeconsidersequencesofactionsandobservations,s =
+t t
+x ,a ,x ,...,a ,x ,andlearngamestrategiesthatdependuponthesesequences. Allsequences
+1 1 2 t−1 t
+in the emulator are assumed to terminate in a finite number of time-steps. This formalism gives
+risetoalargebutfiniteMarkovdecisionprocess(MDP)inwhicheachsequenceisadistinctstate.
+Asaresult,wecanapplystandardreinforcementlearningmethodsforMDPs,simplybyusingthe
+completesequences asthestaterepresentationattimet.
+t
+Thegoaloftheagentistointeractwiththeemulatorbyselectingactionsinawaythatmaximises
+futurerewards. Wemakethestandardassumptionthatfuturerewardsarediscountedbyafactorof
+γ pertime-step,anddefinethefuturediscountedreturnattimetasR = (cid:80)T γt(cid:48)−tr ,whereT
+t t(cid:48)=t t(cid:48)
+isthetime-stepatwhichthegameterminates. Wedefinetheoptimalaction-valuefunctionQ∗(s,a)
+asthemaximumexpectedreturnachievablebyfollowinganystrategy,afterseeingsomesequence
+s and then taking some action a, Q∗(s,a) = max E[R |s =s,a =a,π], where π is a policy
+π t t t
+mappingsequencestoactions(ordistributionsoveractions).
+Theoptimalaction-valuefunctionobeysanimportantidentityknownastheBellmanequation. This
+is based on the following intuition: if the optimal value Q∗(s(cid:48),a(cid:48)) of the sequence s(cid:48) at the next
+time-stepwasknownforallpossibleactionsa(cid:48), thentheoptimalstrategyistoselecttheactiona(cid:48)
+2
+
+maximisingtheexpectedvalueofr+γQ∗(s(cid:48),a(cid:48)),
+(cid:104) (cid:12) (cid:105)
+Q∗(s,a)=E r+γmaxQ∗(s(cid:48),a(cid:48))(cid:12)s,a (1)
+s(cid:48)∼E (cid:12)
+a(cid:48)
+The basic idea behind many reinforcement learning algorithms is to estimate the action-
+value function, by using the Bellman equation as an iterative update, Q (s,a) =
+i+1
+E[r+γmax Q (s(cid:48),a(cid:48))|s,a]. Such value iteration algorithms converge to the optimal action-
+a(cid:48) i
+value function, Q → Q∗ as i → ∞ [23]. In practice, this basic approach is totally impractical,
+i
+becausetheaction-valuefunctionisestimatedseparatelyforeachsequence, withoutanygenerali-
+sation. Instead,itiscommontouseafunctionapproximatortoestimatetheaction-valuefunction,
+Q(s,a;θ) ≈ Q∗(s,a). Inthereinforcementlearningcommunitythisistypicallyalinearfunction
+approximator, but sometimes a non-linear function approximator is used instead, such as a neural
+network. We refer to a neural network function approximator with weights θ as a Q-network. A
+Q-network can be trained by minimising a sequence of loss functions L (θ ) that changes at each
+i i
+iterationi,
+(cid:104) (cid:105)
+L (θ )=E (y −Q(s,a;θ ))2 , (2)
+i i s,a∼ρ(·) i i
+where y = E [r+γmax Q(s(cid:48),a(cid:48);θ )|s,a] is the target for iteration i and ρ(s,a) is a
+i s(cid:48)∼E a(cid:48) i−1
+probabilitydistributionoversequencessandactionsathatwerefertoasthebehaviourdistribution.
+The parameters from the previous iteration θ are held fixed when optimising the loss function
+i−1
+L (θ ). Notethatthetargetsdependonthenetworkweights;thisisincontrastwiththetargetsused
+i i
+for supervised learning, which are fixed before learning begins. Differentiating the loss function
+withrespecttotheweightswearriveatthefollowinggradient,
+(cid:104)(cid:16) (cid:17) (cid:105)
+∇ L (θ )=E r+γmaxQ(s(cid:48),a(cid:48);θ )−Q(s,a;θ ) ∇ Q(s,a;θ ) . (3)
+θi i i s,a∼ρ(·);s(cid:48)∼E
+a(cid:48)
+i−1 i θi i
+Ratherthancomputingthefullexpectationsintheabovegradient,itisoftencomputationallyexpe-
+dient to optimise the loss function by stochastic gradient descent. If the weights are updated after
+everytime-step,andtheexpectationsarereplacedbysinglesamplesfromthebehaviourdistribution
+ρandtheemulatorE respectively,thenwearriveatthefamiliarQ-learningalgorithm[26].
+Notethatthisalgorithmismodel-free: itsolvesthereinforcementlearningtaskdirectlyusingsam-
+ples from the emulator E, without explicitly constructing an estimate of E. It is also off-policy: it
+learnsaboutthegreedystrategya=max Q(s,a;θ),whilefollowingabehaviourdistributionthat
+a
+ensuresadequateexplorationofthestatespace. Inpractice, thebehaviourdistributionisoftense-
+lectedbyan(cid:15)-greedystrategythatfollowsthegreedystrategywithprobability1−(cid:15)andselectsa
+randomactionwithprobability(cid:15).
+3 RelatedWork
+Perhaps the best-known success story of reinforcement learning is TD-gammon, a backgammon-
+playingprogramwhichlearntentirelybyreinforcementlearningandself-play,andachievedasuper-
+humanlevelofplay[24]. TD-gammonusedamodel-freereinforcementlearningalgorithmsimilar
+toQ-learning,andapproximatedthevaluefunctionusingamulti-layerperceptronwithonehidden
+layer1.
+However,earlyattemptstofollowuponTD-gammon,includingapplicationsofthesamemethodto
+chess,Goandcheckerswerelesssuccessful. ThisledtoawidespreadbeliefthattheTD-gammon
+approachwasaspecialcasethatonlyworkedinbackgammon,perhapsbecausethestochasticityin
+the dice rolls helps explore the state space and also makes the value function particularly smooth
+[19].
+Furthermore,itwasshownthatcombiningmodel-freereinforcementlearningalgorithmssuchasQ-
+learning with non-linear function approximators [25], or indeed with off-policy learning [1] could
+cause the Q-network to diverge. Subsequently, the majority of work in reinforcement learning fo-
+cusedonlinearfunctionapproximatorswithbetterconvergenceguarantees[25].
+1In fact TD-Gammon approximated the state value function V(s) rather than the action-value function
+Q(s,a),andlearnton-policydirectlyfromtheself-playgames
+3
+
+More recently, there has been a revival of interest in combining deep learning with reinforcement
+learning. DeepneuralnetworkshavebeenusedtoestimatetheenvironmentE;restrictedBoltzmann
+machines have been used to estimate the value function [21]; or the policy [9]. In addition, the
+divergence issues with Q-learning have been partially addressed by gradient temporal-difference
+methods. These methods are proven to converge when evaluating a fixed policy with a nonlinear
+function approximator [14]; or when learning a control policy with linear function approximation
+usingarestrictedvariantofQ-learning[15]. However,thesemethodshavenotyetbeenextendedto
+nonlinearcontrol.
+Perhaps the most similar prior work to our own approach is neural fitted Q-learning (NFQ) [20].
+NFQoptimisesthesequenceoflossfunctionsinEquation2,usingtheRPROPalgorithmtoupdate
+the parameters of the Q-network. However, it uses a batch update that has a computational cost
+periterationthatisproportionaltothesizeofthedataset,whereasweconsiderstochasticgradient
+updatesthathavealowconstantcostperiterationandscaletolargedata-sets. NFQhasalsobeen
+successfullyappliedtosimplereal-worldcontroltasksusingpurelyvisualinput,byfirstusingdeep
+autoencoderstolearnalowdimensionalrepresentationofthetask, andthenapplyingNFQtothis
+representation [12]. In contrast our approach applies reinforcement learning end-to-end, directly
+from the visual inputs; as a result it may learn features that are directly relevant to discriminating
+action-values. Q-learninghasalsopreviouslybeencombinedwithexperiencereplayandasimple
+neuralnetwork[13],butagainstartingwithalow-dimensionalstateratherthanrawvisualinputs.
+TheuseoftheAtari2600emulatorasareinforcementlearningplatformwasintroducedby[3],who
+appliedstandardreinforcementlearningalgorithmswithlinearfunctionapproximationandgeneric
+visual features. Subsequently, results were improved by using a larger number of features, and
+usingtug-of-warhashingtorandomlyprojectthefeaturesintoalower-dimensionalspace[2]. The
+HyperNEATevolutionaryarchitecture[8]hasalsobeenappliedtotheAtariplatform,whereitwas
+usedtoevolve(separately,foreachdistinctgame)aneuralnetworkrepresentingastrategyforthat
+game. Whentrainedrepeatedlyagainstdeterministicsequencesusingtheemulator’sresetfacility,
+thesestrategieswereabletoexploitdesignflawsinseveralAtarigames.
+4 DeepReinforcementLearning
+Recentbreakthroughsincomputervisionandspeechrecognitionhavereliedonefficientlytraining
+deepneuralnetworksonverylargetrainingsets.Themostsuccessfulapproachesaretraineddirectly
+from the raw inputs, using lightweight updates based on stochastic gradient descent. By feeding
+sufficient data into deep neural networks, it is often possible to learn better representations than
+handcrafted features [11]. These successes motivate our approach to reinforcement learning. Our
+goal is to connect a reinforcement learning algorithm to a deep neural network which operates
+directlyonRGBimagesandefficientlyprocesstrainingdatabyusingstochasticgradientupdates.
+Tesauro’sTD-Gammonarchitectureprovidesastartingpointforsuchanapproach. Thisarchitec-
+tureupdatestheparametersofanetworkthatestimatesthevaluefunction,directlyfromon-policy
+samplesofexperience,s ,a ,r ,s ,a ,drawnfromthealgorithm’sinteractionswiththeenvi-
+t t t t+1 t+1
+ronment(orbyself-play,inthecaseofbackgammon). Sincethisapproachwasabletooutperform
+thebesthumanbackgammonplayers20yearsago,itisnaturaltowonderwhethertwodecadesof
+hardware improvements, coupled with modern deep neural network architectures and scalable RL
+algorithmsmightproducesignificantprogress.
+In contrast to TD-Gammon and similar online approaches, we utilize a technique known as expe-
+riencereplay[13]wherewestoretheagent’sexperiencesateachtime-step,e = (s ,a ,r ,s )
+t t t t t+1
+in a data-set D = e ,...,e , pooled over many episodes into a replay memory. During the inner
+1 N
+loopofthealgorithm,weapplyQ-learningupdates,orminibatchupdates,tosamplesofexperience,
+e ∼ D, drawn at random from the pool of stored samples. After performing experience replay,
+the agent selects and executes an action according to an (cid:15)-greedy policy. Since using histories of
+arbitrarylengthasinputstoaneuralnetworkcanbedifficult,ourQ-functioninsteadworksonfixed
+lengthrepresentationofhistoriesproducedbyafunctionφ. Thefullalgorithm,whichwecalldeep
+Q-learning,ispresentedinAlgorithm1.
+This approach has several advantages over standard online Q-learning [23]. First, each step of
+experience is potentially used in many weight updates, which allows for greater data efficiency.
+4
+
+Algorithm1DeepQ-learningwithExperienceReplay
+InitializereplaymemoryDtocapacityN
+Initializeaction-valuefunctionQwithrandomweights
+forepisode=1,M do
+Initialisesequences ={x }andpreprocessedsequencedφ =φ(s )
+1 1 1 1
+fort=1,T do
+Withprobability(cid:15)selectarandomactiona
+t
+otherwiseselecta =max Q∗(φ(s ),a;θ)
+t a t
+Executeactiona inemulatorandobserverewardr andimagex
+t t t+1
+Sets =s ,a ,x andpreprocessφ =φ(s )
+t+1 t t t+1 t+1 t+1
+Storetransition(φ ,a ,r ,φ )inD
+t t t t+1
+Samplerandomminibatchoftransitions(φ ,a ,r ,φ )fromD
+j j j j+1
+(cid:26)
+r forterminalφ
+Sety = j j+1
+j r +γmax Q(φ ,a(cid:48);θ) fornon-terminalφ
+j a(cid:48) j+1 j+1
+Performagradientdescentstepon(y −Q(φ ,a ;θ))2accordingtoequation3
+j j j
+endfor
+endfor
+Second, learning directly from consecutive samples is inefficient, due to the strong correlations
+betweenthesamples; randomizingthesamplesbreaksthesecorrelationsandthereforereducesthe
+varianceoftheupdates. Third,whenlearningon-policythecurrentparametersdeterminethenext
+datasamplethattheparametersaretrainedon.Forexample,ifthemaximizingactionistomoveleft
+thenthetrainingsampleswillbedominatedbysamplesfromtheleft-handside;ifthemaximizing
+actionthenswitchestotherightthenthetrainingdistributionwillalsoswitch. Itiseasytoseehow
+unwantedfeedbackloopsmayariseandtheparameterscouldgetstuckinapoorlocalminimum,or
+evendivergecatastrophically[25]. Byusingexperiencereplaythebehaviordistributionisaveraged
+overmanyofitspreviousstates,smoothingoutlearningandavoidingoscillationsordivergencein
+the parameters. Note that when learning by experience replay, it is necessary to learn off-policy
+(becauseourcurrentparametersaredifferenttothoseusedtogeneratethesample),whichmotivates
+thechoiceofQ-learning.
+Inpractice,ouralgorithmonlystoresthelastN experiencetuplesinthereplaymemory,andsamples
+uniformlyatrandomfromD whenperformingupdates. Thisapproachisinsomerespectslimited
+since the memory buffer does not differentiate important transitions and always overwrites with
+recent transitions due to the finite memory size N. Similarly, the uniform sampling gives equal
+importance to all transitions in the replay memory. A more sophisticated sampling strategy might
+emphasizetransitionsfromwhichwecanlearnthemost,similartoprioritizedsweeping[17].
+4.1 PreprocessingandModelArchitecture
+WorkingdirectlywithrawAtariframes,whichare210×160pixelimageswitha128colorpalette,
+can be computationally demanding, so we apply a basic preprocessing step aimed at reducing the
+inputdimensionality. TherawframesarepreprocessedbyfirstconvertingtheirRGBrepresentation
+togray-scaleanddown-samplingittoa110×84image.Thefinalinputrepresentationisobtainedby
+croppingan84×84regionoftheimagethatroughlycapturestheplayingarea. Thefinalcropping
+stageisonlyrequiredbecauseweusetheGPUimplementationof2Dconvolutionsfrom[11],which
+expectssquareinputs.Fortheexperimentsinthispaper,thefunctionφfromalgorithm1appliesthis
+preprocessingtothelast4framesofahistoryandstacksthemtoproducetheinputtotheQ-function.
+ThereareseveralpossiblewaysofparameterizingQusinganeuralnetwork. SinceQmapshistory-
+actionpairstoscalarestimatesoftheirQ-value,thehistoryandtheactionhavebeenusedasinputs
+to the neural network by some previous approaches [20, 12]. The main drawback of this type
+of architecture is that a separate forward pass is required to compute the Q-value of each action,
+resulting in a cost that scales linearly with the number of actions. We instead use an architecture
+inwhichthereisaseparateoutputunitforeachpossibleaction,andonlythestaterepresentationis
+aninputtotheneuralnetwork. TheoutputscorrespondtothepredictedQ-valuesoftheindividual
+actionfortheinputstate. Themainadvantageofthistypeofarchitectureistheabilitytocompute
+Q-valuesforallpossibleactionsinagivenstatewithonlyasingleforwardpassthroughthenetwork.
+5
+
+We now describe the exact architecture used for all seven Atari games. The input to the neural
+networkconsistsisan84×84×4imageproducedbyφ. Thefirsthiddenlayerconvolves168×8
+filters with stride 4 with the input image and applies a rectifier nonlinearity [10, 18]. The second
+hiddenlayerconvolves324×4filterswithstride2,againfollowedbyarectifiernonlinearity. The
+finalhiddenlayerisfully-connectedandconsistsof256rectifierunits. Theoutputlayerisafully-
+connectedlinearlayerwithasingleoutputforeachvalidaction. Thenumberofvalidactionsvaried
+between4and18onthegamesweconsidered. Werefertoconvolutionalnetworkstrainedwithour
+approachasDeepQ-Networks(DQN).
+5 Experiments
+So far, we have performed experiments on seven popular ATARI games – Beam Rider, Breakout,
+Enduro, Pong, Q*bert, Seaquest, Space Invaders. We use the same network architecture, learning
+algorithmandhyperparameterssettingsacrossallsevengames,showingthatourapproachisrobust
+enoughtoworkonavarietyofgameswithoutincorporatinggame-specificinformation. Whilewe
+evaluatedouragentsontherealandunmodifiedgames,wemadeonechangetotherewardstructure
+ofthegamesduringtrainingonly. Sincethescaleofscoresvariesgreatlyfromgametogame,we
+fixedallpositiverewardstobe1andallnegativerewardstobe−1, leaving0rewardsunchanged.
+Clipping the rewards in this manner limits the scale of the error derivatives and makes it easier to
+usethesamelearningrateacrossmultiplegames. Atthesametime,itcouldaffecttheperformance
+ofouragentsinceitcannotdifferentiatebetweenrewardsofdifferentmagnitude.
+Intheseexperiments, weusedtheRMSPropalgorithmwithminibatchesofsize32. Thebehavior
+policy during training was (cid:15)-greedy with (cid:15) annealed linearly from 1 to 0.1 over the first million
+frames, and fixed at 0.1 thereafter. We trained for a total of 10 million frames and used a replay
+memoryofonemillionmostrecentframes.
+FollowingpreviousapproachestoplayingAtarigames,wealsouseasimpleframe-skippingtech-
+nique [3]. More precisely, the agent sees and selects actions on every kth frame instead of every
+frame,anditslastactionisrepeatedonskippedframes. Sincerunningtheemulatorforwardforone
+step requires much less computation than having the agent select an action, this technique allows
+theagenttoplayroughlyktimesmoregameswithoutsignificantlyincreasingtheruntime. Weuse
+k = 4 for all games except Space Invaders where we noticed that using k = 4 makes the lasers
+invisiblebecauseoftheperiodatwhichtheyblink. Weusedk = 3tomakethelasersvisibleand
+thischangewastheonlydifferenceinhyperparametervaluesbetweenanyofthegames.
+5.1 TrainingandStability
+Insupervisedlearning,onecaneasilytracktheperformanceofamodelduringtrainingbyevaluating
+itonthetrainingandvalidationsets. Inreinforcementlearning,however,accuratelyevaluatingthe
+progressofanagentduringtrainingcanbechallenging. Sinceourevaluationmetric,assuggested
+by [3], is the total reward the agent collects in an episode or game averaged over a number of
+games,weperiodicallycomputeitduringtraining. Theaveragetotalrewardmetrictendstobevery
+noisybecausesmallchangestotheweightsofapolicycanleadtolargechangesinthedistributionof
+statesthepolicyvisits.Theleftmosttwoplotsinfigure2showhowtheaveragetotalrewardevolves
+duringtrainingonthegamesSeaquestandBreakout. Bothaveragedrewardplotsareindeedquite
+noisy,givingonetheimpressionthatthelearningalgorithmisnotmakingsteadyprogress. Another,
+morestable,metricisthepolicy’sestimatedaction-valuefunctionQ,whichprovidesanestimateof
+howmuchdiscountedrewardtheagentcanobtainbyfollowingitspolicyfromanygivenstate. We
+collectafixedsetofstatesbyrunningarandompolicybeforetrainingstartsandtracktheaverage
+ofthemaximum2predictedQforthesestates. Thetworightmostplotsinfigure2showthataverage
+predictedQincreasesmuchmoresmoothlythantheaveragetotalrewardobtainedbytheagentand
+plotting the same metrics on the other five games produces similarly smooth curves. In addition
+toseeingrelativelysmoothimprovementtopredictedQduringtrainingwedidnotexperienceany
+divergence issues in any of our experiments. This suggests that, despite lacking any theoretical
+convergence guarantees, our method is able to train large neural networks using a reinforcement
+learningsignalandstochasticgradientdescentinastablemanner.
+2Themaximumforeachstateistakenoverthepossibleactions.
+6
+
+250
+200
+150 100
+50
+0
+0 10 20 30 40 50 60 70 80 90 100
+edosipE
+rep draweR
+egarevA
+Average Reward on Breakout 1800
+1600
+1400
+1200 1000 800 600
+400
+200
+0
+0 10 20 30 40 50 60 70 80 90 100
+Training Epochs
+edosipE
+rep draweR
+egarevA
+Average Reward on Seaquest 4
+3.5
+3
+2.5 2 1.5
+1
+0.5
+0
+0 10 20 30 40 50 60 70 80 90 100
+Training Epochs
+)Q(
+eulaV
+noitcA egarevA
+Average Q on Breakout 9
+8
+7
+6 5 4 3
+2
+1
+0
+0 10 20 30 40 50 60 70 80 90 100
+Training Epochs
+)Q(
+eulaV
+noitcA egarevA
+Average Q on Seaquest
+Training Epochs
+Figure 2: The two plots on the left show average reward per episode on Breakout and Seaquest
+respectivelyduringtraining. Thestatisticswerecomputedbyrunningan(cid:15)-greedypolicywith(cid:15) =
+0.05for10000steps. Thetwoplotsontherightshowtheaveragemaximumpredictedaction-value
+ofaheldoutsetofstatesonBreakoutandSeaquestrespectively. Oneepochcorrespondsto50000
+minibatchweightupdatesorroughly30minutesoftrainingtime.
+Figure3: Theleftmostplotshowsthepredictedvaluefunctionfora30framesegmentofthegame
+Seaquest. ThethreescreenshotscorrespondtotheframeslabeledbyA,B,andCrespectively.
+5.2 VisualizingtheValueFunction
+Figure3showsavisualizationofthelearnedvaluefunctiononthegameSeaquest.Thefigureshows
+thatthepredictedvaluejumpsafteranenemyappearsontheleftofthescreen(pointA).Theagent
+then fires a torpedo at the enemy and the predicted value peaks as the torpedo is about to hit the
+enemy (point B). Finally, the value falls to roughly its original value after the enemy disappears
+(pointC).Figure3demonstratesthatourmethodisabletolearnhowthevaluefunctionevolvesfor
+areasonablycomplexsequenceofevents.
+5.3 MainEvaluation
+WecompareourresultswiththebestperformingmethodsfromtheRLliterature[3,4]. Themethod
+labeledSarsausedtheSarsaalgorithmtolearnlinearpoliciesonseveraldifferentfeaturesetshand-
+engineeredfortheAtaritaskandwereportthescoreforthebestperformingfeatureset[3]. Con-
+tingency used the same basic approach as Sarsa but augmented the feature sets with a learned
+representationofthepartsofthescreenthatareundertheagent’scontrol[4].Notethatbothofthese
+methodsincorporatesignificantpriorknowledgeaboutthevisualproblembyusingbackgroundsub-
+tractionandtreatingeachofthe128colorsasaseparatechannel.SincemanyoftheAtarigamesuse
+onedistinctcolorforeachtypeofobject,treatingeachcolorasaseparatechannelcanbesimilarto
+producingaseparatebinarymapencodingthepresenceofeachobjecttype. Incontrast,ouragents
+onlyreceivetherawRGBscreenshotsasinputandmustlearntodetectobjectsontheirown.
+Inadditiontothelearnedagents,wealsoreportscoresforanexperthumangameplayerandapolicy
+that selects actions uniformly at random. The human performance is the median reward achieved
+afteraroundtwohoursofplayingeachgame. Notethatourreportedhumanscoresaremuchhigher
+thantheonesinBellemareetal.[3].Forthelearnedmethods,wefollowtheevaluationstrategyused
+inBellemareetal. [3,5]andreporttheaveragescoreobtainedbyrunningan(cid:15)-greedypolicywith
+(cid:15)=0.05forafixednumberofsteps.Thefirstfiverowsoftable1showtheper-gameaveragescores
+onallgames. Ourapproach(labeledDQN)outperformstheotherlearningmethodsbyasubstantial
+marginonallsevengamesdespiteincorporatingalmostnopriorknowledgeabouttheinputs.
+Wealsoincludeacomparisontotheevolutionarypolicysearchapproachfrom[8]inthelastthree
+rows of table 1. We report two sets of results for this method. The HNeat Best score reflects the
+resultsobtainedbyusingahand-engineeredobjectdetectoralgorithmthatoutputsthelocationsand
+7
+
+B.Rider Breakout Enduro Pong Q*bert Seaquest S.Invaders
+Random 354 1.2 0 −20.4 157 110 179
+Sarsa[3] 996 5.2 129 −19 614 665 271
+Contingency[4] 1743 6 159 −17 960 723 268
+DQN 4092 168 470 20 1952 1705 581
+Human 7456 31 368 −3 18900 28010 3690
+HNeatBest[8] 3616 52 106 19 1800 920 1720
+HNeatPixel[8] 1332 4 91 −16 1325 800 1145
+DQNBest 5184 225 661 21 4500 1740 1075
+Table1: Theuppertablecomparesaveragetotalrewardforvariouslearningmethodsbyrunning
+an (cid:15)-greedy policy with (cid:15) = 0.05 for a fixed number of steps. The lower table reports results of
+thesinglebestperformingepisodeforHNeatandDQN.HNeatproducesdeterministicpoliciesthat
+alwaysgetthesamescorewhileDQNusedan(cid:15)-greedypolicywith(cid:15)=0.05.
+typesofobjectsontheAtariscreen. TheHNeatPixelscoreisobtainedbyusingthespecial8color
+channel representation of the Atari emulator that represents an object label map at each channel.
+Thismethodreliesheavilyonfindingadeterministicsequenceofstatesthatrepresentsasuccessful
+exploit. It is unlikely that strategies learnt in this way will generalize to random perturbations;
+therefore the algorithm was only evaluated on the highest scoring single episode. In contrast, our
+algorithmisevaluatedon(cid:15)-greedycontrolsequences, andmustthereforegeneralizeacrossawide
+varietyofpossiblesituations. Nevertheless,weshowthatonallthegames,exceptSpaceInvaders,
+not only our max evaluation results (row 8), but also our average results (row 4) achieve better
+performance.
+Finally, we show that our method achieves better performance than an expert human player on
+Breakout,EnduroandPonganditachievesclosetohumanperformanceonBeamRider. Thegames
+Q*bert, Seaquest, Space Invaders, on which we are far from human performance, are more chal-
+lengingbecausetheyrequirethenetworktofindastrategythatextendsoverlongtimescales.
+6 Conclusion
+Thispaperintroducedanewdeeplearningmodelforreinforcementlearning,anddemonstratedits
+ability to master difficult control policies for Atari 2600 computer games, using only raw pixels
+as input. We alsopresented a variant ofonline Q-learning that combinesstochastic minibatch up-
+dates with experience replay memory to ease the training of deep networks for RL. Our approach
+gave state-of-the-art results in six of the seven games it was tested on, with no adjustment of the
+architectureorhyperparameters.
+References
+[1] LeemonBaird. Residualalgorithms: Reinforcementlearningwithfunctionapproximation. In
+Proceedingsofthe12thInternationalConferenceonMachineLearning(ICML1995), pages
+30–37.MorganKaufmann,1995.
+[2] Marc Bellemare, Joel Veness, and Michael Bowling. Sketch-based linear value function ap-
+proximation. In Advances in Neural Information Processing Systems 25, pages 2222–2230,
+2012.
+[3] Marc G Bellemare, Yavar Naddaf, Joel Veness, and Michael Bowling. The arcade learning
+environment: An evaluation platform for general agents. Journal of Artificial Intelligence
+Research,47:253–279,2013.
+[4] MarcGBellemare, JoelVeness, andMichaelBowling. Investigatingcontingencyawareness
+usingatari2600games. InAAAI,2012.
+[5] MarcG.Bellemare,JoelVeness,andMichaelBowling. Bayesianlearningofrecursivelyfac-
+tored environments. In Proceedings of the Thirtieth International Conference on Machine
+Learning(ICML2013),pages1211–1219,2013.
+8
+
+[6] George E. Dahl, Dong Yu, Li Deng, and Alex Acero. Context-dependent pre-trained deep
+neuralnetworksforlarge-vocabularyspeechrecognition. Audio,Speech,andLanguagePro-
+cessing,IEEETransactionson,20(1):30–42,January2012.
+[7] AlexGraves,Abdel-rahmanMohamed,andGeoffreyE.Hinton.Speechrecognitionwithdeep
+recurrentneuralnetworks. InProc.ICASSP,2013.
+[8] Matthew Hausknecht, Risto Miikkulainen, and Peter Stone. A neuro-evolution approach to
+generalatarigameplaying. 2013.
+[9] Nicolas Heess, David Silver, and Yee Whye Teh. Actor-critic reinforcement learning with
+energy-basedpolicies. InEuropeanWorkshoponReinforcementLearning,page43,2012.
+[10] KevinJarrett,KorayKavukcuoglu,MarcAurelioRanzato,andYannLeCun. Whatisthebest
+multi-stage architecture for object recognition? In Proc. International Conference on Com-
+puterVisionandPatternRecognition(CVPR2009),pages2146–2153.IEEE,2009.
+[11] Alex Krizhevsky, Ilya Sutskever, and Geoff Hinton. Imagenet classification with deep con-
+volutionalneuralnetworks. InAdvancesinNeuralInformationProcessingSystems25,pages
+1106–1114,2012.
+[12] Sascha Lange and Martin Riedmiller. Deep auto-encoder neural networks in reinforcement
+learning. In Neural Networks (IJCNN), The 2010 International Joint Conference on, pages
+1–8.IEEE,2010.
+[13] Long-JiLin.Reinforcementlearningforrobotsusingneuralnetworks.Technicalreport,DTIC
+Document,1993.
+[14] Hamid Maei, Csaba Szepesvari, Shalabh Bhatnagar, Doina Precup, David Silver, and Rich
+Sutton. ConvergentTemporal-DifferenceLearningwithArbitrarySmoothFunctionApproxi-
+mation. InAdvancesinNeuralInformationProcessingSystems22,pages1204–1212,2009.
+[15] HamidMaei,CsabaSzepesva´ri,ShalabhBhatnagar,andRichardS.Sutton. Towardoff-policy
+learningcontrolwithfunctionapproximation. InProceedingsofthe27thInternationalCon-
+ferenceonMachineLearning(ICML2010),pages719–726,2010.
+[16] Volodymyr Mnih. Machine Learning for Aerial Image Labeling. PhD thesis, University of
+Toronto,2013.
+[17] Andrew Moore and Chris Atkeson. Prioritized sweeping: Reinforcement learning with less
+dataandlessrealtime. MachineLearning,13:103–130,1993.
+[18] Vinod Nair and Geoffrey E Hinton. Rectified linear units improve restricted boltzmann ma-
+chines. In Proceedings of the 27th International Conference on Machine Learning (ICML
+2010),pages807–814,2010.
+[19] Jordan B. Pollack and Alan D. Blair. Why did td-gammon work. In Advances in Neural
+InformationProcessingSystems9,pages10–16,1996.
+[20] Martin Riedmiller. Neural fitted q iteration–first experiences with a data efficient neural re-
+inforcementlearningmethod. InMachineLearning: ECML2005, pages317–328.Springer,
+2005.
+[21] BrianSallansandGeoffreyE.Hinton.Reinforcementlearningwithfactoredstatesandactions.
+JournalofMachineLearningResearch,5:1063–1088,2004.
+[22] Pierre Sermanet, Koray Kavukcuoglu, Soumith Chintala, and Yann LeCun. Pedestrian de-
+tectionwithunsupervisedmulti-stagefeaturelearning. InProc.InternationalConferenceon
+ComputerVisionandPatternRecognition(CVPR2013).IEEE,2013.
+[23] Richard Sutton and Andrew Barto. Reinforcement Learning: An Introduction. MIT Press,
+1998.
+[24] GeraldTesauro. Temporaldifferencelearningandtd-gammon. CommunicationsoftheACM,
+38(3):58–68,1995.
+[25] John N Tsitsiklis and Benjamin Van Roy. An analysis of temporal-difference learning with
+functionapproximation. AutomaticControl,IEEETransactionson,42(5):674–690,1997.
+[26] Christopher JCH Watkins and Peter Dayan. Q-learning. Machine learning, 8(3-4):279–292,
+1992.
+9

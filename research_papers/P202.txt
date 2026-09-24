@@ -1,0 +1,6 @@
+Title: Collective Dynamics of 'Small-World' Networks
+Authors: Watts & Strogatz
+Year: 1998
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Collective Dynamics of 'Small-World' Networks' by Watts & Strogatz (1998). Classic foundational literature published in original journal/conference proceedings.

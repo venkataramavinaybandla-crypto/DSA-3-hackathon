@@ -1,0 +1,393 @@
+Self-Attention with Relative Position Representations
+PeterShaw JakobUszkoreit AshishVaswani
+Google GoogleBrain GoogleBrain
+petershaw@google.com usz@google.com avaswani@google.com
+Abstract time dimension directly through their sequential
+structure. Non-recurrent models do not necessar-
+Relying entirely on an attention mechanism,
+ily consider input elements sequentially and may
+the Transformer introduced by Vaswani et
+hence require explicitly encoding position infor-
+al. (2017) achieves state-of-the-art results for
+mationtobeabletousesequenceorder.
+machine translation. In contrast to recurrent
+and convolutional neural networks, it does
+Onecommonapproachistousepositionencod-
+not explicitly model relative or absolute po-
+sition information in its structure. Instead, ings which are combined with input elements to
+it requires adding representations of abso- expose position information to the model. These
+lute positions to its inputs. In this work position encodings can be a deterministic func-
+we present an alternative approach, extend- tionofposition (Sukhbaataretal.,2015;Vaswani
+ingtheself-attentionmechanismtoefficiently
+et al., 2017) or learned representations. Convolu-
+consider representations of the relative posi-
+tional neural networks inherently capture relative
+tions,ordistancesbetweensequenceelements.
+positions within the kernel size of each convolu-
+On the WMT 2014 English-to-German and
+tion. They have been shown to still benefit from
+English-to-French translation tasks, this ap-
+proachyieldsimprovementsof1.3BLEUand position encodings (Gehring et al., 2017), how-
+0.3 BLEU over absolute position representa- ever.
+tions, respectively. Notably, we observe that
+combining relative and absolute position rep- For the Transformer, which employs neither
+resentations yields no further improvement in convolution nor recurrence, incorporating explicit
+translation quality. We describe an efficient
+representationsofpositioninformationisanespe-
+implementationofourmethodandcastitasan
+cially important consideration since the model is
+instanceofrelation-awareself-attentionmech-
+otherwise entirely invariant to sequence ordering.
+anisms that can generalize to arbitrary graph-
+Attention-based models have therefore used posi-
+labeledinputs.
+tion encodings or biased attention weights based
+1 Introduction ondistance (Parikhetal.,2016).
+Recentapproachestosequencetosequencelearn-
+In this work we present an efficient way of
+ingtypicallyleveragerecurrence (Sutskeveretal.,
+incorporating relative position representations in
+2014), convolution (Gehring et al., 2017; Kalch-
+the self-attention mechanism of the Transformer.
+brenner et al., 2016), attention (Vaswani et al.,
+Evenwhenentirelyreplacingitsabsoluteposition
+2017), or a combination of recurrence and atten-
+encodings, we demonstrate significant improve-
+tion (Bahdanauetal.,2014;Choetal.,2014;Lu-
+mentsintranslationqualityontwomachinetrans-
+ongetal.,2015;Wuetal.,2016)asbasicbuilding
+lationtasks.
+blocks. Theseapproachesincorporateinformation
+about the sequential position of elements differ- Ourapproachcanbecastasaspecialcaseofex-
+ently. tendingtheself-attentionmechanismoftheTrans-
+Recurrent neural networks (RNNs) typically former to considering arbitrary relations between
+compute a hidden state h , as a function of their anytwoelementsoftheinput,adirectionweplan
+t
+input at time t and a previous hidden state h , toexploreinfutureworkonmodelinglabeled,di-
+t−1
+capturingrelativeandabsolutepositionsalongthe rectedgraphs.
+8102
+rpA
+21
+]LC.sc[
+2v55120.3081:viXra
+
+2 Background Ande iscomputedusingacompatibilityfunc-
+ij
+tionthatcomparestwoinputelements:
+2.1 Transformer
+The Transformer (Vaswani et al., 2017) em- (x WQ)(x WK)T
+i j
+ploys an encoder-decoder structure, consisting of e ij = √ (2)
+d
+z
+stacked encoder and decoder layers. Encoder
+layers consist of two sublayers: self-attention Scaled dot product was chosen for the compat-
+followed by a position-wise feed-forward layer. ibility function, which enables efficient computa-
+Decoder layers consist of three sublayers: self- tion. Lineartransformationsoftheinputsaddsuf-
+attention followed by encoder-decoder attention, ficientexpressivepower.
+followed by a position-wise feed-forward layer. WQ,WK,WV ∈ Rdx×dz areparametermatri-
+It uses residual connections around each of the ces. Theseparametermatricesareuniqueperlayer
+sublayers, followed by layer normalization (Ba andattentionhead.
+etal.,2016). Thedecoderusesmaskinginitsself-
+attention to prevent a given output position from 3 ProposedArchitecture
+incorporating information about future output po-
+sitionsduringtraining. 3.1 Relation-awareSelf-Attention
+Position encodings based on sinusoids of vary-
+We propose an extension to self-attention to con-
+ing frequency are added to encoder and decoder
+siderthepairwiserelationshipsbetweeninputele-
+input elements prior to the first layer. In contrast
+ments. In this sense, we model the input as a la-
+to learned, absolute position representations, the
+beled,directed,fully-connectedgraph.
+authors hypothesized that sinusoidal position en-
+The edge between input elements x and x is
+i j
+codingswouldhelpthemodeltogeneralizetose-
+represented by vectors aV,aK ∈ Rda. The mo-
+quencelengthsunseenduringtrainingbyallowing ij ij
+tivation for learning two distinct edge represen-
+it to learn to attend also by relative position. This
+tations is that aV and aK are suitable for use in
+property is shared by our relative position repre- ij ij
+eq.(3)andeq.(4),respectively, withoutrequiring
+sentations which, in contrast to absolute position
+additionallineartransformations. Theserepresen-
+representations,areinvarianttothetotalsequence
+tations can be shared across attention heads. We
+length.
+used = d .
+a z
+Residual connections help propagate position
+We modify eq. (1) to propagate edge informa-
+informationtohigherlayers.
+tiontothesublayeroutput:
+2.2 Self-Attention
+n
+Self-attentionsublayersemployhattentionheads. z = (cid:88) α (x WV +aV) (3)
+i ij j ij
+To form the sublayer output, results from each
+j=1
+head are concatenated and a parameterized linear
+transformationisapplied. This extension is presumably important for
+Each attention head operates on an input se- tasks where information about the edge types se-
+quence, x = (x ,...,x ) of n elements where lectedbyagivenattentionheadisusefultodown-
+1 n
+x
+i
+∈ Rdx, and computes a new sequence z = streamencoderordecoderlayers. However,asex-
+(z
+1
+,...,z
+n
+)ofthesamelengthwherez
+i
+∈ Rdz. plored in 4.3, this may not be necessary for ma-
+Each output element, z , is computed as chinetranslation.
+i
+weighted sum of a linearly transformed input el- Wealso,importantly,modifyeq.(2)toconsider
+ements: edgeswhendeterminingcompatibility:
+n
+z i = (cid:88) α ij (x j WV) (1) e = x i WQ(x j √ WK +aK ij )T (4)
+ij
+j=1 d z
+Eachweightcoefficient,α ,iscomputedusing
+ij The primary motivation for using simple addi-
+asoftmaxfunction:
+tion to incorporate edge representations in eq. (3)
+expe andeq.(4)istoenableanefficientimplementation
+ij
+α =
+ij (cid:80)n expe describedin3.3.
+k=1 ik
+
+abatchusingparallelmatrixmultiplicationopera-
+aV =wV aV =wV aV =wV
+2,1 -1 2,4 2 4,n k tions(Vaswanietal.,2017). Withoutrelativeposi-
+aK =wK aK =wK aK =wK
+2,1 -1 2,4 2 4,n k tionrepresentations,eache ij canbecomputedus-
+ingbhparallelmultiplicationsofn×d andd ×n
+z z
+matrices. Eachmatrixmultiplicationcomputese
+ij
+x x x x … x
+1 2 3 4 n for all sequence positions, for a particular head
+and sequence. For any sequence and head, this
+requires sharing the same representation for each
+Figure 1: Example edges representing relative posi-
+position across all compatibility function applica-
+tions,orthedistancebetweenelements. Welearnrep-
+tions(dotproducts)withotherpositions.
+resentationsforeachrelativepositionwithinaclipping
+distance k. The figure assumes 2 <= k <= n−4. When we consider relative positions the repre-
+Notethatnotalledgesareshown. sentations differ with different pairs of positions.
+This prevents us from computing all e for all
+ij
+pairsofpositionsinasinglematrixmultiplication.
+3.2 RelativePositionRepresentations We also want to avoid broadcasting relative po-
+For linear sequences, edges can capture infor- sition representations. However, both issues can
+mation about the relative position differences be- beresolvedbysplittingthecomputationofeq.(4)
+tween input elements. The maximum relative po- intotwoterms:
+sitionweconsiderisclippedtoamaximumabso-
+lute value of k. We hypothesized that precise rel-
+x WQ(x WK)T +x WQ(aK)T
+ative position information is not useful beyond a e = i j √ i ij (5)
+ij
+certain distance. Clipping the maximum distance d z
+also enables the model to generalize to sequence
+The first term is identical to eq. (2), and can be
+lengths not seen during training. Therefore, we
+computedasdescribedabove. Forthesecondterm
+consider2k+1uniqueedgelabels.
+involving relative position representations, tensor
+reshapingcanbeusedtocomputenparallelmulti-
+aK = wK plicationsofbh×d z andd z ×nmatrices. Eachma-
+ij clip(j−i,k)
+trix multiplication computes contributions to e
+ij
+aV = wV
+ij clip(j−i,k) for all heads and batches, corresponding to a par-
+clip(x,k) = max(−k,min(k,x)) ticular sequence position. Further reshaping al-
+lows adding the two terms. The same approach
+We then learn relative position representations canbeusedtoefficientlycomputeeq.(3).
+wK = (wK ,...,wK)andwV = (wV ,...,wV) Forourmachinetranslationexperiments,there-
+−k k −k k
+wherewK,wV ∈ Rda. sult was a modest 7% decrease in steps per sec-
+i i
+ond,butwewereabletomaintainthesamemodel
+3.3 EfficientImplementation
+and batch sizes on P100 GPUs as Vaswani et
+There are practical space complexity concerns al.(2017).
+when considering edges between input elements,
+4 Experiments
+asnotedbyVelicˇkovic´etal.(2017),whichconsid-
+ersunlabeledgraphinputstoanattentionmodel.
+4.1 ExperimentalSetup
+For a sequence of length n and h attention
+Weusethetensor2tensor1 libraryfortrainingand
+heads, we reduce the space complexity of storing
+relative position representations from O(hn2d ) evaluatingourmodel.
+a
+to O(n2d ) by sharing them across each heads. We evaluated our model on the WMT 2014
+a
+machine translation task, using the WMT 2014
+Additionally, relative position representations can
+English-German dataset consisting of approxi-
+be shared across sequences. Therefore, the over-
+mately 4.5M sentence pairs and the 2014 WMT
+all self-attention space complexity increases from
+O(bhnd ) to O(bhnd +n2d ). Given d = d , English-French dataset consisting of approxi-
+z z a a z
+thesizeoftherelativeincreasedependson n. mately36Msentencepairs.
+bh
+The Transformer computes self-attention effi-
+1The tensor2tensor library is available at https://
+ciently for all sequences, heads, and positions in github.com/tensorflow/tensor2tensor.
+
+Model PositionInformation EN-DEBLEU EN-FRBLEU
+Transformer(base) AbsolutePositionRepresentations 26.5 38.2
+Transformer(base) RelativePositionRepresentations 26.8 38.7
+Transformer(big) AbsolutePositionRepresentations 27.9 41.2
+Transformer(big) RelativePositionRepresentations 29.2 41.5
+Table1: ExperimentalresultsforWMT2014English-to-German(EN-DE)andEnglish-to-French(EN-FR)trans-
+lationtasks,usingnewstest2014testset.
+For all experiments, we split tokens into a For English-to-German our approach improved
+32,768 word-piece vocabulary (Wu et al., 2016). performance over our baseline by 0.3 and 1.3
+Webatchedsentencepairsbyapproximatelength, BLEUforthebaseandbigconfigurations,respec-
+and limited input and output tokens per batch to tively. For English-to-French it improved by 0.5
+4096 per GPU. Each resulting training batch con- and0.3BLEUforthebaseandbigconfigurations,
+tained approximately 25,000 source and 25,000 respectively. In our experiments we did not ob-
+targettokens. serve any benefit from including sinusoidal posi-
+WeusedtheAdamoptimizer (KingmaandBa, tionencodingsinadditiontorelativepositionrep-
+2014) with β = 0.9, β = 0.98, and (cid:15) = 10−9. resentations. TheresultsareshowninTable1.
+1 2
+We used the same warmup and decay strategy for
+4.3 ModelVariations
+learning rate as Vaswani et al. (2017), with 4,000
+warmup steps. During training, we employed la- Weperformedseveralexperimentsmodifyingvar-
+belsmoothingofvalue(cid:15) = 0.1 (Szegedyetal., ious aspects of our model. All of our experi-
+ls
+2016). For evaluation, we used beam search with mentsinthissectionusethebasemodelconfigura-
+abeamsizeof4andlengthpenaltyα = 0.6 (Wu tionwithoutanyabsolutepositionrepresentations.
+etal.,2016). BLEUscoresarecalculatedontheWMTEnglish-
+to-German task using the development set, new-
+Forourbasemodel,weused6encoderandde-
+coder layers, d = 512, d = 64, 8 attention stest2013.
+x z
+We evaluated the effect of varying the clipping
+heads, 1024 feed forward inner-layer dimensions,
+and P = 0.1. When using relative posi- distance, k, of the maximum absolute relative po-
+dropout
+tionencodings,weusedclippingdistancek = 16, sition difference. Notably, for k ≥ 2, there does
+not appear to be much variation in BLEU scores.
+anduseduniqueedgerepresentationsperlayerand
+However, as we use multiple encoder layers, pre-
+head. We trained for 100,000 steps on 8 K40
+cise relative position information may be able to
+GPUs,anddidnotusecheckpointaveraging.
+propagate beyond the clipping distance. The re-
+For our big model, we used 6 encoder and de-
+sultsareshowninTable2.
+coder layers, d = 1024, d = 64, 16 attention
+x z
+heads, 4096 feed forward inner-layer dimensions,
+k EN-DEBLEU
+andP
+dropout
+= 0.3forEN-DEandP
+dropout
+= 0.1
+0 12.5
+for EN-FR. When using relative position encod- 1 25.5
+ings,weusedk = 8,anduseduniqueedgerepre- 2 25.8
+sentations per layer. We trained for 300,000 steps 4 25.9
+on 8 P100 GPUs, and averaged the last 20 check- 16 25.8
+64 25.9
+points,savedat10minuteintervals.
+256 25.8
+4.2 MachineTranslation
+Table2: Experimentalresultsforvaryingtheclipping
+We compared our model using only relative po- distance,k.
+sition representations to the baseline Transformer
+(Vaswanietal.,2017)withsinusoidalpositionen- Wealsoevaluatedtheimpactofablatingeachof
+codings. We generated baseline results to iso- thetworelativepositionrepresentationsdefinedin
+latetheimpactofrelativepositionrepresentations section3.1,aV ineq.(3)andaK ineq.(4). Includ-
+ij ij
+from any other changes to the underlying library ing relative position representations solely when
+andexperimentalconfiguration. determining compatibility between elements may
+
+be sufficient, but further work is needed to deter- Minh-Thang Luong, Hieu Pham, and Christopher D
+mine whether this is true for other tasks. The re- Manning. 2015. Effective approaches to attention-
+based neural machine translation. arXiv preprint
+sultsareshowninTable3.
+arXiv:1508.04025.
+aV aK EN-DEBLEU
+ij ij Ankur P Parikh, Oscar Ta¨ckstro¨m, Dipanjan Das, and
+Yes Yes 25.8 Jakob Uszkoreit. 2016. A decomposable attention
+No Yes 25.8 modelfornaturallanguageinference. InEmpirical
+Yes No 25.3 MethodsinNaturalLanguageProcessing.
+No No 12.5
+SainbayarSukhbaatar,JasonWeston,RobFergus,etal.
+2015. End-to-end memory networks. In Advances
+Table3: Experimentalresultsforablatingrelativepo- in neural information processing systems. pages
+sitionrepresentationsaV andaK. 2440–2448.
+ij ij
+Ilya Sutskever, Oriol Vinyals, and Quoc V Le. 2014.
+Sequence to sequence learning with neural net-
+5 Conclusions
+works. InAdvancesinneuralinformationprocess-
+ingsystems.pages3104–3112.
+In this paper we presented an extension to self-
+attention that can be used to incorporate rela- Christian Szegedy, Vincent Vanhoucke, Sergey Ioffe,
+tivepositioninformationforsequences,whichim- JonShlens,andZbigniewWojna.2016. Rethinking
+provesperformanceformachinetranslation. the inception architecture for computer vision. In
+Proceedings of the IEEE Conference on Computer
+For future work, we plan to extend this mecha-
+VisionandPatternRecognition.pages2818–2826.
+nism to consider arbitrary directed, labeled graph
+inputs to the Transformer. We are also inter- Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz
+estedinnonlinearcompatibilityfunctionstocom-
+Kaiser, and Illia Polosukhin. 2017. Attention is all
+bine input representations and edge representa-
+you need. In Advances in Neural Information Pro-
+tions. For both of these extensions, a key consid- cessingSystems.pages6000–6010.
+eration will be determining efficient implementa-
+PetarVelicˇkovic´,GuillemCucurull,ArantxaCasanova,
+tions.
+Adriana Romero, Pietro Lio`, and Yoshua Bengio.
+2017. Graph attention networks. arXiv preprint
+arXiv:1710.10903.
+References
+Yonghui Wu, Mike Schuster, Zhifeng Chen, Quoc V
+JimmyLeiBa,JamieRyanKiros,andGeoffreyEHin-
+Le, Mohammad Norouzi, Wolfgang Macherey,
+ton. 2016. Layer normalization. arXiv preprint
+Maxim Krikun, Yuan Cao, Qin Gao, Klaus
+arXiv:1607.06450.
+Macherey, et al. 2016. Google’s neural ma-
+chinetranslationsystem: Bridgingthegapbetween
+DzmitryBahdanau,KyunghyunCho,andYoshuaBen-
+human and machine translation. arXiv preprint
+gio. 2014. Neural machine translation by jointly
+arXiv:1609.08144.
+learning to align and translate. arXiv preprint
+arXiv:1409.0473.
+Kyunghyun Cho, Bart Van Merrie¨nboer, Caglar Gul-
+cehre, Dzmitry Bahdanau, Fethi Bougares, Holger
+Schwenk, and Yoshua Bengio. 2014. Learning
+phrase representations using rnn encoder-decoder
+for statistical machine translation. arXiv preprint
+arXiv:1406.1078.
+Jonas Gehring, Michael Auli, David Grangier, De-
+nis Yarats, and Yann N Dauphin. 2017. Convolu-
+tionalsequencetosequencelearning. arXivpreprint
+arXiv:1705.03122.
+Nal Kalchbrenner, Lasse Espeholt, Karen Simonyan,
+Aaron van den Oord, Alex Graves, and Koray
+Kavukcuoglu. 2016. Neural machine translation in
+lineartime. arXivpreprintarXiv:1610.10099.
+Diederik Kingma and Jimmy Ba. 2014. Adam: A
+method for stochastic optimization. arXiv preprint
+arXiv:1412.6980.

@@ -1,0 +1,6 @@
+Title: Depth-First Search and Linear Graph Algorithms
+Authors: Tarjan
+Year: 1972
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Depth-First Search and Linear Graph Algorithms' by Tarjan (1972). Classic foundational literature published in original journal/conference proceedings.

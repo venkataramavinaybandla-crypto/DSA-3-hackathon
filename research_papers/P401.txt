@@ -1,0 +1,6 @@
+Title: Fast Pattern Matching in Strings
+Authors: Knuth et al.
+Year: 1977
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Fast Pattern Matching in Strings' by Knuth et al. (1977). Classic foundational literature published in original journal/conference proceedings.

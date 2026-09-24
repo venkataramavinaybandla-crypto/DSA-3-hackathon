@@ -1,0 +1,963 @@
+Deep contextualized word representations
+MatthewE.Peters†,MarkNeumann†,MohitIyyer†,MattGardner†,
+{matthewp,markn,mohiti,mattg}@allenai.org
+ChristopherClark∗,KentonLee∗,LukeZettlemoyer†∗
+{csquared,kentonl,lsz}@cs.washington.edu
+†AllenInstituteforArtificialIntelligence
+∗PaulG.AllenSchoolofComputerScience&Engineering,UniversityofWashington
+Abstract guage model (LM) objective on a large text cor-
+pus. For this reason, we call them ELMo (Em-
+We introduce a new type of deep contextual-
+beddingsfromLanguageModels)representations.
+ized word representation that models both (1)
+Unlikepreviousapproachesforlearningcontextu-
+complexcharacteristicsofworduse(e.g.,syn-
+alized word vectors (Peters et al., 2017; McCann
+tax and semantics), and (2) how these uses
+et al., 2017), ELMo representations are deep, in
+vary across linguistic contexts (i.e., to model
+polysemy).Ourwordvectorsarelearnedfunc- the sense that they are a function of all of the in-
+tions of the internal states of a deep bidirec- ternal layers of the biLM. More specifically, we
+tional language model (biLM), which is pre- learn a linear combination of the vectors stacked
+trained on a large text corpus. We show that above each input word for each end task, which
+these representations can be easily added to
+markedly improves performance over just using
+existing models and significantly improve the
+thetopLSTMlayer.
+state of the art across six challenging NLP
+Combiningtheinternalstatesinthismanneral-
+problems, including question answering, tex-
+tual entailment and sentiment analysis. We lowsforveryrichwordrepresentations. Usingin-
+alsopresentananalysisshowingthatexposing trinsic evaluations, we show that the higher-level
+thedeepinternalsofthepre-trainednetworkis LSTM states capture context-dependent aspects
+crucial, allowing downstream models to mix of word meaning (e.g., they can be used with-
+differenttypesofsemi-supervisionsignals.
+out modification to perform well on supervised
+word sense disambiguation tasks) while lower-
+1 Introduction
+levelstatesmodelaspectsofsyntax(e.g.,theycan
+Pre-trained word representations (Mikolov et al., beusedtodopart-of-speechtagging). Simultane-
+2013; Pennington et al., 2014) are a key compo- ouslyexposingallofthesesignalsishighlybene-
+nentinmanyneurallanguageunderstandingmod- ficial,allowingthelearnedmodelsselectthetypes
+els. However, learning high quality representa- of semi-supervision that are most useful for each
+tions can be challenging. They should ideally endtask.
+model both (1) complex characteristics of word Extensive experiments demonstrate that ELMo
+use(e.g.,syntaxandsemantics),and(2)howthese representations work extremely well in practice.
+usesvaryacrosslinguisticcontexts(i.e., tomodel We first show that they can be easily added to
+polysemy). Inthispaper,weintroduceanewtype existing models for six diverse and challenging
+of deep contextualized word representation that language understanding problems, including tex-
+directly addresses both challenges, can be easily tualentailment,questionansweringandsentiment
+integrated into existing models, and significantly analysis. The addition of ELMo representations
+improves the state of the art in every considered alone significantly improves the state of the art
+case across a range of challenging language un- in every case, including up to 20% relative error
+derstandingproblems. reductions. For tasks where direct comparisons
+Ourrepresentationsdifferfromtraditionalword are possible, ELMo outperforms CoVe (McCann
+type embeddings in that each token is assigned a et al., 2017), which computes contextualized rep-
+representationthatisafunctionoftheentireinput resentationsusinganeuralmachinetranslationen-
+sentence. We use vectors derived from a bidirec- coder. Finally, an analysis of both ELMo and
+tional LSTM that is trained with a coupled lan- CoVerevealsthatdeeprepresentationsoutperform
+8102
+raM
+22
+]LC.sc[
+2v56350.2081:viXra
+
+thosederivedfromjustthetoplayerofanLSTM. Previousworkhasalsoshownthatdifferentlay-
+Our trained models and code are publicly avail- ers of deep biRNNs encode different types of in-
+able,andweexpectthatELMowillprovidesimi- formation. For example, introducing multi-task
+largainsformanyotherNLPproblems.1 syntacticsupervision(e.g., part-of-speechtags)at
+the lower levels of a deep LSTM can improve
+2 Relatedwork overall performance of higher level tasks such as
+dependency parsing (Hashimoto et al., 2017) or
+Due to their ability to capture syntactic and se- CCGsupertagging(SøgaardandGoldberg,2016).
+mantic information of words from large scale un- InanRNN-basedencoder-decodermachinetrans-
+labeledtext,pretrainedwordvectors(Turianetal., lation system, Belinkov et al. (2017) showed that
+2010; Mikolov et al., 2013; Pennington et al., therepresentationslearnedatthefirstlayerina2-
+2014) are a standard component of most state-of- layer LSTM encoder are better at predicting POS
+the-art NLP architectures, including for question tagsthensecondlayer. Finally,thetoplayerofan
+answering (Liu et al., 2017), textual entailment LSTMforencodingwordcontext(Melamudetal.,
+(Chen et al., 2017) and semantic role labeling 2016) has been shown to learn representations of
+(He et al., 2017). However, these approaches for wordsense. Weshowthatsimilarsignalsarealso
+learningwordvectorsonlyallowasinglecontext- inducedbythemodifiedlanguagemodelobjective
+independentrepresentationforeachword. of our ELMo representations, and it can be very
+Previously proposed methods overcome some beneficial to learn models for downstream tasks
+of the shortcomings of traditional word vectors thatmixthesedifferenttypesofsemi-supervision.
+by either enriching them with subword informa-
+Dai and Le (2015) and Ramachandran et al.
+tion(e.g., Wietingetal.,2016;Bojanowskietal.,
+(2017) pretrain encoder-decoder pairs using lan-
+2017) or learning separate vectors for each word
+guagemodelsandsequenceautoencodersandthen
+sense (e.g., Neelakantan et al., 2014). Our ap-
+fine tune with task specific supervision. In con-
+proach also benefits from subword units through
+trast, after pretraining the biLM with unlabeled
+the use of character convolutions, and we seam-
+data, we fix the weights and add additional task-
+lessly incorporate multi-sense information into
+specific model capacity, allowing us to leverage
+downstream tasks without explicitly training to
+large, richand universal biLMrepresentations for
+predictpredefinedsenseclasses.
+caseswheredownstreamtrainingdatasizedictates
+Other recent work has also focused on asmallersupervisedmodel.
+learning context-dependent representations.
+context2vec (Melamud et al., 2016) uses a
+3 ELMo: EmbeddingsfromLanguage
+bidirectional Long Short Term Memory (LSTM;
+Models
+HochreiterandSchmidhuber,1997)toencodethe
+context around a pivot word. Other approaches
+Unlike most widely used word embeddings (Pen-
+for learning contextual embeddings include the
+nington et al., 2014), ELMo word representations
+pivot word itself in the representation and are
+are functions of the entire input sentence, as de-
+computed with the encoder of either a supervised
+scribed in this section. They are computed on top
+neural machine translation (MT) system (CoVe;
+of two-layer biLMs with character convolutions
+McCann et al., 2017) or an unsupervised lan-
+(Sec. 3.1), as a linear function of the internal net-
+guage model (Peters et al., 2017). Both of these
+work states (Sec. 3.2). This setup allows us to do
+approaches benefit from large datasets, although
+semi-supervised learning, where the biLM is pre-
+the MT approach is limited by the size of parallel
+trainedatalargescale(Sec.3.4)andeasilyincor-
+corpora. In this paper, we take full advantage of
+porated into a wide range of existing neural NLP
+access to plentiful monolingual data, and train
+architectures(Sec.3.3).
+our biLM on a corpus with approximately 30
+million sentences (Chelba et al., 2014). We also
+generalize these approaches to deep contextual 3.1 Bidirectionallanguagemodels
+representations, which we show work well across
+abroadrangeofdiverseNLPtasks. Given a sequence of N tokens, (t 1 ,t 2 ,...,t N ), a
+forwardlanguagemodelcomputestheprobability
+1http://allennlp.org/elmo ofthesequencebymodelingtheprobabilityofto-
+
+kent giventhehistory(t ,...,t ): each token t , a L-layer biLM computes a set of
+k 1 k−1 k
+2L+1representations
+N
+(cid:89) →− ←−
+p(t 1 ,t 2 ,...,t N ) = p(t k | t 1 ,t 2 ,...,t k−1 ). R = {xLM, hLM, hLM |j = 1,...,L}
+k k k,j k,j
+k=1
+= {hLM |j = 0,...,L},
+k,j
+Recent state-of-the-art neural language models
+(Jo´zefowicz et al., 2016; Melis et al., 2017; Mer- where hLM is the token layer and hLM =
+k,0 k,j
+→− ←−
+ityetal.,2017)computeacontext-independentto- [hLM; hLM],foreachbiLSTMlayer.
+k,j k,j
+kenrepresentationxL k M (viatokenembeddingsor For inclusion in a downstream model, ELMo
+aCNNovercharacters)thenpassitthroughLlay- collapses all layers in R into a single vector,
+ers of forward LSTMs. At each position k, each ELMo = E(R ;Θ ). In the simplest case,
+k k e
+LSTM layer outputs a context-dependent repre- ELMo just selects the top layer, E(R ) = hLM,
+→− k k,L
+sentation hLM wherej = 1,...,L. Thetoplayer as in TagLM (Peters et al., 2017) and CoVe (Mc-
+k,j
+→−
+LSTM output, hLM, is used to predict the next Cannetal.,2017). Moregenerally,wecomputea
+k,L
+tokent withaSoftmaxlayer. taskspecificweightingofallbiLMlayers:
+k+1
+AbackwardLMissimilartoaforwardLM,ex-
+L
+cept it runs over the sequence in reverse, predict- ELMotask = E(R ;Θtask) = γtask (cid:88) staskhLM.
+k k j k,j
+ingtheprevioustokengiventhefuturecontext:
+j=0
+(1)
+(cid:89) N In (1), stask are softmax-normalized weights and
+p(t ,t ,...,t ) = p(t | t ,t ,...,t ).
+1 2 N k k+1 k+2 N thescalarparameterγtaskallowsthetaskmodelto
+k=1
+scaletheentireELMovector. γ isofpracticalim-
+It can be implemented in an analogous way to a portance to aid the optimization process (see sup-
+forward LM, with each backward LSTM layer j plemental material for details). Considering that
+inaLlayerdeepmodelproducingrepresentations theactivationsofeachbiLMlayerhaveadifferent
+←−
+hLM oft given(t ,...,t ). distribution, in some cases it also helped to apply
+k,j k k+1 N
+layernormalization(Baetal.,2016)toeachbiLM
+AbiLMcombinesbothaforwardandbackward
+layerbeforeweighting.
+LM. Our formulation jointly maximizes the log
+likelihoodoftheforwardandbackwarddirections:
+3.3 UsingbiLMsforsupervisedNLPtasks
+N Given a pre-trained biLM and a supervised archi-
+(cid:88) →−
+( logp(t k | t 1 ,...,t k−1 ;Θ x , Θ LSTM ,Θ s ) tectureforatargetNLPtask,itisasimpleprocess
+k=1 to use the biLM to improve the task model. We
+←−
++logp(t | t ,...,t ;Θ , Θ ,Θ ) ). simply run the biLM and record all of the layer
+k k+1 N x LSTM s
+representations for each word. Then, we let the
+Wetietheparametersforboththetokenrepresen- endtaskmodellearnalinearcombinationofthese
+tation(Θ x )andSoftmaxlayer(Θ s )intheforward representations,asdescribedbelow.
+and backward direction while maintaining sepa- First consider the lowest layers of the super-
+rate parameters for the LSTMs in each direction. vised model without the biLM. Most supervised
+Overall,thisformulationissimilartotheapproach NLP models share a common architecture at the
+of Peters et al. (2017), with the exception that we lowest layers, allowing us to add ELMo in a
+share some weights between directions instead of consistent, unified manner. Given a sequence
+using completely independent parameters. In the of tokens (t ,...,t ), it is standard to form a
+1 N
+nextsection,wedepartfrompreviousworkbyin- context-independent token representation x for
+k
+troducing a new approach for learning word rep- each token position using pre-trained word em-
+resentations that are a linear combination of the beddingsandoptionallycharacter-basedrepresen-
+biLMlayers. tations. Then,themodelformsacontext-sensitive
+representation h , typically using either bidirec-
+k
+3.2 ELMo
+tionalRNNs,CNNs,orfeedforwardnetworks.
+ELMo is a task specific combination of the in- To add ELMo to the supervised model, we
+termediate layer representations in the biLM. For first freeze the weights of the biLM and then
+
+concatenate the ELMo vector ELMotask with After training for 10 epochs on the 1B Word
+k
+x and pass the ELMo enhanced representation Benchmark (Chelba etal., 2014), the average for-
+k
+[x ;ELMotask] into the task RNN. For some wardandbackwardperplexitiesis39.7,compared
+k k
+tasks (e.g., SNLI, SQuAD), we observe further to 30.0 for the forward CNN-BIG-LSTM. Gener-
+improvementsbyalsoincludingELMoattheout- ally,wefoundtheforwardandbackwardperplex-
+put of the task RNN by introducing another set itiestobeapproximatelyequal,withthebackward
+ofoutputspecificlinearweightsandreplacingh valueslightlylower.
+k
+with [h ;ELMotask]. As the remainder of the Once pretrained, the biLM can compute repre-
+k k
+supervisedmodelremainsunchanged, theseaddi- sentationsforanytask. Insomecases,finetuning
+tionscanhappenwithinthecontextofmorecom- thebiLMondomainspecificdataleadstosignifi-
+plex neural models. For example, see the SNLI cant drops in perplexity and an increase in down-
+experiments in Sec. 4 where a bi-attention layer stream task performance. This can be seen as a
+follows the biLSTMs, or the coreference resolu- typeofdomaintransferforthebiLM.Asaresult,
+tion experiments where a clustering model is lay- in most cases we used a fine-tuned biLM in the
+eredontopofthebiLSTMs. downstream task. See supplemental material for
+Finally, we found it beneficial to add a moder- details.
+ateamountofdropouttoELMo(Srivastavaetal.,
+4 Evaluation
+2014) and in some cases to regularize the ELMo
+weights by adding λ(cid:107)w(cid:107)2 to the loss. This im-
+2 Table1showstheperformanceofELMoacrossa
+poses an inductive bias on the ELMo weights to
+diverse set of six benchmark NLP tasks. In every
+stayclosetoanaverageofallbiLMlayers.
+task considered, simply adding ELMo establishes
+anewstate-of-the-artresult,withrelativeerrorre-
+3.4 Pre-trainedbidirectionallanguagemodel ductions ranging from 6 - 20% over strong base
+architecture models. This is a very general result across a di-
+versesetmodelarchitecturesandlanguageunder-
+Thepre-trainedbiLMsinthispaperaresimilarto
+standingtasks. Intheremainderofthissectionwe
+the architectures in Jo´zefowicz et al. (2016) and
+provide high-level sketches of the individual task
+Kim et al. (2015), but modified to support joint
+results; see the supplemental material for full ex-
+trainingofbothdirectionsandaddaresidualcon-
+perimentaldetails.
+nectionbetweenLSTMlayers. Wefocusonlarge
+Question answering The Stanford Question
+scale biLMs in this work, as Peters et al. (2017)
+Answering Dataset (SQuAD) (Rajpurkar et al.,
+highlighted the importance of using biLMs over
+2016) contains 100K+ crowd sourced question-
+forward-onlyLMsandlargescaletraining.
+answerpairswheretheanswerisaspaninagiven
+To balance overall language model perplexity
+Wikipedia paragraph. Our baseline model (Clark
+with model size and computational requirements
+and Gardner, 2017) is an improved version of the
+for downstream tasks while maintaining a purely
+Bidirectional Attention Flow model in Seo et al.
+character-basedinputrepresentation,wehalvedall
+(BiDAF; 2017). It adds a self-attention layer af-
+embeddingandhiddendimensionsfromthesingle
+ter the bidirectional attention component, simpli-
+best model CNN-BIG-LSTM in Jo´zefowicz et al.
+fiessomeofthepoolingoperationsandsubstitutes
+(2016). ThefinalmodelusesL = 2biLSTMlay-
+theLSTMsforgatedrecurrentunits(GRUs; Cho
+erswith4096unitsand512dimensionprojections
+et al., 2014). After adding ELMo to the baseline
+and a residual connection from the first to second
+model, test set F improved by 4.7% from 81.1%
+layer. The context insensitive type representation 1
+to85.8%,a24.9%relativeerrorreductionoverthe
+uses 2048 character n-gram convolutional filters
+baseline, and improving the overall single model
+followedbytwohighwaylayers(Srivastavaetal.,
+state-of-the-art by 1.4%. A 11 member ensem-
+2015)andalinearprojectiondowntoa512repre-
+ble pushes F to 87.4, the overall state-of-the-art
+sentation. Asaresult,thebiLMprovidesthreelay- 1
+at time of submission to the leaderboard.2 The
+ersofrepresentationsforeachinputtoken,includ-
+increase of 4.7% with ELMo is also significantly
+ingthoseoutsidethetrainingsetduetothepurely
+larger then the 1.8% improvement from adding
+character input. In contrast, traditional word em-
+CoVetoabaselinemodel(McCannetal.,2017).
+beddingmethodsonlyprovideonelayerofrepre-
+sentationfortokensinafixedvocabulary. 2AsofNovember17,2017.
+
+INCREASE
+OUR ELMO +
+TASK PREVIOUS SOTA (ABSOLUTE/
+BASELINE BASELINE
+RELATIVE)
+SQuAD Liuetal.(2017) 84.4 81.1 85.8 4.7/24.9%
+SNLI Chenetal.(2017) 88.6 88.0 88.7±0.17 0.7/5.8%
+SRL Heetal.(2017) 81.7 81.4 84.6 3.2/17.2%
+Coref Leeetal.(2017) 67.2 67.2 70.4 3.2/9.8%
+NER Petersetal.(2017) 91.93±0.19 90.15 92.22±0.10 2.06/21%
+SST-5 McCannetal.(2017) 53.7 51.4 54.7±0.5 3.3/6.8%
+Table1: TestsetcomparisonofELMoenhancedneuralmodelswithstate-of-the-artsinglemodelbaselinesacross
+six benchmark NLP tasks. The performance metric varies across tasks – accuracy for SNLI and SST-5; F for
+1
+SQuAD,SRLandNER;averageF forCoref. DuetothesmalltestsizesforNERandSST-5,wereportthemean
+1
+andstandarddeviationacrossfiverunswithdifferentrandomseeds. The“increase”columnlistsboththeabsolute
+andrelativeimprovementsoverourbaseline.
+Textual entailment Textual entailment is the and attention mechanism to first compute span
+task of determining whether a “hypothesis” is representations and then applies a softmax men-
+true, given a “premise”. The Stanford Natu- tion ranking model to find coreference chains. In
+ral Language Inference (SNLI) corpus (Bowman our experiments with the OntoNotes coreference
+etal.,2015)providesapproximately550Khypoth- annotations from the CoNLL 2012 shared task
+esis/premise pairs. Our baseline, the ESIM se- (Pradhanetal.,2012),addingELMoimprovedthe
+quencemodelfromChenetal.(2017),usesabiL- average F by 3.2% from 67.2 to 70.4, establish-
+1
+STM to encode the premise and hypothesis, fol- inganewstateoftheart,againimprovingoverthe
+lowed by a matrix attention layer, a local infer- previousbestensembleresultby1.6%F .
+1
+ence layer, another biLSTM inference composi-
+Named entity extraction The CoNLL 2003
+tion layer, and finally a pooling operation before
+NER task (Sang and Meulder, 2003) consists of
+the output layer. Overall, adding ELMo to the
+newswire from the Reuters RCV1 corpus tagged
+ESIM model improves accuracy by an average of with four different entity types (PER, LOC, ORG,
+0.7% across five random seeds. A five member MISC). Following recent state-of-the-art systems
+ensemble pushes the overall accuracy to 89.3%,
+(Lampleetal.,2016;Petersetal.,2017),thebase-
+exceeding the previous ensemble best of 88.9%
+line model uses pre-trained word embeddings, a
+(Gongetal.,2018).
+character-basedCNNrepresentation,twobiLSTM
+Semantic role labeling A semantic role label- layers and a conditional random field (CRF) loss
+ing (SRL) system models the predicate-argument (Lafferty et al., 2001), similar to Collobert et al.
+structure of a sentence, and is often described as (2011). AsshowninTable1,ourELMoenhanced
+answering “Who did what to whom”. He et al. biLSTM-CRF achieves 92.22% F averaged over
+1
+(2017) modeled SRL as a BIO tagging problem five runs. The key difference between our system
+and used an 8-layer deep biLSTM with forward and the previous state of the art from Peters et al.
+and backward directions interleaved, following (2017)isthatweallowedthetaskmodeltolearna
+Zhou and Xu (2015). As shown in Table 1, when weightedaverageofallbiLMlayers, whereasPe-
+adding ELMo to a re-implementation of He et al. ters et al. (2017) only use the top biLM layer. As
+(2017) the single model test set F jumped 3.2% shown in Sec. 5.1, using all layers instead of just
+1
+from 81.4% to 84.6% – a new state-of-the-art on the last layer improves performance across multi-
+the OntoNotes benchmark (Pradhan et al., 2013), pletasks.
+even improving over the previous best ensemble
+SentimentanalysisThefine-grainedsentiment
+resultby1.2%.
+classificationtaskintheStanfordSentimentTree-
+CoreferenceresolutionCoreferenceresolution bank (SST-5; Socher et al., 2013) involves select-
+is the task of clustering mentions in text that re- ing one of five labels (from very negative to very
+fertothesameunderlyingrealworldentities. Our positive) to describe a sentence from a movie re-
+baseline model is the end-to-end span-based neu- view. The sentences contain diverse linguistic
+ral model of Lee et al. (2017). It uses a biLSTM phenomena such as idioms and complex syntac-
+
+Alllayers 5.1 Alternatelayerweightingschemes
+Task Baseline LastOnly
+λ=1 λ=0.001
+TherearemanyalternativestoEquation1forcom-
+SQuAD 80.8 84.7 85.0 85.2
+bining the biLM layers. Previous work on con-
+SNLI 88.1 89.1 89.3 89.5
+textual representations used only the last layer,
+SRL 81.6 84.1 84.6 84.8
+whetheritbefromabiLM(Petersetal.,2017)or
+anMTencoder(CoVe;McCannetal.,2017). The
+Table 2: Development set performance for SQuAD,
+SNLIandSRLcomparingusingalllayersofthebiLM choice of the regularization parameter λ is also
+(withdifferentchoicesofregularizationstrengthλ)to important, as large values such as λ = 1 effec-
+justthetoplayer. tively reduce the weighting function to a simple
+averageoverthelayers,whilesmallervalues(e.g.,
+Input Input& Output λ = 0.001)allowthelayerweightstovary.
+Task
+Only Output Only Table2comparesthesealternativesforSQuAD,
+SQuAD 85.1 85.6 84.8 SNLIandSRL.Includingrepresentationsfromall
+SNLI 88.9 89.5 88.7 layers improves overall performance over just us-
+SRL 84.7 84.3 80.9 ing the last layer, and including contextual rep-
+resentations from the last layer improves perfor-
+Table 3: Development set performance for SQuAD,
+mance over the baseline. For example, in the
+SNLI and SRL when including ELMo at different lo-
+caseofSQuAD,usingjustthelastbiLMlayerim-
+cationsinthesupervisedmodel.
+provesdevelopmentF by3.9%overthebaseline.
+1
+AveragingallbiLMlayersinsteadofusingjustthe
+tic constructions such as negations that are diffi- last layer improves F another 0.3% (comparing
+1
+cult for models to learn. Our baseline model is “Last Only” to λ=1 columns), and allowing the
+the biattentive classification network (BCN) from task model to learn individual layer weights im-
+McCann et al. (2017), which also held the prior proves F another 0.2% (λ=1 vs. λ=0.001). A
+1
+state-of-the-artresultwhenaugmentedwithCoVe smallλispreferredinmostcaseswithELMo,al-
+embeddings. Replacing CoVe with ELMo in the thoughforNER,ataskwithasmallertrainingset,
+BCN model results in a 1.0% absolute accuracy theresultsareinsensitivetoλ(notshown).
+improvementoverthestateoftheart. TheoveralltrendissimilarwithCoVebutwith
+smallerincreasesoverthebaseline. ForSNLI,av-
+eragingalllayerswithλ=1improvesdevelopment
+5 Analysis
+accuracy from 88.2 to 88.7% over using just the
+last layer. SRL F increased a marginal 0.1% to
+This section provides an ablation analysis to vali- 1
+82.2 for the λ=1 case compared to using the last
+date our chief claims and to elucidate some inter-
+layeronly.
+esting aspects of ELMo representations. Sec. 5.1
+shows that using deep contextual representations
+5.2 WheretoincludeELMo?
+in downstream tasks improves performance over
+previous work that uses just the top layer, regard- All of the task architectures in this paper include
+lessofwhethertheyareproducedfromabiLMor wordembeddingsonlyasinputtothelowestlayer
+MT encoder, and that ELMo representations pro- biRNN.However,wefindthatincludingELMoat
+vide the best overall performance. Sec. 5.3 ex- the output of the biRNN in task-specific architec-
+plores the different types of contextual informa- tures improves overall results for some tasks. As
+tioncapturedinbiLMsandusestwointrinsiceval- shownin Table3, including ELMoatboth thein-
+uationstoshowthatsyntacticinformationisbetter put and output layers for SNLI and SQuAD im-
+represented at lower layers while semantic infor- proves over just the input layer, but for SRL (and
+mationiscapturedahigherlayers,consistentwith coreferenceresolution,notshown)performanceis
+MTencoders. ItalsoshowsthatourbiLMconsis- highest when it is included at just the input layer.
+tently provides richer representations then CoVe. Onepossibleexplanationforthisresultisthatboth
+Additionally, we analyze the sensitivity to where the SNLI and SQuAD architectures use attention
+ELMo is included in the task model (Sec. 5.2), layers after the biRNN, so introducing ELMo at
+trainingsetsize(Sec.5.4),andvisualizetheELMo thislayerallowsthemodeltoattenddirectlytothe
+learnedweightsacrossthetasks(Sec.5.5). biLM’s internal representations. In the SRL case,
+
+Source NearestNeighbors
+playing, game, games, played, players, plays, player,
+GloVe play
+Play,football,multiplayer
+Chico Ruiz made a spec- Kieffer , the only junior in the group , was commended
+tacular play on Alusik ’s forhisabilitytohitintheclutch,aswellashisall-round
+grounder{...} excellentplay.
+biLM
+Olivia De Havilland {...} they were actors who had been handed fat roles in
+signed to do a Broadway a successful play , and had talent enough to fill the roles
+playforGarson{...} competently,withniceunderstatement.
+Table4: Nearestneighborsto“play”usingGloVeandthecontextembeddingsfromabiLM.
+Model F Model Acc.
+1
+WordNet1stSenseBaseline 65.9 Collobertetal.(2011) 97.3
+Raganatoetal.(2017a) 69.9 MaandHovy(2016) 97.6
+Iacobaccietal.(2016) 70.1 Lingetal.(2015) 97.8
+CoVe,FirstLayer 59.4 CoVe,FirstLayer 93.3
+CoVe,SecondLayer 64.7 CoVe,SecondLayer 92.8
+biLM,Firstlayer 67.4 biLM,FirstLayer 97.3
+biLM,Secondlayer 69.0 biLM,SecondLayer 96.8
+Table 5: All-words fine grained WSD F . For CoVe Table6: TestsetPOStaggingaccuraciesforPTB.For
+1
+and the biLM, we report scores for both the first and CoVeandthebiLM,wereportscoresforboththefirst
+secondlayerbiLSTMs. andsecondlayerbiLSTMs.
+thetask-specificcontextrepresentationsarelikely intrinsic evaluation of the contextual representa-
+moreimportantthanthosefromthebiLM. tions similar to Belinkov et al. (2017). To isolate
+the information encoded by the biLM, the repre-
+5.3 Whatinformationiscapturedbythe sentationsareusedtodirectlymakepredictionsfor
+biLM’srepresentations? a fine grained word sense disambiguation (WSD)
+taskandaPOStaggingtask. Usingthisapproach,
+Since adding ELMo improves task performance
+it is also possible to compare to CoVe, and across
+over word vectors alone, the biLM’s contextual
+eachoftheindividuallayers.
+representations must encode information gener-
+ally useful for NLP tasks that is not captured WordsensedisambiguationGivenasentence,
+in word vectors. Intuitively, the biLM must we can use the biLM representations to predict
+be disambiguating the meaning of words using the sense of a target word using a simple 1-
+their context. Consider “play”, a highly poly- nearest neighbor approach, similar to Melamud
+semous word. The top of Table 4 lists near- et al. (2016). To do so, we first use the biLM
+est neighbors to “play” using GloVe vectors. to compute representations for all words in Sem-
+They are spread across several parts of speech Cor 3.0, our training corpus (Miller et al., 1994),
+(e.g., “played”, “playing” as verbs, and “player”, and then take the average representation for each
+“game” as nouns) but concentrated in the sports- sense. Attesttime,weagainusethebiLMtocom-
+related senses of “play”. In contrast, the bottom pute representations for a given target word and
+two rows show nearest neighbor sentences from take the nearest neighbor sense from the training
+the SemCor dataset (see below) using the biLM’s set, falling back to the first sense from WordNet
+contextrepresentationof“play”inthesourcesen- forlemmasnotobservedduringtraining.
+tence. In these cases, the biLM is able to disam- Table 5 compares WSD results using the eval-
+biguate both the part of speech and word sense in uation framework from Raganato et al. (2017b)
+thesourcesentence. acrossthesamesuiteoffourtestsetsinRaganato
+These observations can be quantified using an et al. (2017a). Overall, the biLM top layer rep-
+
+resentations have F of 69.0 and are better at
+1
+WSDthenthefirstlayer. Thisiscompetitivewith
+a state-of-the-art WSD-specific supervised model
+usinghandcraftedfeatures(Iacobaccietal.,2016)
+and a task specific biLSTM that is also trained
+with auxiliary coarse-grained semantic labels and
+POS tags (Raganato et al., 2017a). The CoVe
+biLSTM layers follow a similar pattern to those
+from the biLM (higher overall performance at the
+second layer compared to the first); however, our
+biLMoutperformstheCoVebiLSTM,whichtrails
+Figure 1: Comparison of baseline vs. ELMo perfor-
+theWordNetfirstsensebaseline. manceforSNLIandSRLasthetrainingsetsizeisvar-
+POS tagging To examine whether the biLM iedfrom0.1%to100%.
+captures basic syntax, we used the context repre-
+sentations as input to a linear classifier that pre-
+dictsPOStagswiththeWallStreetJournalportion
+ofthePennTreebank(PTB)(Marcusetal.,1993).
+As the linear classifier adds only a small amount
+ofmodelcapacity,thisisdirecttestofthebiLM’s
+representations. Similar to WSD, the biLM rep-
+resentations are competitive with carefully tuned,
+task specific biLSTMs (Ling et al., 2015; Ma and
+Figure 2: Visualization of softmax normalized biLM
+Hovy, 2016). However, unlike WSD, accuracies
+layer weights across tasks and ELMo locations. Nor-
+using the first biLM layer are higher than the
+malized weights less then 1/3 are hatched with hori-
+top layer, consistent with results from deep biL-
+zontallinesandthosegreaterthen2/3arespeckled.
+STMs in multi-task training (Søgaard and Gold-
+berg, 2016; Hashimoto et al., 2017) and MT (Be-
+linkovetal.,2017). CoVePOStaggingaccuracies
+thesamelevelofperformance.
+follow the same pattern as those from the biLM,
+In addition, ELMo-enhanced models use
+and just like for WSD, the biLM achieves higher
+smaller training sets more efficiently than mod-
+accuraciesthantheCoVeencoder.
+els without ELMo. Figure 1 compares the per-
+Implications for supervised tasks Taken to-
+formance of baselines models with and without
+gether, these experiments confirm different layers
+ELMo as the percentage of the full training set is
+in the biLM represent different types of informa-
+varied from 0.1% to 100%. Improvements with
+tion and explain why including all biLM layers is
+ELMo are largest for smaller training sets and
+important for the highest performance in down-
+significantly reduce the amount of training data
+stream tasks. In addition, the biLM’s representa-
+needed to reach a given level of performance. In
+tions are more transferable to WSD and POS tag-
+the SRL case, the ELMo model with 1% of the
+gingthanthoseinCoVe,helpingtoillustratewhy
+training set has about the same F as the baseline
+1
+ELMooutperformsCoVeindownstreamtasks.
+modelwith10%ofthetrainingset.
+5.4 Sampleefficiency
+5.5 Visualizationoflearnedweights
+AddingELMotoamodelincreasesthesampleef-
+ficiency considerably, both in terms of number of Figure 2 visualizes the softmax-normalized
+parameterupdatestoreachstate-of-the-artperfor- learned layer weights. At the input layer, the
+mance and the overall training set size. For ex- task model favors the first biLSTM layer. For
+ample,theSRLmodelreachesamaximumdevel- coreference and SQuAD, the this is strongly
+opment F after 486 epochs of training without favored, but the distribution is less peaked for
+1
+ELMo. After adding ELMo, the model exceeds the other tasks. The output layer weights are
+thebaselinemaximumatepoch10,a98%relative relatively balanced, with a slight preference for
+decreaseinthenumberofupdatesneededtoreach thelowerlayers.
+
+6 Conclusion RonanCollobert,JasonWeston,Le´onBottou,Michael
+Karlen, Koray Kavukcuoglu, and Pavel P. Kuksa.
+We have introduced a general approach for learn- 2011. Natural language processing (almost) from
+inghigh-qualitydeepcontext-dependentrepresen- scratch. InJMLR.
+tations from biLMs, and shown large improve-
+Andrew M. Dai and Quoc V. Le. 2015. Semi-
+ments when applying ELMo to a broad range of supervisedsequencelearning. InNIPS.
+NLPtasks. Throughablationsandothercontrolled
+experiments, we have also confirmed that the GregDurrettandDanKlein.2013. Easyvictoriesand
+uphillbattlesincoreferenceresolution. InEMNLP.
+biLM layers efficiently encode different types of
+syntactic and semantic information about words- Yarin Gal and Zoubin Ghahramani. 2016. A theoret-
+in-context,andthatusingalllayersimprovesover- ically grounded application of dropout in recurrent
+neuralnetworks. InNIPS.
+alltaskperformance.
+Yichen Gong, Heng Luo, and Jian Zhang. 2018. Nat-
+ural language inference over interaction space. In
+References ICLR.
+JimmyBa,RyanKiros,andGeoffreyE.Hinton.2016.
+Kazuma Hashimoto, Caiming Xiong, Yoshimasa Tsu-
+Layernormalization. CoRRabs/1607.06450.
+ruoka,andRichardSocher.2017. Ajointmany-task
+model: Growing a neural network for multiple nlp
+Yonatan Belinkov, Nadir Durrani, Fahim Dalvi, Has-
+tasks. InEMNLP2017.
+sanSajjad,andJamesR.Glass.2017. Whatdoneu-
+ralmachinetranslationmodelslearnaboutmorphol-
+Luheng He, Kenton Lee, Mike Lewis, and Luke S.
+ogy? InACL.
+Zettlemoyer. 2017. Deep semantic role labeling:
+Whatworksandwhat’snext. InACL.
+PiotrBojanowski,EdouardGrave,ArmandJoulin,and
+TomasMikolov.2017. Enrichingwordvectorswith
+SeppHochreiterandJu¨rgenSchmidhuber.1997. Long
+subwordinformation. TACL5:135–146.
+short-termmemory. NeuralComputation9.
+SamuelR.Bowman,GaborAngeli,ChristopherPotts, Ignacio Iacobacci, Mohammad Taher Pilehvar, and
+and Christopher D. Manning. 2015. A large an- RobertoNavigli.2016. Embeddingsforwordsense
+notated corpus for learning natural language infer- disambiguation: Anevaluationstudy. InACL.
+ence. In Proceedings of the 2015 Conference on
+EmpiricalMethodsinNaturalLanguageProcessing RafalJo´zefowicz,OriolVinyals,MikeSchuster,Noam
+(EMNLP). Association for Computational Linguis- Shazeer,andYonghuiWu.2016. Exploringthelim-
+tics. itsoflanguagemodeling. CoRRabs/1602.02410.
+CiprianChelba,TomasMikolov,MikeSchuster,QiGe, Rafal Jo´zefowicz, Wojciech Zaremba, and Ilya
+Thorsten Brants, Phillipp Koehn, and Tony Robin- Sutskever.2015. Anempiricalexplorationofrecur-
+son. 2014. One billion word benchmark for mea- rentnetworkarchitectures. InICML.
+suringprogressinstatisticallanguagemodeling. In
+INTERSPEECH. YoonKim,YacineJernite,DavidSontag,andAlexan-
+derMRush.2015. Character-awareneurallanguage
+Qian Chen, Xiao-Dan Zhu, Zhen-Hua Ling, Si Wei, models. InAAAI2016.
+HuiJiang,andDianaInkpen.2017. Enhancedlstm
+fornaturallanguageinference. InACL. Diederik P. Kingma and Jimmy Ba. 2015. Adam: A
+methodforstochasticoptimization. InICLR.
+Jason Chiu and Eric Nichols. 2016. Named entity
+recognition with bidirectional LSTM-CNNs. In Ankit Kumar, Ozan Irsoy, Peter Ondruska, Mohit
+TACL. Iyyer, Ishaan Gulrajani James Bradbury, Victor
+Zhong, Romain Paulus, and Richard Socher. 2016.
+KyunghyunCho,BartvanMerrienboer,DzmitryBah- Ask me anything: Dynamic memory networks for
+danau,andYoshuaBengio.2014. Ontheproperties naturallanguageprocessing. InICML.
+ofneuralmachinetranslation: Encoder-decoderap-
+proaches. InSSST@EMNLP. John D. Lafferty, Andrew McCallum, and Fernando
+Pereira. 2001. Conditional random fields: Prob-
+Christopher Clark and Matthew Gardner. 2017. Sim- abilistic models for segmenting and labeling se-
+ple and effective multi-paragraph reading compre- quencedata. InICML.
+hension. CoRRabs/1710.10723.
+GuillaumeLample, MiguelBallesteros, SandeepSub-
+KevinClarkandChristopherD.Manning.2016. Deep ramanian,KazuyaKawakami,andChrisDyer.2016.
+reinforcementlearningformention-rankingcorefer- Neural architectures for named entity recognition.
+encemodels. InEMNLP. InNAACL-HLT.
+
+Kenton Lee, Luheng He, Mike Lewis, and Luke S. Matthew E. Peters, Waleed Ammar, Chandra Bhaga-
+Zettlemoyer. 2017. End-to-end neural coreference vatula, and Russell Power. 2017. Semi-supervised
+resolution. InEMNLP. sequence tagging with bidirectional language mod-
+els. InACL.
+Wang Ling, Chris Dyer, Alan W. Black, Isabel Tran-
+coso,RamonFermandez,SilvioAmir,Lu´ısMarujo, SameerPradhan,AlessandroMoschitti,NianwenXue,
+and Tiago Lu´ıs. 2015. Finding function in form: Hwee Tou Ng, Anders Bjo¨rkelund, Olga Uryupina,
+Compositional character models for open vocabu- Yuchen Zhang, and Zhi Zhong. 2013. Towards ro-
+larywordrepresentation. InEMNLP. bustlinguisticanalysisusingontonotes. InCoNLL.
+Xiaodong Liu, Yelong Shen, Kevin Duh, and Jian- SameerPradhan,AlessandroMoschitti,NianwenXue,
+feng Gao. 2017. Stochastic answer networks for Olga Uryupina, and Yuchen Zhang. 2012. Conll-
+machine reading comprehension. arXiv preprint 2012 shared task: Modeling multilingual unre-
+arXiv:1712.03556. stricted coreference in ontonotes. In EMNLP-
+CoNLLSharedTask.
+Xuezhe Ma and Eduard H. Hovy. 2016. End-to-end
+sequence labeling via bi-directional LSTM-CNNs- AlessandroRaganato,ClaudioDelliBovi,andRoberto
+CRF. InACL. Navigli. 2017a. Neural sequence learning models
+forwordsensedisambiguation. InEMNLP.
+MitchellP.Marcus,BeatriceSantorini,andMaryAnn
+Marcinkiewicz. 1993. Building a large annotated Alessandro Raganato, Jose Camacho-Collados, and
+corpus of english: The penn treebank. Computa- Roberto Navigli. 2017b. Word sense disambigua-
+tionalLinguistics19:313–330.
+tion: Aunifiedevaluationframeworkandempirical
+comparison. InEACL.
+BryanMcCann,JamesBradbury,CaimingXiong,and
+RichardSocher.2017. Learnedintranslation: Con-
+PranavRajpurkar,JianZhang,KonstantinLopyrev,and
+textualizedwordvectors. InNIPS2017.
+PercyLiang.2016. Squad: 100,000+questionsfor
+machinecomprehensionoftext. InEMNLP.
+Oren Melamud, Jacob Goldberger, and Ido Dagan.
+2016. context2vec: Learning generic context em-
+Prajit Ramachandran, Peter Liu, and Quoc Le. 2017.
+beddingwithbidirectionallstm. InCoNLL.
+Improvingsequencetosequencelearningwithunla-
+beleddata. InEMNLP.
+Ga´borMelis,ChrisDyer,andPhilBlunsom.2017. On
+the state of the art of evaluation in neural language
+Erik F. Tjong Kim Sang and Fien De Meulder.
+models. CoRRabs/1707.05589.
+2003. IntroductiontotheCoNLL-2003sharedtask:
+Language-independentnamedentityrecognition. In
+Stephen Merity, Nitish Shirish Keskar, and Richard
+CoNLL.
+Socher.2017. Regularizingandoptimizinglstmlan-
+guagemodels. CoRRabs/1708.02182.
+MinJoonSeo,AniruddhaKembhavi,AliFarhadi,and
+Hannaneh Hajishirzi. 2017. Bidirectional attention
+TomasMikolov,IlyaSutskever,KaiChen,GregSCor-
+flowformachinecomprehension. InICLR.
+rado, and Jeff Dean. 2013. Distributed representa-
+tionsofwordsandphrasesandtheircompositional-
+Richard Socher, Alex Perelygin, Jean Y Wu, Jason
+ity. InNIPS.
+Chuang, Christopher D Manning, Andrew Y Ng,
+George A. Miller, Martin Chodorow, Shari Landes, and Christopher Potts. 2013. Recursive deep mod-
+ClaudiaLeacock,andRobertG.Thomas.1994. Us- els for semantic compositionality over a sentiment
+ingasemanticconcordanceforsenseidentification. treebank. InEMNLP.
+InHLT.
+Anders Søgaard and Yoav Goldberg. 2016. Deep
+Tsendsuren Munkhdalai and Hong Yu. 2017. Neural multi-task learning with low level tasks supervised
+treeindexersfortextunderstanding. InEACL. atlowerlayers. InACL2016.
+Arvind Neelakantan, Jeevan Shankar, Alexandre Pas- Nitish Srivastava, Geoffrey E. Hinton, Alex
+sos, and Andrew McCallum. 2014. Efficient non- Krizhevsky, Ilya Sutskever, and Ruslan Salakhutdi-
+parametric estimation of multiple embeddings per nov.2014. Dropout: asimplewaytopreventneural
+wordinvectorspace. InEMNLP. networks from overfitting. Journal of Machine
+LearningResearch15:1929–1958.
+Martha Palmer, Paul Kingsbury, and Daniel Gildea.
+2005. Thepropositionbank:Anannotatedcorpusof Rupesh Kumar Srivastava, Klaus Greff, and Ju¨rgen
+semantic roles. Computational Linguistics 31:71– Schmidhuber. 2015. Training very deep networks.
+106. InNIPS.
+Jeffrey Pennington, Richard Socher, and Christo- Joseph P. Turian, Lev-Arie Ratinov, and Yoshua Ben-
+pher D. Manning. 2014. Glove: Global vectors for gio.2010. Wordrepresentations: Asimpleandgen-
+wordrepresentation. InEMNLP. eralmethodforsemi-supervisedlearning. InACL.
+
+Wenhui Wang, Nan Yang, Furu Wei, Baobao Chang,
+and Ming Zhou. 2017. Gated self-matching net-
+works for reading comprehension and question an-
+swering. InACL.
+JohnWieting,MohitBansal,KevinGimpel,andKaren
+Livescu. 2016. Charagram: Embedding words and
+sentencesviacharactern-grams. InEMNLP.
+Sam Wiseman, Alexander M. Rush, and Stuart M.
+Shieber. 2016. Learning global features for coref-
+erenceresolution. InHLT-NAACL.
+MatthewD.Zeiler.2012. Adadelta:Anadaptivelearn-
+ingratemethod. CoRRabs/1212.5701.
+Jie Zhou and Wei Xu. 2015. End-to-end learning of
+semantic role labeling using recurrent neural net-
+works. InACL.
+Peng Zhou, Zhenyu Qi, Suncong Zheng, Jiaming Xu,
+HongyunBao,andBoXu.2016. Textclassification
+improvedbyintegratingbidirectionallstmwithtwo-
+dimensionalmaxpooling. InCOLING.
+
+A SupplementalMaterialtoaccompany Before After
+Dataset
+Deepcontextualizedword tuning tuning
+representations SNLI 72.1 16.8
+CoNLL2012(coref/SRL) 92.3 -
+This supplement contains details of the model ar-
+CoNLL2003(NER) 103.2 46.3
+chitectures,trainingroutinesandhyper-parameter
+Context 99.1 43.5
+choices for the state-of-the-art models in Section SQuAD
+Questions 158.2 52.0
+4.
+SST 131.5 78.6
+Alloftheindividualmodelsshareacommonar-
+chitectureinthelowestlayerswithacontextinde- Table 7: Development set perplexity before and after
+pendenttokenrepresentationbelowseverallayers fine tuning for one epoch on the training set for vari-
+of stacked RNNs – LSTMs in every case except ous datasets (lower is better). Reported values are the
+theSQuADmodelthatusesGRUs. averageoftheforwardandbackwardperplexities.
+A.1 FinetuningbiLM
+added 50% variational dropout (Gal and Ghahra-
+AsnotedinSec. 3.4,finetuningthebiLMontask mani, 2016) to the input of each LSTM layer and
+specificdatatypicallyresultedinsignificantdrops 50% dropout (Srivastava et al., 2014) at the input
+in perplexity. To fine tune on a given task, the to the final two fully connected layers. All feed
+supervised labels were temporarily ignored, the forward layers use ReLU activations. Parame-
+biLMfinetunedforoneepochonthetrainingsplit terswereoptimizedusingAdam(KingmaandBa,
+andevaluatedonthedevelopmentsplit. Oncefine 2015) with gradient norms clipped at 5.0 and ini-
+tuned, the biLM weights were fixed during task tial learning rate 0.0004, decreasing by half each
+training. time accuracy on the development set did not in-
+Table7liststhedevelopmentsetperplexitiesfor crease in subsequent epochs. The batch size was
+theconsideredtasks. IneverycaseexceptCoNLL 32.
+2012,finetuningresultsinalargeimprovementin ThebestELMoconfigurationaddedELMovec-
+perplexity,e.g.,from72.1to16.8forSNLI. tors to both the input and output of the lowest
+Theimpactoffinetuningonsupervisedperfor- layer LSTM, using (1) with layer normalization
+mance is task dependent. In the case of SNLI, and λ = 0.001. Due to the increased number of
+finetuningthebiLMincreaseddevelopmentaccu- parameters in the ELMo model, we added (cid:96)2 reg-
+racy0.6%from88.9%to89.5%foroursinglebest ularization with regularization coefficient 0.0001
+model. However, for sentiment classification de- to all recurrent and feed forward weight matrices
+velopmentsetaccuracyisapproximatelythesame and50%dropoutaftertheattentionlayer.
+regardlesswhetherafinetunedbiLMwasused. Table 8 compares test set accuracy of our sys-
+tem to previously published systems. Overall,
+A.2 Importanceofγ inEqn. (1)
+adding ELMo to the ESIM model improved ac-
+The γ parameter in Eqn. (1) was of practical im- curacy by 0.7% establishing a new single model
+portance to aid optimization, due to the differ- state-of-the-art of 88.7%, and a five member en-
+ent distributions between the biLM internal rep- semblepushestheoverallaccuracyto89.3%.
+resentations and the task specific representations.
+A.4 QuestionAnswering
+It is especially important in the last-only case in
+Sec. 5.1. Without this parameter, the last-only OurQAmodelisasimplifiedversionofthemodel
+case performed poorly (well below the baseline) from Clark and Gardner (2017). It embeds to-
+forSNLIandtrainingfailedcompletelyforSRL. kens by concatenating each token’s case-sensitive
+300 dimensional GloVe word vector (Penning-
+A.3 TextualEntailment
+ton et al., 2014) with a character-derived embed-
+Our baseline SNLI model is the ESIM sequence ding produced using a convolutional neural net-
+model from Chen et al. (2017). Following the work followed by max-pooling on learned char-
+originalimplementation,weused300dimensions acter embeddings. The token embeddings are
+for all LSTM and feed forward layers and pre- passed through a shared bi-directional GRU, and
+trained 300 dimensional GloVe embeddings that then the bi-directional attention mechanism from
+were fixed during training. For regularization, we BiDAF (Seo et al., 2017). The augmented con-
+
+Model Acc.
+Featurebased(Bowmanetal.,2015) 78.2
+DIIN(Gongetal.,2018) 88.0
+BCN+Char+CoVe(McCannetal.,2017) 88.1
+ESIM(Chenetal.,2017) 88.0
+ESIM+TreeLSTM(Chenetal.,2017) 88.6
+ESIM+ELMo 88.7±0.17
+DIINensemble(Gongetal.,2018) 88.9
+ESIM+ELMoensemble 89.3
+Table8: SNLItestsetaccuracy.3Singlemodelresultsoccupytheportion,withensembleresultsatthebottom.
+text vectors are then passed through a linear layer bedding. This 200 dimensional token represen-
+with ReLU activations, a residual self-attention tation is then passed through an 8 layer “inter-
+layerthatusesaGRUfollowedbythesameatten- leaved” biLSTM with a 300 dimensional hidden
+tion mechanism applied context-to-context, and size, in which the directions of the LSTM layers
+another linear layer with ReLU activations. Fi- alternate per layer. This deep LSTM uses High-
+nally, the results are fed through linear layers to wayconnections(Srivastavaetal.,2015)between
+predictthestartandendtokenoftheanswer. layers and variational recurrent dropout (Gal and
+Variational dropout is used before the input to Ghahramani, 2016). This deep representation is
+the GRUs and the linear layers at a rate of 0.2. A then projected using a final dense layer followed
+dimensionality of 90 is used for the GRUs, and byasoftmaxactivationtoformadistributionover
+180 for the linear layers. We optimize the model all possible tags. Labels consist of semantic roles
+using Adadelta with a batch size of 45. At test from PropBank (Palmer et al., 2005) augmented
+timeweuseanexponentialmovingaverageofthe with a BIO labeling scheme to represent argu-
+weightsandlimittheoutputspantobeofatmost ment spans. During training, we minimize the
+size17. Wedonotupdatethewordvectorsduring negative log likelihood of the tag sequence using
+training. Adadeltawithalearningrateof1.0andρ = 0.95
+Performance was highest when adding ELMo (Zeiler, 2012). At test time, we perform Viterbi
+without layer normalization to both the input and decoding to enforce valid spans using BIO con-
+outputofthecontextualGRUlayerandleavingthe straints. Variational dropout of 10% is added to
+ELMoweightsunregularized(λ = 0). all LSTM hidden layers. Gradients are clipped if
+Table 9 compares test set results from the theirvalueexceeds1.0. Modelsaretrainedfor500
+SQuAD leaderboard as of November 17, 2017 epochsoruntilvalidationF1doesnotimprovefor
+when we submitted our system. Overall, our sub- 200 epochs, whichever is sooner. The pretrained
+mission had the highest single model and ensem- GloVe vectors are fine-tuned during training. The
+ble results, improving the previous single model finaldenselayerandallcellsofallLSTMsareini-
+result (SAN) by 1.4% F and our baseline by tialized to be orthogonal. The forget gate bias is
+1
+4.2%. A 11 member ensemble pushes F to initializedto1forallLSTMs,withallothergates
+1
+87.4%, 1.0%increaseover thepreviousensemble initializedto0,asper(Jo´zefowiczetal.,2015).
+best. Table 10 compares test set F1 scores of our
+ELMo augmented implementation of (He et al.,
+A.5 SemanticRoleLabeling 2017) with previous results. Our single model
+Our baseline SRL model is an exact reimplemen- score of 84.6 F1 represents a new state-of-the-art
+tation of (He et al., 2017). Words are represented result on the CONLL 2012 Semantic Role Label-
+using a concatenation of 100 dimensional vector ing task, surpassing the previous single model re-
+representations,initializedusingGloVe(Penning- sultby2.9F1anda5-modelensembleby1.2F1.
+ton et al., 2014) and a binary, per-word predicate
+feature,representedusingan100dimensionalem- A.6 Coreferenceresolution
+Our baseline coreference model is the end-to-end
+3Acomprehensivecomparisoncanbefoundathttps:
+//nlp.stanford.edu/projects/snli/ neural model from Lee et al. (2017) with all hy-
+
+Model EM F
+1
+BiDAF(Seoetal.,2017) 68.0 77.3
+BiDAF+SelfAttention 72.1 81.1
+DCN+ 75.1 83.1
+Reg-RaSoR 75.8 83.3
+FusionNet 76.0 83.9
+r-net(Wangetal.,2017) 76.5 84.3
+SAN(Liuetal.,2017) 76.8 84.4
+BiDAF+SelfAttention+ELMo 78.6 85.8
+DCN+Ensemble 78.9 86.0
+FusionNetEnsemble 79.0 86.0
+InteractiveAoAReader+Ensemble 79.1 86.5
+BiDAF+SelfAttention+ELMoEnsemble 81.0 87.4
+Table9: TestsetresultsforSQuAD,showingbothExactMatch(EM)andF . Thetophalfofthetablecontains
+1
+singlemodelresultswithensemblesatthebottom. Referencesprovidedwhereavailable.
+Model F 1 A.7 NamedEntityRecognition
+Pradhanetal.(2013) 77.5
+Our baseline NER model concatenates 50 dimen-
+ZhouandXu(2015) 81.3
+sional pre-trained Senna vectors (Collobert et al.,
+Heetal.(2017),single 81.7
+2011)withaCNNcharacterbasedrepresentation.
+Heetal.(2017),ensemble 83.4
+The character representation uses 16 dimensional
+Heetal.(2017),ourimpl. 81.4
+character embeddings and 128 convolutional fil-
+Heetal.(2017)+ELMo 84.6
+ters of width three characters, a ReLU activation
+and by max pooling. The token representation is
+Table10: SRLCoNLL2012testsetF .
+1
+passed through two biLSTM layers, the first with
+Model AverageF 200 hidden units and the second with 100 hid-
+1
+den units before a final dense layer and softmax
+DurrettandKlein(2013) 60.3
+layer. During training, we use a CRF loss and at
+Wisemanetal.(2016) 64.2
+testtimeperformdecodingusingtheViterbialgo-
+ClarkandManning(2016) 65.7
+rithm while ensuring that the output tag sequence
+Leeetal.(2017)(single) 67.2
+isvalid.
+Leeetal.(2017)(ensemble) 68.8
+Leeetal.(2017)+ELMo 70.4 Variationaldropoutisaddedtotheinputofboth
+biLSTM layers. During training the gradients are
+Table11:CoreferenceresolutionaverageF 1 onthetest rescaled if their (cid:96)2 norm exceeds 5.0 and param-
+setfromtheCoNLL2012sharedtask.
+eters updated using Adam with constant learning
+rate of 0.001. The pre-trained Senna embeddings
+perparameters exactly following the original im- are fine tuned during training. We employ early
+plementation. stoppingonthedevelopmentsetandreporttheav-
+The best configuration added ELMo to the in- eragedtestsetscoreacrossfiverunswithdifferent
+put of the lowest layer biLSTM and weighted the randomseeds.
+biLM layers using (1) without any regularization ELMowasaddedtotheinputofthelowestlayer
+(λ = 0)orlayernormalization. 50%dropoutwas task biLSTM. As the CoNLL 2003 NER data set
+addedtotheELMorepresentations. isrelativelysmall,wefoundthebestperformance
+Table 11 compares our results with previously by constraining the trainable layer weights to be
+published results. Overall, we improve the single effectivelyconstantbysettingλ = 0.1with(1).
+modelstate-of-the-artby3.2%averageF ,andour Table 12 compares test set F scores of our
+1 1
+single model result improves the previous ensem- ELMoenhancedbiLSTM-CRFtaggerwithprevi-
+ble best by 1.6% F . Adding ELMo to the output ous results. Overall, the 92.22% F from our sys-
+1 1
+fromthebiLSTMinadditiontothebiLSTMinput temestablishesanewstate-of-the-art. Whencom-
+reducedF byapproximately0.7%(notshown). paredtoPetersetal.(2017),usingrepresentations
+1
+
+Model F ±std.
+1
+Collobertetal.(2011)♣ 89.59
+Lampleetal.(2016) 90.94
+MaandHovy(2016) 91.2
+ChiuandNichols(2016)♣,♦ 91.62±0.33
+Petersetal.(2017)♦ 91.93±0.19
+biLSTM-CRF+ELMo 92.22±0.10
+Table12:TestsetF forCoNLL2003NERtask.Mod-
+1
+els with ♣ included gazetteers and those with ♦ used
+boththetrainanddevelopmentsplitsfortraining.
+Model Acc.
+DMN(Kumaretal.,2016) 52.1
+LSTM-CNN(Zhouetal.,2016) 52.4
+NTI(MunkhdalaiandYu,2017) 53.1
+BCN+Char+CoVe(McCannetal.,2017) 53.7
+BCN+ELMo 54.7
+Table13: TestsetaccuracyforSST-5.
+fromalllayersofthebiLMprovidesamodestim-
+provement.
+A.8 Sentimentclassification
+We use almost the same biattention classification
+network architecture described in McCann et al.
+(2017), with the exception of replacing the final
+maxout network with a simpler feedforward net-
+workcomposedoftwoReLulayerswithdropout.
+A BCN model with a batch-normalized maxout
+networkreachedsignificantlylowervalidationac-
+curacies in our experiments, although there may
+bediscrepanciesbetweenourimplementationand
+that of McCann et al. (2017). To match the CoVe
+training setup, we only train on phrases that con-
+tain four or more tokens. We use 300-d hidden
+statesforthebiLSTMandoptimizethemodelpa-
+rameters with Adam (Kingma and Ba, 2015) us-
+ing a learning rate of 0.0001. The trainable biLM
+layer weights are regularized by λ = 0.001, and
+we add ELMo to both the input and output of the
+biLSTM; the output ELMo vectors are computed
+withasecondbiLSTMandconcatenatedtothein-
+put.

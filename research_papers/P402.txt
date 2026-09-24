@@ -1,0 +1,6 @@
+Title: Efficient Randomized Pattern-Matching Algorithms
+Authors: Karp & Rabin
+Year: 1987
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Efficient Randomized Pattern-Matching Algorithms' by Karp & Rabin (1987). Classic foundational literature published in original journal/conference proceedings.

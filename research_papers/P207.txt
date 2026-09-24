@@ -1,0 +1,6 @@
+Title: Cost-Effective Outbreak Detection in Networks
+Authors: Leskovec et al.
+Year: 2007
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Cost-Effective Outbreak Detection in Networks' by Leskovec et al. (2007). Classic foundational literature published in original journal/conference proceedings.

@@ -1,0 +1,588 @@
+Going deeper with convolutions
+ChristianSzegedy WeiLiu YangqingJia
+GoogleInc. UniversityofNorthCarolina,ChapelHill GoogleInc.
+PierreSermanet ScottReed DragomirAnguelov DumitruErhan
+GoogleInc. UniversityofMichigan GoogleInc. GoogleInc.
+VincentVanhoucke AndrewRabinovich
+GoogleInc. GoogleInc.
+Abstract
+WeproposeadeepconvolutionalneuralnetworkarchitecturecodenamedIncep-
+tion, which was responsible for setting the new state of the art for classification
+and detection in the ImageNet Large-Scale Visual Recognition Challenge 2014
+(ILSVRC14). The main hallmark of this architecture is the improved utilization
+ofthecomputingresourcesinsidethenetwork. Thiswasachievedbyacarefully
+crafteddesignthatallowsforincreasingthedepthandwidthofthenetworkwhile
+keepingthecomputationalbudgetconstant. Tooptimizequality,thearchitectural
+decisions were based on the Hebbian principle and the intuition of multi-scale
+processing. One particular incarnation used in our submission for ILSVRC14 is
+calledGoogLeNet, a22layersdeepnetwork, thequalityofwhichisassessedin
+thecontextofclassificationanddetection.
+1 Introduction
+Inthelastthreeyears,mainlyduetotheadvancesofdeeplearning,moreconcretelyconvolutional
+networks [10],thequalityofimagerecognitionandobjectdetectionhasbeenprogressingatadra-
+maticpace.Oneencouragingnewsisthatmostofthisprogressisnotjusttheresultofmorepowerful
+hardware,largerdatasetsandbiggermodels,butmainlyaconsequenceofnewideas,algorithmsand
+improvednetworkarchitectures. Nonewdatasourceswereused,forexample,bythetopentriesin
+theILSVRC2014competitionbesidestheclassificationdatasetofthesamecompetitionfordetec-
+tion purposes. Our GoogLeNet submission to ILSVRC 2014 actually uses 12× fewer parameters
+thanthewinningarchitectureofKrizhevskyetal[9]fromtwoyearsago,whilebeingsignificantly
+more accurate. The biggest gains in object-detection have not come from the utilization of deep
+networksaloneorbiggermodels,butfromthesynergyofdeeparchitecturesandclassicalcomputer
+vision,liketheR-CNNalgorithmbyGirshicketal[6].
+Another notable factor is that with the ongoing traction of mobile and embedded computing, the
+efficiency of our algorithms – especially their power and memory use – gains importance. It is
+noteworthy that the considerations leading to the design of the deep architecture presented in this
+paperincludedthisfactorratherthanhavingasheerfixationonaccuracynumbers. Formostofthe
+experiments,themodelsweredesignedtokeepacomputationalbudgetof1.5billionmultiply-adds
+atinferencetime,sothatthetheydonotenduptobeapurelyacademiccuriosity,butcouldbeput
+torealworlduse,evenonlargedatasets,atareasonablecost.
+1
+4102
+peS
+71
+]VC.sc[
+1v2484.9041:viXra
+
+In this paper, we will focus on an efficient deep neural network architecture for computer vision,
+codenamedInception,whichderivesitsnamefromtheNetworkinnetworkpaperbyLinetal[12]
+in conjunction with the famous “we need to go deeper” internet meme [1]. In our case, the word
+“deep”isusedintwodifferentmeanings: firstofall,inthesensethatweintroduceanewlevelof
+organization in the form of the “Inception module” and also in the more direct sense of increased
+network depth. In general, one can view the Inception model as a logical culmination of [12]
+while taking inspiration and guidance from the theoretical work by Arora et al [2]. The benefits
+of the architecture are experimentally verified on the ILSVRC 2014 classification and detection
+challenges,onwhichitsignificantlyoutperformsthecurrentstateoftheart.
+2 RelatedWork
+Starting with LeNet-5 [10], convolutional neural networks (CNN) have typically had a standard
+structure – stacked convolutional layers (optionally followed by contrast normalization and max-
+pooling) are followed by one or more fully-connected layers. Variants of this basic design are
+prevalentintheimageclassificationliteratureandhaveyieldedthebestresultsto-dateonMNIST,
+CIFARandmostnotablyontheImageNetclassificationchallenge[9,21]. Forlargerdatasetssuch
+asImagenet,therecenttrendhasbeentoincreasethenumberoflayers [12]andlayersize[21,14],
+whileusingdropout[7]toaddresstheproblemofoverfitting.
+Despite concerns that max-pooling layers result in loss of accurate spatial information, the same
+convolutionalnetworkarchitectureas [9]hasalsobeensuccessfullyemployedforlocalization[9,
+14], object detection [6, 14, 18, 5] and human pose estimation [19]. Inspired by a neuroscience
+modeloftheprimatevisualcortex,Serreetal.[15]useaseriesoffixedGaborfiltersofdifferentsizes
+inordertohandlemultiplescales,similarlytotheInceptionmodel. However,contrarytothefixed
+2-layer deep model of [15], all filters in the Inception model are learned. Furthermore, Inception
+layers are repeated many times, leading to a 22-layer deep model in the case of the GoogLeNet
+model.
+Network-in-NetworkisanapproachproposedbyLinetal.[12]inordertoincreasetherepresenta-
+tionalpowerofneuralnetworks. Whenappliedtoconvolutionallayers,themethodcouldbeviewed
+asadditional1×1convolutionallayersfollowedtypicallybytherectifiedlinearactivation [9].This
+enablesittobeeasilyintegratedinthecurrentCNNpipelines. Weusethisapproachheavilyinour
+architecture. However, in our setting, 1×1 convolutions have dual purpose: most critically, they
+areusedmainlyasdimensionreductionmodulestoremovecomputationalbottlenecks,thatwould
+otherwiselimitthesizeofournetworks. Thisallowsfornotjustincreasingthedepth,butalsothe
+widthofournetworkswithoutsignificantperformancepenalty.
+The current leading approach for object detection is the Regions with Convolutional Neural Net-
+works(R-CNN)proposedbyGirshicketal.[6]. R-CNNdecomposestheoveralldetectionproblem
+into two subproblems: to first utilize low-level cues such as color and superpixel consistency for
+potentialobjectproposalsinacategory-agnosticfashion,andtothenuseCNNclassifierstoidentify
+object categories at those locations. Such a two stage approach leverages the accuracy of bound-
+ing box segmentation with low-level cues, as well as the highly powerful classification power of
+state-of-the-art CNNs. We adopted a similar pipeline in our detection submissions, but have ex-
+plored enhancements in both stages, such as multi-box [5] prediction for higher object bounding
+boxrecall,andensembleapproachesforbettercategorizationofboundingboxproposals.
+3 MotivationandHighLevelConsiderations
+Themoststraightforwardwayofimprovingtheperformanceofdeepneuralnetworksisbyincreas-
+ingtheirsize.Thisincludesbothincreasingthedepth–thenumberoflevels–ofthenetworkandits
+width: thenumberofunitsateachlevel. Thisisasaneasyandsafewayoftraininghigherquality
+models, especially given the availability of a large amount of labeled training data. However this
+simplesolutioncomeswithtwomajordrawbacks.
+Biggersizetypicallymeansalargernumberofparameters,whichmakestheenlargednetworkmore
+prone to overfitting, especially if the number of labeled examples in the training set is limited.
+This can become a major bottleneck, since the creation of high quality training sets can be tricky
+2
+
+(a) Siberianhusky (b) Eskimodog
+Figure1:Twodistinctclassesfromthe1000classesoftheILSVRC2014classificationchallenge.
+and expensive, especially if expert humanraters are necessary todistinguish between fine-grained
+visual categories like those in ImageNet (even in the 1000-class ILSVRC subset) as demonstrated
+byFigure1.
+Anotherdrawbackofuniformlyincreasednetworksizeisthedramaticallyincreaseduseofcompu-
+tationalresources. Forexample,inadeepvisionnetwork,iftwoconvolutionallayersarechained,
+anyuniformincreaseinthenumberoftheirfiltersresultsinaquadraticincreaseofcomputation. If
+the added capacity is used inefficiently (for example, if most weights end up to be close to zero),
+thenalotofcomputationiswasted. Sinceinpracticethecomputationalbudgetisalwaysfinite,an
+efficientdistributionofcomputingresourcesispreferredtoanindiscriminateincreaseofsize,even
+whenthemainobjectiveistoincreasethequalityofresults.
+Thefundamentalwayofsolvingbothissueswouldbebyultimatelymovingfromfullyconnected
+to sparsely connected architectures, even inside the convolutions. Besides mimicking biological
+systems,thiswouldalsohavetheadvantageoffirmertheoreticalunderpinningsduetotheground-
+breaking work of Arora et al. [2]. Their main result states that if the probability distribution of
+thedata-setisrepresentablebyalarge,verysparsedeepneuralnetwork,thentheoptimalnetwork
+topologycanbeconstructedlayerbylayerbyanalyzingthecorrelationstatisticsoftheactivations
+of the last layer and clustering neurons with highly correlated outputs. Although the strict math-
+ematical proof requires very strong conditions, the fact that this statement resonates with the well
+knownHebbianprinciple–neuronsthatfiretogether, wiretogether–suggeststhattheunderlying
+ideaisapplicableevenunderlessstrictconditions,inpractice.
+Onthedownside,todayscomputinginfrastructuresareveryinefficientwhenitcomestonumerical
+calculation on non-uniform sparse data structures. Even if the number of arithmetic operations is
+reducedby100×,theoverheadoflookupsandcachemissesissodominantthatswitchingtosparse
+matrices would not pay off. The gap is widened even further by the use of steadily improving,
+highlytuned,numericallibrariesthatallowforextremelyfastdensematrixmultiplication,exploit-
+ingtheminutedetailsoftheunderlyingCPUorGPUhardware[16,9]. Also, non-uniformsparse
+models require more sophisticated engineering and computing infrastructure. Most current vision
+oriented machine learning systems utilize sparsity in the spatial domain just by the virtue of em-
+ployingconvolutions. However,convolutionsareimplementedascollectionsofdenseconnections
+tothepatchesintheearlierlayer. ConvNetshavetraditionallyusedrandomandsparseconnection
+tablesinthefeaturedimensionssince[11]inordertobreakthesymmetryandimprovelearning,the
+trendchangedbacktofullconnectionswith[9]inordertobetteroptimizeparallelcomputing. The
+uniformity of the structure and a large number of filters and greater batch size allow for utilizing
+efficientdensecomputation.
+This raises the question whether there is any hope for a next, intermediate step: an architecture
+thatmakesuseoftheextrasparsity,evenatfilterlevel,assuggestedbythetheory,butexploitsour
+3
+
+currenthardwarebyutilizingcomputationsondensematrices. Thevastliteratureonsparsematrix
+computations (e.g. [3]) suggests that clustering sparse matrices into relatively dense submatrices
+tends to give state of the art practical performance for sparse matrix multiplication. It does not
+seemfar-fetchedtothinkthatsimilarmethodswouldbeutilizedfortheautomatedconstructionof
+non-uniformdeep-learningarchitecturesinthenearfuture.
+TheInceptionarchitecturestartedoutasacasestudyofthefirstauthorforassessingthehypothetical
+outputofasophisticatednetworktopologyconstructionalgorithmthattriestoapproximateasparse
+structureimpliedby[2]forvisionnetworksandcoveringthehypothesizedoutcomebydense,read-
+ilyavailablecomponents. Despitebeingahighlyspeculativeundertaking,onlyaftertwoiterations
+ontheexactchoiceoftopology,wecouldalreadyseemodestgainsagainstthereferencearchitec-
+ture based on [12]. After further tuning of learning rate, hyperparameters and improved training
+methodology, we established that the resulting Inception architecture was especially useful in the
+contextoflocalizationandobjectdetectionasthebasenetworkfor[6]and [5]. Interestingly,while
+most of the original architectural choices have been questioned and tested thoroughly, they turned
+outtobeatleastlocallyoptimal.
+Onemustbecautiousthough:althoughtheproposedarchitecturehasbecomeasuccessforcomputer
+vision,itisstillquestionablewhetheritsqualitycanbeattributedtotheguidingprinciplesthathave
+leadtoitsconstruction. Makingsurewouldrequiremuchmorethoroughanalysisandverification:
+for example, if automated tools based on the principles described below would find similar, but
+better topology for the vision networks. The most convincing proof would be if an automated
+systemwouldcreatenetworktopologiesresultinginsimilargainsinotherdomainsusingthesame
+algorithmbutwithverydifferentlylookingglobalarchitecture. Atveryleast,theinitialsuccessof
+theInceptionarchitectureyieldsfirmmotivationforexcitingfutureworkinthisdirection.
+4 ArchitecturalDetails
+The main idea of the Inception architecture is based on finding out how an optimal local sparse
+structure in a convolutional vision network can be approximated and covered by readily available
+densecomponents. Notethatassumingtranslationinvariancemeansthatournetworkwillbebuilt
+from convolutional building blocks. All we need is to find the optimal local construction and to
+repeatitspatially.Aroraetal.[2]suggestsalayer-bylayerconstructioninwhichoneshouldanalyze
+thecorrelationstatisticsofthelastlayerandclusterthemintogroupsofunitswithhighcorrelation.
+Theseclustersformtheunitsofthenextlayerandareconnectedtotheunitsinthepreviouslayer.We
+assumethateachunitfromtheearlierlayercorrespondstosomeregionoftheinputimageandthese
+unitsaregroupedintofilterbanks. Inthelowerlayers(theonesclosetotheinput)correlatedunits
+wouldconcentrateinlocalregions. Thismeans,wewouldendupwithalotofclustersconcentrated
+in a single region and they can be covered by a layer of 1×1 convolutions in the next layer, as
+suggested in [12]. However, one can also expect that there will be a smaller number of more
+spatially spread out clusters that can be covered by convolutions over larger patches, and there
+will be a decreasing number of patches over larger and larger regions. In order to avoid patch-
+alignmentissues,currentincarnationsoftheInceptionarchitecturearerestrictedtofiltersizes1×1,
+3×3and5×5,howeverthisdecisionwasbasedmoreonconvenienceratherthannecessity. Italso
+means that the suggested architecture is a combination of all those layers with their output filter
+banks concatenated into a single output vector forming the input of the next stage. Additionally,
+sincepoolingoperationshavebeenessentialforthesuccessincurrentstateoftheartconvolutional
+networks,itsuggeststhataddinganalternativeparallelpoolingpathineachsuchstageshouldhave
+additionalbeneficialeffect,too(seeFigure2(a)).
+As these “Inception modules” are stacked on top of each other, their output correlation statistics
+are bound to vary: as features of higher abstraction are captured by higher layers, their spatial
+concentrationisexpectedtodecreasesuggestingthattheratioof3×3and5×5convolutionsshould
+increaseaswemovetohigherlayers.
+Onebigproblemwiththeabovemodules,atleastinthisna¨ıveform,isthatevenamodestnumberof
+5×5convolutionscanbeprohibitivelyexpensiveontopofaconvolutionallayerwithalargenumber
+of filters. This problem becomes even more pronounced once pooling units are added to the mix:
+theirnumberofoutputfiltersequalstothenumberoffiltersinthepreviousstage. Themergingof
+theoutputofthepoolinglayerwiththeoutputsofconvolutionallayerswouldleadtoaninevitable
+4
+
+Filter
+Filter concatenation
+concatenation
+3x3 convolutions 5x5 convolutions 1x1 convolutions
+1x1 convolutions 3x3 convolutions 5x5 convolutions 3x3 max pooling 1x1 convolutions
+1x1 convolutions 1x1 convolutions 3x3 max pooling
+Previous layer Previous layer
+(a) Inceptionmodule,na¨ıveversion (b) Inceptionmodulewithdimensionreductions
+Figure2:Inceptionmodule
+increaseinthenumberofoutputsfromstagetostage. Evenwhilethisarchitecturemightcoverthe
+optimalsparsestructure,itwoulddoitveryinefficiently,leadingtoacomputationalblowupwithin
+afewstages.
+This leads to the second idea of the proposed architecture: judiciously applying dimension reduc-
+tionsandprojectionswhereverthecomputationalrequirementswouldincreasetoomuchotherwise.
+Thisisbasedonthesuccessofembeddings: evenlowdimensionalembeddingsmightcontainalot
+ofinformationaboutarelativelylargeimagepatch. However,embeddingsrepresentinformationin
+adense, compressedformandcompressedinformationishardertomodel. Wewouldliketokeep
+our representation sparse at most places (as required by the conditions of [2]) and compress the
+signalsonlywhenevertheyhavetobeaggregatedenmasse. Thatis,1×1convolutionsareusedto
+computereductionsbeforetheexpensive3×3and5×5convolutions. Besidesbeingusedasreduc-
+tions, they also include the use of rectified linear activation which makes them dual-purpose. The
+finalresultisdepictedinFigure2(b).
+Ingeneral,anInceptionnetworkisanetworkconsistingofmodulesoftheabovetypestackedupon
+eachother,withoccasionalmax-poolinglayerswithstride2tohalvetheresolutionofthegrid. For
+technicalreasons(memoryefficiencyduringtraining),itseemedbeneficialtostartusingInception
+modules only at higher layers while keeping the lower layers in traditional convolutional fashion.
+This is not strictly necessary, simply reflecting some infrastructural inefficiencies in our current
+implementation.
+Oneofthemainbeneficialaspectsofthisarchitectureisthatitallowsforincreasingthenumberof
+unitsateachstagesignificantlywithoutanuncontrolledblow-upincomputationalcomplexity. The
+ubiquitoususeofdimensionreduction allowsforshieldingthelargenumberofinputfilters ofthe
+laststagetothenextlayer,firstreducingtheirdimensionbeforeconvolvingoverthemwithalarge
+patch size. Another practically useful aspect of this design is that it aligns with the intuition that
+visualinformationshouldbeprocessedatvariousscalesandthenaggregatedsothatthenextstage
+canabstractfeaturesfromdifferentscalessimultaneously.
+The improved use of computational resources allows for increasing both the width of each stage
+as well as the number of stages without getting into computational difficulties. Another way to
+utilizetheinceptionarchitectureistocreateslightlyinferior,butcomputationallycheaperversions
+ofit. Wehavefoundthatalltheincludedtheknobsandleversallowforacontrolledbalancingof
+computationalresourcesthatcanresultinnetworksthatare2−3×fasterthansimilarlyperforming
+networkswithnon-Inceptionarchitecture,howeverthisrequirescarefulmanualdesignatthispoint.
+5 GoogLeNet
+WechoseGoogLeNetasourteam-nameintheILSVRC14competition. Thisnameisanhomageto
+YannLeCunspioneeringLeNet5network[10]. WealsouseGoogLeNettorefertotheparticular
+incarnationoftheInceptionarchitectureusedinoursubmissionforthecompetition. Wehavealso
+usedadeeperandwiderInceptionnetwork,thequalityofwhichwasslightlyinferior,butaddingit
+totheensembleseemedtoimprovetheresultsmarginally. Weomitthedetailsofthatnetwork,since
+our experiments have shown that the influence of the exact architectural parameters is relatively
+5
+
+patchsize/ output #3×3 #5×5 pool
+type depth #1×1 #3×3 #5×5 params ops
+stride size reduce reduce proj
+convolution 7×7/2 112×112×64 1 2.7K 34M
+maxpool 3×3/2 56×56×64 0
+convolution 3×3/1 56×56×192 2 64 192 112K 360M
+maxpool 3×3/2 28×28×192 0
+inception(3a) 28×28×256 2 64 96 128 16 32 32 159K 128M
+inception(3b) 28×28×480 2 128 128 192 32 96 64 380K 304M
+maxpool 3×3/2 14×14×480 0
+inception(4a) 14×14×512 2 192 96 208 16 48 64 364K 73M
+inception(4b) 14×14×512 2 160 112 224 24 64 64 437K 88M
+inception(4c) 14×14×512 2 128 128 256 24 64 64 463K 100M
+inception(4d) 14×14×528 2 112 144 288 32 64 64 580K 119M
+inception(4e) 14×14×832 2 256 160 320 32 128 128 840K 170M
+maxpool 3×3/2 7×7×832 0
+inception(5a) 7×7×832 2 256 160 320 32 128 128 1072K 54M
+inception(5b) 7×7×1024 2 384 192 384 48 128 128 1388K 71M
+avgpool 7×7/1 1×1×1024 0
+dropout(40%) 1×1×1024 0
+linear 1×1×1000 1 1000K 1M
+softmax 1×1×1000 0
+Table1:GoogLeNetincarnationoftheInceptionarchitecture
+minor. Here,themostsuccessfulparticularinstance(namedGoogLeNet)isdescribedinTable1for
+demonstrationalpurposes. Theexactsametopology(trainedwithdifferentsamplingmethods)was
+usedfor6outofthe7modelsinourensemble.
+All the convolutions, including those inside the Inception modules, use rectified linear activation.
+Thesizeofthereceptivefieldinournetworkis224×224takingRGBcolorchannelswithmeansub-
+traction. “#3×3reduce”and“#5×5reduce”standsforthenumberof1×1filtersinthereduction
+layerusedbeforethe3×3and5×5convolutions. Onecanseethenumberof1×1filtersinthepro-
+jectionlayerafterthebuilt-inmax-poolinginthepoolprojcolumn. Allthesereduction/projection
+layersuserectifiedlinearactivationaswell.
+Thenetworkwasdesignedwithcomputationalefficiencyandpracticalityinmind,sothatinference
+canberunonindividualdevicesincludingeventhosewithlimitedcomputationalresources, espe-
+cially with low-memory footprint. The network is 22 layers deep when counting only layers with
+parameters(or27layersifwealsocountpooling).Theoverallnumberoflayers(independentbuild-
+ingblocks)usedfortheconstructionofthenetworkisabout100. Howeverthisnumberdependson
+themachinelearninginfrastructuresystemused. Theuseofaveragepoolingbeforetheclassifieris
+basedon[12],althoughourimplementationdiffersinthatweuseanextralinearlayer. Thisenables
+adapting and fine-tuning our networks for other label sets easily, but it is mostly convenience and
+wedonotexpectittohaveamajoreffect. Itwasfoundthatamovefromfullyconnectedlayersto
+averagepoolingimprovedthetop-1accuracybyabout0.6%,howevertheuseofdropoutremained
+essentialevenafterremovingthefullyconnectedlayers.
+Giventherelativelylargedepthofthenetwork,theabilitytopropagategradientsbackthroughallthe
+layersinaneffectivemannerwasaconcern. Oneinterestinginsightisthatthestrongperformance
+ofrelativelyshallowernetworksonthistasksuggeststhatthefeaturesproducedbythelayersinthe
+middle of the network should be very discriminative. By adding auxiliary classifiers connected to
+these intermediate layers, we would expect to encourage discrimination in the lower stages in the
+classifier,increasethegradientsignalthatgetspropagatedback,andprovideadditionalregulariza-
+tion. Theseclassifierstaketheformofsmallerconvolutionalnetworksputontopoftheoutputof
+the Inception (4a) and (4d) modules. During training, their loss gets added to the total loss of the
+network with a discount weight (the losses of the auxiliary classifiers were weighted by 0.3). At
+inferencetime,theseauxiliarynetworksarediscarded.
+Theexactstructureoftheextranetworkontheside,includingtheauxiliaryclassifier,isasfollows:
+• Anaveragepoolinglayerwith5×5filtersizeandstride3,resultinginan4×4×512output
+forthe(4a),and4×4×528forthe(4d)stage.
+6
+
+softmax2
+SoftmaxActivation
+FC
+AveragePool
+7x7+1(V)
+DepthConcat
+Conv Conv Conv Conv
+1x1+1(S) 3x3+1(S) 5x5+1(S) 1x1+1(S)
+Conv Conv MaxPool
+1x1+1(S) 1x1+1(S) 3x3+1(S)
+DepthConcat
+1x C 1 o + n 1 v (S) 3x C 3 o + n 1 v (S) 5x C 5 o + n 1 v (S) 1x C 1 o + n 1 v (S) softmax1
+1x C 1 o + n 1 v (S) 1x C 1 o + n 1 v (S) 3 M x a 3 x + P 1 o ( o S l ) SoftmaxActivation
+3 M x a 3 x + P 2 o ( o S l ) FC
+DepthConcat FC
+Conv Conv Conv Conv Conv
+1x1+1(S) 3x3+1(S) 5x5+1(S) 1x1+1(S) 1x1+1(S)
+Conv Conv MaxPool AveragePool
+1x1+1(S) 1x1+1(S) 3x3+1(S) 5x5+3(V)
+DepthConcat
+Conv Conv Conv Conv
+1x1+1(S) 3x3+1(S) 5x5+1(S) 1x1+1(S)
+Conv Conv MaxPool
+1x1+1(S) 1x1+1(S) 3x3+1(S)
+DepthConcat softmax0
+1x C 1 o + n 1 v (S) 3x C 3 o + n 1 v (S) 5x C 5 o + n 1 v (S) 1x C 1 o + n 1 v (S) SoftmaxActivation
+1x C 1 o + n 1 v (S) 1x C 1 o + n 1 v (S) 3 M x a 3 x + P 1 o ( o S l ) FC
+DepthConcat FC
+Conv Conv Conv Conv Conv
+1x1+1(S) 3x3+1(S) 5x5+1(S) 1x1+1(S) 1x1+1(S)
+Conv Conv MaxPool AveragePool
+1x1+1(S) 1x1+1(S) 3x3+1(S) 5x5+3(V)
+DepthConcat
+Conv Conv Conv Conv
+1x1+1(S) 3x3+1(S) 5x5+1(S) 1x1+1(S)
+Conv Conv MaxPool
+1x1+1(S) 1x1+1(S) 3x3+1(S)
+MaxPool
+3x3+2(S)
+DepthConcat
+Conv Conv Conv Conv
+1x1+1(S) 3x3+1(S) 5x5+1(S) 1x1+1(S)
+Conv Conv MaxPool
+1x1+1(S) 1x1+1(S) 3x3+1(S)
+DepthConcat
+Conv Conv Conv Conv
+1x1+1(S) 3x3+1(S) 5x5+1(S) 1x1+1(S)
+Conv Conv MaxPool
+1x1+1(S) 1x1+1(S) 3x3+1(S)
+MaxPool
+3x3+2(S)
+LocalRespNorm
+Conv
+3x3+1(S)
+Conv
+1x1+1(V)
+LocalRespNorm
+MaxPool
+3x3+2(S)
+Conv
+7x7+2(S)
+input
+Figure3:GoogLeNetnetworkwithallthebellsandwhistles
+7
+
+• A1×1convolutionwith128filtersfordimensionreductionandrectifiedlinearactivation.
+• Afullyconnectedlayerwith1024unitsandrectifiedlinearactivation.
+• Adropoutlayerwith70%ratioofdroppedoutputs.
+• Alinearlayerwithsoftmaxlossastheclassifier(predictingthesame1000classesasthe
+mainclassifier,butremovedatinferencetime).
+AschematicviewoftheresultingnetworkisdepictedinFigure3.
+6 TrainingMethodology
+OurnetworksweretrainedusingtheDistBelief[4]distributedmachinelearningsystemusingmod-
+est amount of model and data-parallelism. Although we used CPU based implementation only, a
+rough estimate suggests that the GoogLeNet network could be trained to convergence using few
+high-end GPUs within a week, the main limitation being the memory usage. Our training used
+asynchronousstochasticgradientdescentwith0.9momentum[17],fixedlearningrateschedule(de-
+creasingthelearningrateby4%every8epochs). Polyakaveraging[13]wasusedtocreatethefinal
+modelusedatinferencetime.
+Ourimagesamplingmethodshavechangedsubstantiallyoverthemonthsleadingtothecompetition,
+and already converged models were trained on with other options, sometimes in conjunction with
+changedhyperparameters,likedropoutandlearningrate,soitishardtogiveadefinitiveguidance
+to the most effective single way to train these networks. To complicate matters further, some of
+the models were mainly trained on smaller relative crops, others on larger ones, inspired by [8].
+Still, one prescription that was verified to work very well after the competition includes sampling
+ofvarioussizedpatchesoftheimagewhosesizeisdistributedevenlybetween8%and100%ofthe
+imageareaandwhoseaspectratioischosenrandomlybetween3/4and4/3.Also,wefoundthatthe
+photometricdistortionsbyAndrewHoward[8]wereusefultocombatoverfittingtosomeextent. In
+addition,westartedtouserandominterpolationmethods(bilinear,area,nearestneighborandcubic,
+with equal probability) for resizing relatively late and in conjunction with other hyperparameter
+changes, so we could not tell definitely whether the final results were affected positively by their
+use.
+7 ILSVRC2014ClassificationChallengeSetupandResults
+The ILSVRC 2014 classification challenge involves the task of classifying the image into one of
+1000leaf-nodecategoriesintheImagenethierarchy.Thereareabout1.2millionimagesfortraining,
+50,000 for validation and 100,000 images for testing. Each image is associated with one ground
+truth category, and performance is measured based on the highest scoring classifier predictions.
+Twonumbersareusuallyreported:thetop-1accuracyrate,whichcomparesthegroundtruthagainst
+thefirstpredictedclass, andthetop-5errorrate, whichcomparesthegroundtruthagainstthefirst
+5predictedclasses: animageisdeemedcorrectlyclassifiedifthegroundtruthisamongthetop-5,
+regardlessofitsrankinthem. Thechallengeusesthetop-5errorrateforrankingpurposes.
+Weparticipatedinthechallengewithnoexternaldatausedfortraining. Inadditiontothetraining
+techniques aforementioned in this paper, we adopted a set of techniques during testing to obtain a
+higherperformance,whichweelaboratebelow.
+1. Weindependentlytrained7versionsofthesameGoogLeNetmodel(includingonewider
+version), andperformedensemblepredictionwiththem. Thesemodelsweretrainedwith
+thesameinitialization(evenwiththesameinitialweights,mainlybecauseofanoversight)
+andlearningratepolicies,andtheyonlydifferinsamplingmethodologiesandtherandom
+orderinwhichtheyseeinputimages.
+2. Duringtesting,weadoptedamoreaggressivecroppingapproachthanthatofKrizhevskyet
+al.[9]. Specifically,weresizetheimageto4scaleswheretheshorterdimension(heightor
+width)is256,288,320and352respectively,taketheleft,centerandrightsquareofthese
+resizedimages(inthecaseofportraitimages,wetakethetop,centerandbottomsquares).
+For each square, we then take the 4 corners and the center 224×224 crop as well as the
+8
+
+Team Year Place Error(top-5) Usesexternaldata
+SuperVision 2012 1st 16.4% no
+SuperVision 2012 1st 15.3% Imagenet22k
+Clarifai 2013 1st 11.7% no
+Clarifai 2013 1st 11.2% Imagenet22k
+MSRA 2014 3rd 7.35% no
+VGG 2014 2nd 7.32% no
+GoogLeNet 2014 1st 6.67% no
+Table2:Classificationperformance
+Numberofmodels NumberofCrops Cost Top-5error comparedtobase
+1 1 1 10.07% base
+1 10 10 9.15% -0.92%
+1 144 144 7.89% -2.18%
+7 1 7 8.09% -1.98%
+7 10 70 7.62% -2.45%
+7 144 1008 6.67% -3.45%
+Table3:GoogLeNetclassificationperformancebreakdown
+squareresizedto224×224,andtheirmirroredversions. Thisresultsin4×3×6×2 = 144
+cropsperimage.AsimilarapproachwasusedbyAndrewHoward[8]inthepreviousyear’s
+entry,whichweempiricallyverifiedtoperformslightlyworsethantheproposedscheme.
+We note that such aggressive cropping may not be necessary in real applications, as the
+benefitofmorecropsbecomesmarginalafterareasonablenumberofcropsarepresent(as
+wewillshowlateron).
+3. Thesoftmaxprobabilitiesareaveragedovermultiplecropsandoveralltheindividualclas-
+sifierstoobtainthefinalprediction.Inourexperimentsweanalyzedalternativeapproaches
+onthevalidationdata, suchasmaxpoolingovercropsandaveragingoverclassifiers, but
+theyleadtoinferiorperformancethanthesimpleaveraging.
+Intheremainderofthispaper,weanalyzethemultiplefactorsthatcontributetotheoverallperfor-
+manceofthefinalsubmission.
+Our final submission in the challenge obtains a top-5 error of 6.67% on both the validation and
+testingdata,rankingthefirstamongotherparticipants. Thisisa56.5%relativereductioncompared
+to the SuperVision approach in 2012, and about 40% relative reduction compared to the previous
+year’s best approach (Clarifai), both of which used external data for training the classifiers. The
+followingtableshowsthestatisticsofsomeofthetop-performingapproaches.
+Wealsoanalyzeandreporttheperformanceofmultipletestingchoices, byvaryingthenumberof
+models and the number of crops used when predicting an image in the following table. When we
+useonemodel,wechosetheonewiththelowesttop-1errorrateonthevalidationdata. Allnumbers
+arereportedonthevalidationdatasetinordertonotoverfittothetestingdatastatistics.
+8 ILSVRC2014DetectionChallengeSetupandResults
+The ILSVRC detection task is to produce bounding boxes around objects in images among 200
+possible classes. Detected objects count as correct if they match the class of the groundtruth and
+theirboundingboxesoverlapbyatleast50%(usingtheJaccardindex).Extraneousdetectionscount
+as false positives and are penalized. Contrary to the classification task, each image may contain
+9
+
+Team Year Place mAP externaldata ensemble approach
+UvA-Euvision 2013 1st 22.6% none ? Fishervectors
+DeepInsight 2014 3rd 40.5% ImageNet1k 3 CNN
+CUHKDeepID-Net 2014 2nd 40.7% ImageNet1k ? CNN
+GoogLeNet 2014 1st 43.9% ImageNet1k 6 CNN
+Table4:Detectionperformance
+Team mAP Contextualmodel Boundingboxregression
+Trimps-Soushen 31.6% no ?
+BerkeleyVision 34.5% no yes
+UvA-Euvision 35.4% ? ?
+CUHKDeepID-Net2 37.7% no ?
+GoogLeNet 38.02% no no
+DeepInsight 40.2% yes yes
+Table5:Singlemodelperformancefordetection
+many objects or none, and their scale may vary from large to tiny. Results are reported using the
+meanaverageprecision(mAP).
+TheapproachtakenbyGoogLeNetfordetectionissimilartotheR-CNNby[6],butisaugmented
+withtheInceptionmodelastheregionclassifier. Additionally,theregionproposalstepisimproved
+by combining the Selective Search [20] approach with multi-box [5] predictions for higher object
+bounding box recall. In order to cut down the number of false positives, the superpixel size was
+increasedby2×. Thishalvestheproposalscomingfromtheselectivesearchalgorithm. Weadded
+back200regionproposalscomingfrommulti-box[5]resulting, intotal, inabout60%ofthepro-
+posalsusedby[6],whileincreasingthecoveragefrom92%to93%.Theoveralleffectofcuttingthe
+numberofproposalswithincreasedcoverageisa1%improvementofthemeanaverageprecision
+forthesinglemodelcase. Finally,weuseanensembleof6ConvNetswhenclassifyingeachregion
+whichimprovesresultsfrom 40%to43.9%accuracy. NotethatcontrarytoR-CNN,wedidnotuse
+boundingboxregressionduetolackoftime.
+Wefirstreportthetopdetectionresultsandshowtheprogresssincethefirsteditionofthedetection
+task. Comparedtothe2013result,theaccuracyhasalmostdoubled. Thetopperformingteamsall
+useConvolutionalNetworks.WereporttheofficialscoresinTable4andcommonstrategiesforeach
+team:theuseofexternaldata,ensemblemodelsorcontextualmodels. Theexternaldataistypically
+theILSVRC12classificationdataforpre-trainingamodelthatislaterrefinedonthedetectiondata.
+Someteamsalsomentiontheuseofthelocalizationdata. Sinceagoodportionofthelocalization
+taskboundingboxesarenotincludedinthedetectiondataset,onecanpre-trainageneralbounding
+box regressor with this data the same way classification is used for pre-training. The GoogLeNet
+entrydidnotusethelocalizationdataforpretraining.
+In Table 5, we compare results using a single model only. The top performing model is by Deep
+Insight and surprisingly only improves by 0.3 points with an ensemble of 3 models while the
+GoogLeNetobtainssignificantlystrongerresultswiththeensemble.
+9 Conclusions
+Ourresultsseemtoyieldasolidevidencethatapproximatingtheexpectedoptimalsparsestructure
+by readily available dense building blocks is a viable method for improving neural networks for
+computer vision. The main advantage of this method is a significant quality gain at a modest in-
+creaseofcomputationalrequirementscomparedtoshallowerandlesswidenetworks.Alsonotethat
+ourdetectionworkwascompetitivedespiteofneitherutilizingcontextnorperformingboundingbox
+10
+
+regressionandthisfactprovidesfurtherevidenceofthestrengthoftheInceptionarchitecture. Al-
+thoughitisexpectedthatsimilarqualityofresultcanbeachievedbymuchmoreexpensivenetworks
+ofsimilardepthandwidth,ourapproachyieldssolidevidencethatmovingtosparserarchitectures
+isfeasibleandusefulideaingeneral. Thissuggestpromisingfutureworktowardscreatingsparser
+andmorerefinedstructuresinautomatedwaysonthebasisof[2].
+10 Acknowledgements
+We would like to thank Sanjeev Arora and Aditya Bhaskara for fruitful discussions on [2]. Also
+weareindebtedtotheDistBelief[4]teamfortheirsupportespeciallytoRajatMonga,JonShlens,
+AlexKrizhevsky,JeffDean,IlyaSutskeverandAndreaFrome. WewouldalsoliketothanktoTom
+DuerigandNingYefortheirhelponphotometricdistortions. Alsoourworkwouldnothavebeen
+possiblewithoutthesupportofChuckRosenbergandHartwigAdam.
+References
+[1] Know your meme: We need to go deeper. http://knowyourmeme.com/memes/
+we-need-to-go-deeper. Accessed: 2014-09-15.
+[2] Sanjeev Arora, Aditya Bhaskara, Rong Ge, and Tengyu Ma. Provable bounds for learning
+somedeeprepresentations. CoRR,abs/1310.6343,2013.
+[3] U¨mitV.C¸atalyu¨rek,CevdetAykanat,andBoraUc¸ar. Ontwo-dimensionalsparsematrixpar-
+titioning: Models, methods, and a recipe. SIAM J. Sci. Comput., 32(2):656–683, February
+2010.
+[4] Jeffrey Dean, Greg Corrado, Rajat Monga, Kai Chen, Matthieu Devin, Mark Mao,
+Marc’aurelio Ranzato, Andrew Senior, Paul Tucker, Ke Yang, Quoc V. Le, and Andrew Y.
+Ng. Largescaledistributeddeepnetworks. InP.Bartlett,F.c.n.Pereira,C.j.c.Burges,L.Bot-
+tou, and K.q. Weinberger, editors, Advances in Neural Information Processing Systems 25,
+pages1232–1240.2012.
+[5] DumitruErhan,ChristianSzegedy,AlexanderToshev,andDragomirAnguelov. Scalableob-
+jectdetectionusingdeepneuralnetworks. InComputerVisionandPatternRecognition,2014.
+CVPR2014.IEEEConferenceon,2014.
+[6] RossB.Girshick,JeffDonahue,TrevorDarrell,andJitendraMalik. Richfeaturehierarchies
+for accurate object detection and semantic segmentation. In Computer Vision and Pattern
+Recognition,2014.CVPR2014.IEEEConferenceon,2014.
+[7] GeoffreyE.Hinton,NitishSrivastava,AlexKrizhevsky,IlyaSutskever,andRuslanSalakhut-
+dinov. Improving neural networks by preventing co-adaptation of feature detectors. CoRR,
+abs/1207.0580,2012.
+[8] AndrewG.Howard. Someimprovementsondeepconvolutionalneuralnetworkbasedimage
+classification. CoRR,abs/1312.5402,2013.
+[9] Alex Krizhevsky, Ilya Sutskever, and Geoff Hinton. Imagenet classification with deep con-
+volutionalneuralnetworks. InAdvancesinNeuralInformationProcessingSystems25,pages
+1106–1114,2012.
+[10] Y.LeCun,B.Boser,J.S.Denker,D.Henderson,R.E.Howard,W.Hubbard,andL.D.Jackel.
+Backpropagationappliedtohandwrittenzipcoderecognition. NeuralComput.,1(4):541–551,
+December1989.
+[11] Yann LeCun, Le´on Bottou, Yoshua Bengio, and Patrick Haffner. Gradient-based learning
+appliedtodocumentrecognition. ProceedingsoftheIEEE,86(11):2278–2324,1998.
+[12] MinLin,QiangChen,andShuichengYan. Networkinnetwork. CoRR,abs/1312.4400,2013.
+[13] B.T.PolyakandA.B.Juditsky. Accelerationofstochasticapproximationbyaveraging. SIAM
+J.ControlOptim.,30(4):838–855,July1992.
+[14] Pierre Sermanet, David Eigen, Xiang Zhang, Michae¨l Mathieu, Rob Fergus, and Yann Le-
+Cun. Overfeat: Integrated recognition, localization and detection using convolutional net-
+works. CoRR,abs/1312.6229,2013.
+11
+
+[15] ThomasSerre,LiorWolf,StanleyM.Bileschi,MaximilianRiesenhuber,andTomasoPoggio.
+Robust object recognition with cortex-like mechanisms. IEEE Trans. Pattern Anal. Mach.
+Intell.,29(3):411–426,2007.
+[16] Fengguang Song and Jack Dongarra. Scaling up matrix computations on shared-memory
+manycoresystemswith1000cpucores. InProceedingsofthe28thACMInternationalCon-
+ferenceonSupercomputing,ICS’14,pages333–342,NewYork,NY,USA,2014.ACM.
+[17] IlyaSutskever, JamesMartens, GeorgeE.Dahl, andGeoffreyE.Hinton. Ontheimportance
+of initialization and momentum in deep learning. In Proceedings of the 30th International
+ConferenceonMachineLearning,ICML2013,Atlanta,GA,USA,16-21June2013,volume28
+ofJMLRProceedings,pages1139–1147.JMLR.org,2013.
+[18] Christian Szegedy, Alexander Toshev, and Dumitru Erhan. Deep neural networks for object
+detection. In Christopher J. C. Burges, Le´on Bottou, Zoubin Ghahramani, and Kilian Q.
+Weinberger, editors, Advances in Neural Information Processing Systems 26: 27th Annual
+Conference on Neural Information Processing Systems 2013. Proceedings of a meeting held
+December5-8,2013,LakeTahoe,Nevada,UnitedStates.,pages2553–2561,2013.
+[19] AlexanderToshevandChristianSzegedy. Deeppose: Humanposeestimationviadeepneural
+networks. CoRR,abs/1312.4659,2013.
+[20] KoenE.A.vandeSande,JasperR.R.Uijlings,TheoGevers,andArnoldW.M.Smeulders.
+Segmentationasselectivesearchforobjectrecognition. InProceedingsofthe2011Interna-
+tionalConferenceonComputerVision,ICCV’11,pages1879–1886,Washington,DC,USA,
+2011.IEEEComputerSociety.
+[21] MatthewD.ZeilerandRobFergus. Visualizingandunderstandingconvolutionalnetworks. In
+David J. Fleet, Toma´s Pajdla, Bernt Schiele, and Tinne Tuytelaars, editors, Computer Vision
+-ECCV2014-13thEuropeanConference, Zurich, Switzerland, September6-12, 2014, Pro-
+ceedings,PartI,volume8689ofLectureNotesinComputerScience,pages818–833.Springer,
+2014.
+12

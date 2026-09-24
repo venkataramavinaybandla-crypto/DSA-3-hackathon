@@ -1,0 +1,6 @@
+Title: Gradient-Based Learning Applied to Document Recognition
+Authors: LeCun et al.
+Year: 1998
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Gradient-Based Learning Applied to Document Recognition' by LeCun et al. (1998). Classic foundational literature published in original journal/conference proceedings.

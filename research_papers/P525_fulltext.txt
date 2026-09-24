@@ -1,0 +1,1803 @@
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 1
+Deep High-Resolution Representation Learning
+for Visual Recognition
+Jingdong Wang, Ke Sun, Tianheng Cheng, Borui Jiang, Chaorui Deng, Yang Zhao, Dong Liu, Yadong Mu,
+Mingkui Tan, Xinggang Wang, Wenyu Liu, and Bin Xiao
+Abstract—High-resolutionrepresentationsareessentialforposition-sensitivevisionproblems,suchashumanposeestimation,
+semanticsegmentation,andobjectdetection.Existingstate-of-the-artframeworksfirstencodetheinputimageasalow-resolution
+representationthroughasubnetworkthatisformedbyconnectinghigh-to-lowresolutionconvolutionsinseries(e.g.,ResNet,
+VGGNet),andthenrecoverthehigh-resolutionrepresentationfromtheencodedlow-resolutionrepresentation.Instead,ourproposed
+network,namedasHigh-ResolutionNetwork(HRNet),maintainshigh-resolutionrepresentationsthroughthewholeprocess.Thereare
+twokeycharacteristics:(i)Connectthehigh-to-lowresolutionconvolutionstreamsinparallel;(ii)Repeatedlyexchangetheinformation
+acrossresolutions.Thebenefitisthattheresultingrepresentationissemanticallyricherandspatiallymoreprecise.Weshowthe
+superiorityoftheproposedHRNetinawiderangeofapplications,includinghumanposeestimation,semanticsegmentation,and
+objectdetection,suggestingthattheHRNetisastrongerbackboneforcomputervisionproblems.Allthecodesareavailable
+athttps://github.com/HRNet.
+IndexTerms—HRNet,high-resolutionrepresentations,low-resolutionrepresentations,humanposeestimation,semantic
+segmentation,objectdetection.
+(cid:70)
+1 INTRODUCTION
+DEEP convolutional neural networks (DCNNs) have multi-resolution streams in parallel. The resulting network
+achieved state-of-the-art results in many computer consistsofseveral(4inthispaper)stagesasdepictedinFig-
+vision tasks, such as image classification, object detection, ure2,andthenthstagecontainsnstreamscorrespondingto
+semantic segmentation, human pose estimation, and so on. nresolutions.Weconductrepeatedmulti-resolutionfusions
+The strength is that DCNNs are able to learn richer repre- by exchanging the information across the parallel streams
+sentationsthanconventionalhand-craftedrepresentations. overandover.
+Most recently-developed classification networks, in- The high-resolution representations learned from HR-
+cluding AlexNet [77], VGGNet [126], GoogleNet [133], Net are not only semantically strong but also spatially
+ResNet [54], etc., follow the design rule of LeNet-5 [81]. precise. This comes from two aspects. (i) Our approach
+The rule is depicted in Figure 1 (a): gradually reduce the connectshigh-to-lowresolutionconvolutionstreamsinpar-
+spatial size of the feature maps, connect the convolutions allel rather than in series. Thus, our approach is able to
+fromhighresolutiontolowresolutioninseries,andleadto maintain the high resolution instead of recovering high
+alow-resolutionrepresentation,whichisfurtherprocessedfor resolutionfromlowresolution,andaccordinglythelearned
+classification. representationispotentiallyspatiallymoreprecise.(ii)Most
+High-resolution representations are needed for position- existingfusionschemesaggregatehigh-resolutionlow-level
+sensitive tasks, e.g., semantic segmentation, human pose and high-level representations obtained by upsampling
+estimation, and object detection. The previous state-of- low-resolution representations. Instead, we repeat multi-
+the-art methods adopt the high-resolution recovery pro- resolution fusions to boost the high-resolution representa-
+cess to raise the representation resolution from the low- tions with the help of the low-resolution representations,
+resolution representation outputted by a classification or and vice versa. As a result, all the high-to-low resolution
+classification-like network as depicted in Figure 1 (b), e.g., representationsaresemanticallystrong.
+Hourglass [105], SegNet [3], DeconvNet [107], U-Net [119], WepresenttwoversionsofHRNet.Thefirstone,named
+SimpleBaseline [152], and encoder-decoder [112]. In addi- as HRNetV1, only outputs the high-resolution representa-
+tion, dilated convolutions are used to remove some down- tioncomputedfromthehigh-resolutionconvolutionstream.
+sample layers and thus yield medium-resolution represen- We apply it to human pose estimation by following the
+tations[19],[181]. heatmap estimation framework. We empirically demon-
+Wepresentanovelarchitecture,namelyHigh-Resolution strate the superior pose estimation performance on the
+Net (HRNet), whichis able to maintain high-resolution repre- COCOkeypointdetectiondataset[94].
+sentationsthroughthe wholeprocess. Westartfrom ahigh- The other one, named as HRNetV2, combines the rep-
+resolution convolution stream, gradually add high-to-low resentations from all the high-to-low resolution parallel
+resolutionconvolutionstreamsonebyone,andconnectthe streams. We apply it to semantic segmentation through
+estimating segmentation maps from the combined high-
+• J.WangiswithMicrosoftResearch,Beijing,P.R.China. resolution representation. The proposed approach achieves
+E-mail:jingdw@microsoft.com
+state-of-the-artresultsonPASCAL-Context,Cityscapes,and
+0202
+raM
+31
+]VC.sc[
+2v91970.8091:viXra
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 2
+(a) (b)
+Fig. 1. The structure of recovering high resolution from low resolution. (a) A low-resolution representation learning subnetwork (such as
+VGGNet [126], ResNet [54]), which is formed by connecting high-to-low convolutions in series. (b) A high-resolution representation recovering
+subnetwork, which is formed by connecting low-to-high convolutions in series. Representative examples include SegNet [3], DeconvNet [107],
+U-Net[119]andHourglass[105],encoder-decoder[112],andSimpleBaseline[152].
+LIP with similar model sizes and lower computation com- network [114], introduces an extra full-resolution stream
+plexity. We observe similar performance for HRNetV1 and that carries information at the full image resolution, to re-
+HRNetV2 over COCO pose estimation, and the superiority placetheskipconnections,andeachunitinthedownsample
+ofHRNetV2toHRNet1insemanticsegmentation. and upsample subnetworks receives information from and
+In addition, we construct a multi-level representation, sendsinformationtothefull-resolutionstream.
+named as HRNetV2p, from the high-resolution representa- The asymmetric upsample process is also widely stud-
+tion output from HRNetV2, and apply it to state-of-the-art ied. RefineNet [90] improves the combination of upsam-
+detectionframeworks,includingFasterR-CNN,CascadeR- pled representations and the representations of the same
+CNN[12],FCOS[136],andCenterNet[36],andstate-of-the- resolution copied from the downsample process. Other
+art joint detection and instance segmentation frameworks, works include: light upsample process [7], [24], [92], [152],
+including Mask R-CNN [53], Cascade Mask R-CNN, and possibly with dilated convolutions used in the back-
+HybridTaskCascade[16].Theresultsshowthatourmethod bone [63], [89], [113]; light downsample and heavy up-
+gets detection performance improvement and in particular sample processes [141], recombinator networks [55]; im-
+dramaticimprovementforsmallobjects. proving skip connections with more or complicated con-
+volutional units [64], [111], [180], as well as sending in-
+formation from low-resolution skip connections to high-
+2 RELATED WORK
+resolution skip connections [189] or exchanging informa-
+We review closely-related representation learning tech- tion between them [49]; studying the details of the up-
+niques developed mainly for human pose estimation [57], sample process [147]; combining multi-scale pyramid rep-
+semantic segmentation and object detection, from three resentations [22], [154]; stacking multiple DeconvNets/U-
+aspects: low-resolution representation learning, high- Nets/Hourglass[44],[149]withdenseconnections[135].
+resolution representation recovering, and high-resolution Maintaining high-resolution representations. Our work
+representation maintaining. Besides, we mention about is closely related to several works that can also generate
+someworksrelatedtomulti-scalefusion. high-resolution representations, e.g., convolutional neural
+Learning low-resolution representations. The fully- fabrics [123], interlinked CNNs [188], GridNet [42], and
+convolutionalnetworkapproaches[99],[124]computelow- multi-scaleDenseNet[58].
+resolution representations by removing the fully-connected The two early works, convolutional neural fabrics [123]
+layers in a classification network, and estimate their coarse andinterlinkedCNNs[188],lackcarefuldesignonwhento
+segmentation maps. The estimated segmentation maps are start low-resolution parallel streams, and how and where
+improved by combining the fine segmentation score maps to exchange information across parallel streams, and do
+estimated from intermediate low-level medium-resolution not use batch normalization and residual connections, thus
+representations [99], or iterating the processes [76]. Similar not showing satisfactory performance. GridNet [42] is like
+techniques have also been applied to edge detection, e.g., a combination of multiple U-Nets and includes two sym-
+holisticedgedetection[157]. metric information exchange stages: the first stage passes
+The fully convolutional network is extended, by re- information only from high resolution to low resolution,
+placing a few (typically two) strided convolutions and and the second stage passes information only from low
+the associated convolutions with dilated convolutions, to resolution to high resolution. This limits its segmentation
+the dilation version, leading to medium-resolution repre- quality.Multi-scaleDenseNet[58]isnotabletolearnstrong
+sentations [18], [19], [86], [168], [181]. The representations high-resolution representations as there is no information
+arefurtheraugmentedtomulti-scalecontextualrepresenta- receivedfromlow-resolutionrepresentations.
+tions[19],[21],[181]throughfeaturepyramidsforsegment-
+Multi-scale fusion. Multi-scale fusion1 is widely stud-
+ingobjectsatmultiplescales.
+ied [11], [19], [24], [42], [58], [66], [122], [123], [157], [161],
+Recoveringhigh-resolutionrepresentations.Anupsample [181], [188]. The straightforward way is to feed multi-
+processcanbeusedtograduallyrecoverthehigh-resolution resolutionimagesseparatelyintomultiplenetworksandag-
+representations from the low-resolution representations. gregatetheoutputresponsemaps[137].Hourglass[105],U-
+Theupsamplesubnetworkcouldbeasymmetricversionof Net[119],andSegNet[3]combinelow-levelfeaturesinthe
+thedownsampleprocess(e.g.,VGGNet),withskippingcon- high-to-low downsample process into the same-resolution
+nectionoversomemirroredlayerstotransformthepooling high-level features in the low-to-high upsample process
+indices,e.g.,SegNet[3]andDeconvNet[107],orcopyingthe progressively through skip connections. PSPNet [181] and
+feature maps, e.g., U-Net [119] and Hourglass [8], [9], [27],
+[31], [68], [105], [134], [163], [165], encoder-decoder [112],
+1.In this paper, Multi-scale fusion and multi-resolution fusion are
+and so on. An extension of U-Net, full-resolution residual interchangeable,butinothercontexts,theymaynotbeinterchangeable.
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 3
+channel conv.
+maps unit
+strided
+conv. upsample
+Fig.2.Anexampleofahigh-resolutionnetwork.Onlythemainbodyisillustrated,andthestem(twostride-23×3convolutions)isnotincluded.
+Therearefourstages.The1ststageconsistsofhigh-resolutionconvolutions.The2nd(3rd,4th)stagerepeatstwo-resolution(three-resolution,
+four-resolution)blocks.ThedetailisgiveninSection3.
+DeepLabV2/3 [19] fuse the pyramid features obtained by channel
+pyramid pooling module and atrous spatial pyramid pool- maps
+ing. Our multi-scale (resolution) fusion module resembles
+the two pooling modules. The differences include: (1) Our strided
+3 3
+fusion outputs four-resolution representations other than ×
+only one, and (2) our fusion modules are repeated several upsamp.
+1 1
+times which is inspired by deep fusion [129], [143], [155], ×
+[178],[184]. Fig.3.Illustratinghowthefusionmoduleaggregatestheinformationfor
+high,mediumandlowresolutionsfromlefttoright,respectively.Right
+Our approach. Our network connects high-to-low con- legend: strided 3×3 = stride-2 3×3 convolution, up samp. 1×1 =
+volution streams in parallel. It maintains high-resolution bilinearupsamplingfollowedbya1×1convolution.
+representations through the whole process, and generates
+reliablehigh-resolutionrepresentationswithstrongposition An example network structure illustrated in Figure 2,
+sensitivity through repeatedly fusing the representations containing4parallelstreams,islogicallyasfollows,
+frommulti-resolutionstreams.
+This paper represents a very substantial extension of 11 21 31 41
+N → N → N → N
+our previous conference paper [130] with an additional 22 32 42
+(cid:38) N → N → N (1)
+materialaddedfromourunpublishedtechnicalreport[131] 33 43
+(cid:38) N → N
+,
+as well as more object detection results under recently- 44
+(cid:38) N
+developedstart-of-the-artobjectdetectionandinstanceseg-
+mentation frameworks. The main technical novelties com- where N sr is a sub-stream in the sth stage and r is the
+resolution index. The resolution index of the first stream
+pared with [130] lie in threefold. (1) We extend the net-
+is r = 1. The resolution of index r is 1 of the resolution
+work (named as HRNetV1) proposed in [130], to two 2r−1
+ofthefirststream.
+versions: HRNetV2 and HRNetV2p, which explore all the
+four-resolutionrepresentations.(2)Webuildtheconnection
+between multi-resolution fusion and regular convolution,
+3.2 RepeatedMulti-ResolutionFusions
+which provides an evidence for the necessity of exploring
+all the four-resolution representations in HRNetV2 and The goal of the fusion module is to exchange the informa-
+HRNetV2p. (3) We show the superiority of HRNetV2 and tion across multi-resolution representations. It is repeated
+HRNetV2p over HRNetV1 and present the applications of severaltimes(e.g.,every4residualunits).
+HRNetV2 and HRNetV2p in a broad range of vision prob- Let us look at an example of fusing 3-resolution repre-
+lems,includingsemanticsegmentationandobjectdetection. sentations, which is illustrated in Figure 3. Fusing 2 repre-
+sentations and 4 representations can be easily derived. The
+input consists of three representations: Ri,r = 1,2,3 ,
+3 HIGH-RESOLUTION NETWORKS { r }
+with r is the resolution index, and the associated output
+Weinputtheimageintoastem,whichconsistsoftwostride- representationsare Ro,r = 1,2,3 .Eachoutputrepresen-
+2 3 3 convolutions decreasing the resolution to 1, and { r }
+× 4 tation is the sum of the transformed representations of the
+s w u i b th seq th u e en s t a l m yt e he re m so a l i u n ti b o o n dy (1 4 t ) h . a T t h ou e tp m u a t i s n th b e o r d e y p , r i e l s lu en st t r a a ti t o ed n t a h c r r e o e ss in s p ta u g t e s: s R (f o r ro = m f s 1 t r a ( g R e i 1 3 )+ to f s 2 t r a ( g R e i 2 4 ) ) + h f a 3 s r ( a R n i 3 e ) x . t T ra he o f u u t s p i u on t:
+in Figure 2 and detailed below, consists of several com- Ro
+4
+=f
+14
+(Ri
+1
+)+f
+24
+(Ri
+2
+)+f
+34
+(Ri
+3
+).
+ponents: parallel multi-resolution convolutions, repeated Thechoiceofthetransformfunctionf
+xr
+()isdependent
+multi-resolution fusions, and representation head that is on the input resolution index x and the · output resolu-
+showninFigure4. tion index r. If x = r, f xr (R) = R. If x < r, f xr (R)
+downsamples the input representation R through (r s)
+3.1 ParallelMulti-ResolutionConvolutions stride-23 3convolutions.Forinstance,onestride-23 − 3
+× ×
+We start from a high-resolution convolution stream as the convolution for 2 downsampling, and two consecutive
+×
+first stage, gradually add high-to-low resolution streams stride-23 3convolutionsfor4 downsampling.Ifx>r,
+× ×
+one by one, forming new stages, and connect the multi- f xr (R) upsamples the input representation R through the
+resolutionstreamsinparallel.Asaresult,theresolutionsfor bilinear upsampling followed by a 1 1 convolution for
+×
+theparallelstreamsofalaterstageconsistsoftheresolutions aligningthenumberofchannels.Thefunctionsaredepicted
+fromthepreviousstage,andanextralowerone. inFigure3.
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 4
+(a) (b) (c)
+Fig. 4. (a) HRNetV1: only output the representation from the high-resolution convolution stream. (b) HRNetV2: Concatenate the (upsampled)
+representationsthatarefromalltheresolutions(thesubsequent1×1convolutionisnotshownforclarity).(c)HRNetV2p:formafeaturepyramid
+fromtherepresentationbyHRNetV2.Thefour-resolutionrepresentationsatthebottomineachsub-figureareoutputtedfromthenetworkinFigure2,
+andthegrayboxindicateshowtheoutputrepresentationisobtainedfromtheinputfour-resolutionrepresentations.
+convolutionsofthefourresolutionsareC,2C,4C,and8C,
+respectively.AnexampleisdepictedinFigure2.
+3.5 Analysis
+We analyze the modularized block that is divided into two
+≡
+components: multi-resolution parallel convolutions (Fig-
+ure 5 (a)), and multi-resolution fusion (Figure 5 (b)). The
+multi-resolution parallel convolution resembles the group
+(a) (b) (c) convolution. It divides the input channels into several sub-
+Fig. 5. (a) Multi-resolution parallel convolution, (b) multi-resolution sets of channels and performs a regular convolution over
+fusion. (c) A normal convolution (left) is equivalent to fully-connected
+each subset over different spatial resolutions separately,
+multi-branchconvolutions(right).
+whileinthegroupconvolution,theresolutionsarethesame.
+3.3 RepresentationHead This connection implies that the multi-resolution parallel
+convolutionenjoyssomebenefitofthegroupconvolution.
+We have three kinds of representation heads that are illus-
+The multi-resolution fusion unit resembles the multi-
+trated in Figure 4, and call them as HRNetV1, HRNetV2,
+branch full-connection form of the regular convolution,
+andHRNetV1p,respectively.
+illustrated in Figure 5 (c). A regular convolution can be
+HRNetV1. The output is the representation only from the
+dividedasmultiplesmallconvolutionsasexplainedin[178].
+high-resolution stream. Other three representations are ig-
+Theinputchannelsaredividedintoseveralsubsets,andthe
+nored.ThisisillustratedinFigure4(a).
+output channels are also divided into several subsets. The
+HRNetV2. We rescale the low-resolution representations inputandoutputsubsetsareconnectedinafully-connected
+throughbilinearupsamplingwithoutchangingthenumber fashion,andeachconnectionisaregularconvolution.Each
+ofchannelstothehighresolution,andconcatenatethefour subset of output channels is a summation of the outputs
+representations,followedbya1 1convolutiontomixthe of the convolutions over each subset of input channels.
+×
+fourrepresentations.ThisisillustratedinFigure4(b). Thedifferenceslieinthatourmulti-resolutionfusionneeds
+HRNetV2p. We construct multi-level representations by to handle the resolution change. The connection between
+downsampling the high-resolution representation output multi-resolution fusion and regular convolution provides
+from HRNetV2 to multiple levels. This is depicted in Fig- an evidence for exploring all the four-resolution represen-
+ure4(c).
+tationsdoneinHRNetV2andHRNetV2p.
+In this paper, we will show the results of applying
+HRNetV1tohumanposeestimation,HRNetV2tosemantic 4 HUMAN POSE ESTIMATION
+segmentation,andHRNetV2ptoobjectdetection.
+Human pose estimation, a.k.a. keypoint detection, aims to
+detect the locations of K keypoints or parts (e.g., elbow,
+3.4 Instantiation wrist,etc)fromanimageIofsizeW H 3.Wefollowthe
+× ×
+The main body contains four stages with four parallel con- state-of-the-art framework and transform this problem to
+volution streams. The resolutions are 1/4, 1/8, 1/16, and estimatingK heatmapsofsize W 4 × H 4 , { H 1 ,H 2 ,...,H K } ,
+1/32. The first stage contains 4 residual units where each whereeachheatmapH kindicatesthelocationconfidenceof
+unit is formed by a bottleneck with the width 64, and is thekthkeypoint.
+followed by one 3 3 convolution changing the width of We regress the heatmaps over the high-resolution rep-
+×
+feature maps to C. The 2nd, 3rd, 4th stages contain 1, 4, resentations output by HRNetV1. We empirically observe
+3 modularized blocks, respectively. Each branch in multi- that the performance is almost the same for HRNetV1 and
+resolution parallel convolution of the modularized block HRNetV2,andthuswechooseHRNetV1asitscomputation
+contains 4 residual units. Each unit contains two 3 3 complexityisalittlelower.Thelossfunction,definedasthe
+×
+convolutions for each resolution, where each convolution meansquarederror,isappliedforcomparingthepredicted
+is followed by batch normalization and the nonlinear ac- heatmaps and the groundtruth heatmaps. The groundtruth
+tivation ReLU. The widths (numbers of channels) of the heatmaps are generated by applying 2D Gaussian with
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 5
+Fig.6.QualitativeCOCOhumanposeestimationresultsoverrepresentativeimageswithvarioushumansize,differentposes,orclutterbackground.
+TABLE1
+ComparisonsonCOCOval. Undertheinputsize256×192,ourapproachwithasmallmodelHRNetV1-W32,trainedfromscratch,performs
+betterthanpreviousstate-of-the-artmethods.Undertheinputsize384×288,ourapproachwithasmallmodelHRNetV1-W32achievesahigher
+APscorethanSimpleBaselinewithalargemodel.Inparticular,theimprovementofourapproachforAP75,astrictevaluationscheme,ismore
+significantthanAP50,alooseevaluationscheme. Pretrain=pretrainthebackboneonImageNet.OHKM=onlinehardkeypointsmining[24].
+#ParamsandFLOPsarecalculatedfortheposeestimationnetwork,andthoseforhumandetectionandkeypointgroupingarenotincluded.
+Method Backbone Pretrain Inputsize #Params GFLOPs AP AP50 AP75 APM APL AR
+8-stageHourglass[105] 8-stageHourglass N 256×192 25.1M 14.3 66.9 − − − − −
+CPN[24] ResNet-50 Y 256×192 27.0M 6.20 68.6 − − − − −
+CPN+OHKM[24] ResNet-50 Y 256×192 27.0M 6.20 69.4 − − − − −
+SimpleBaseline[152] ResNet-50 Y 256×192 34.0M 8.90 70.4 88.6 78.3 67.1 77.2 76.3
+SimpleBaseline[152] ResNet-101 Y 256×192 53.0M 12.4 71.4 89.3 79.3 68.1 78.1 77.1
+SimpleBaseline[152] ResNet-152 Y 256×192 68.6M 15.7 72.0 89.3 79.8 68.7 78.9 77.8
+HRNetV1 HRNetV1-W32 N 256×192 28.5M 7.10 73.4 89.5 80.7 70.2 80.1 78.9
+HRNetV1 HRNetV1-W32 Y 256×192 28.5M 7.10 74.4 90.5 81.9 70.8 81.0 79.8
+HRNetV1 HRNetV1-W48 Y 256×192 63.6M 14.6 75.1 90.6 82.2 71.5 81.8 80.4
+SimpleBaseline[152] ResNet-152 Y 384×288 68.6M 35.6 74.3 89.6 81.1 70.5 79.7 79.7
+HRNetV1 HRNetV1-W32 Y 384×288 28.5M 16.0 75.8 90.6 82.7 71.9 82.8 81.0
+HRNetV1 HRNetV1-W48 Y 384×288 63.6M 32.9 76.3 90.8 82.9 72.3 83.4 81.2
+TABLE2
+ComparisonsonCOCOtest-dev.TheobservationsaresimilartotheresultsonCOCOval.
+Method Backbone Inputsize #Params GFLOPs AP AP50 AP75 APM APL AR
+Bottom-up:keypointdetectionandgrouping
+OpenPose[15] − − − − 61.8 84.9 67.5 57.1 68.2 66.5
+AssociativeEmbedding[104] − − − − 65.5 86.8 72.3 60.6 72.6 70.2
+PersonLab[108] − − − − 68.7 89.0 75.4 64.1 75.5 75.4
+MultiPoseNet[72] − − − − 69.6 86.3 76.6 65.0 76.3 73.5
+Top-down:humandetectionandsingle-personkeypointdetection
+Mask-RCNN[53] ResNet-50-FPN − − − 63.1 87.3 68.7 57.8 71.4 −
+G-RMI[109] ResNet-101 353×257 42.6M 57.0 64.9 85.5 71.3 62.3 70.0 69.7
+IntegralPoseRegression[132] ResNet-101 256×256 45.0M 11.0 67.8 88.2 74.8 63.9 74.0 −
+G-RMI+extradata[109] ResNet-101 353×257 42.6M 57.0 68.5 87.1 75.5 65.8 73.3 73.3
+CPN[24] ResNet-Inception 384×288 − − 72.1 91.4 80.0 68.7 77.2 78.5
+RMPE[38] PyraNet[165] 320×256 28.1M 26.7 72.3 89.2 79.1 68.0 78.6 −
+CFN[60] − − − − 72.6 86.1 69.7 78.3 64.1 −
+CPN(ensemble)[24] ResNet-Inception 384×288 − − 73.0 91.7 80.9 69.5 78.1 79.0
+SimpleBaseline[152] ResNet-152 384×288 68.6M 35.6 73.7 91.9 81.1 70.3 80.0 79.0
+HRNetV1 HRNetV1-W32 384×288 28.5M 16.0 74.9 92.5 82.8 71.3 80.9 80.1
+HRNetV1 HRNetV1-W48 384×288 63.6M 32.9 75.5 92.5 83.3 71.9 81.5 80.5
+HRNetV1+extradata HRNetV1-W48 384×288 63.6M 32.9 77.0 92.7 84.5 73.4 83.1 82.0
+standard deviation of 2 pixel centered on the groundtruth ground truth, v i is the visibility flag of the ground truth,
+location of each keypoint. Some example results are given s is the object scale, and k i is a per-keypoint constant
+inFigure6. that controls falloff. We report standard average preci-
+sion and recall scores2: AP50 (AP at OKS = 0.50),
+Dataset. The COCO dataset [94] contains over 200,000 AP75 , AP (the mean of AP scores at 10 OKS positions,
+images and 250,000 person instances labeled with 17 key- 0.50,0.55,...,0.90,0.95); APM for medium objects, APL
+points. We train our model on the COCO train2017
+forlargeobjects,andAR(themeanofARscoresat10OKS
+set, including 57K images and 150K person instances. We
+positions,0.50,0.55,...,0.90,0.95).
+evaluateourapproachontheval2017andtest-dev2017
+sets,containing5000imagesand20K images,respectively. Training. We extend the human detection box in height or
+width to a fixed aspect ratio: height : width = 4 : 3, and
+Evaluation metric. The standard evaluation metric is then crop the box from the image, which is resized to a
+based on Object Keypoint Similarity (OKS): OKS = fixed size, 256 192 or 384 288. The data augmenta-
+(cid:80) i exp(− (cid:80) d i 2 i δ / ( 2 v s i 2 > k 0 i 2 ) )δ(vi>0). Here d i is the Euclidean distance × ×
+between the detected keypoint and the corresponding 2.http://cocodataset.org/#keypoints-eval
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 6
+tionschemeincludesrandomrotation([ 45◦,45◦]),random TABLE3
+scale([0.65,1.35]),andflipping.Followi − ng [146],halfbody SemanticsegmentationresultsonCityscapesval(singlescaleandno
+flipping).TheGFLOPsiscalculatedontheinputsize1024×2048.The
+dataaugmentationisalsoinvolved.
+smallmodelHRNetV2-W40withthesmallestGFLOPsperformsbetter
+WeusetheAdamoptimizer[71].Thelearningschedule thantworepresentativecontextualmethods(DeeplabandPSPNet).
+follows the setting [152]. The base learning rate is set as Ourapproachcombinedwiththerecently-developedobjectcontextual
+1e 3, and is dropped to 1e 4 and 1e 5 at the 170th and (OCR)representationscheme[170]getsfurtherimprovement.
+− − − D-ResNet-101=Dilated-ResNet-101.
+200th epochs, respectively. The training process is termi-
+backbone #param. GFLOPs mIoU
+natedwithin210epochs.Themodelsaretrainedon4V100
+UNet++[189] ResNet-101 59.5M 748.5 75.5
+GPUs and it takes around 60 (80) hours for HRNet-W32 Dilated-ResNet[54] D-ResNet-101 52.1M 1661.6 75.7
+(HRNet-W48). DeepLabv3[20] D-ResNet-101 58.0M 1778.7 78.5
+DeepLabv3+[22] D-Xception-71 43.5M 1444.6 79.6
+Testing. The two-stage top-down paradigm similar as [24], PSPNet[181] D-ResNet-101 65.9M 2017.6 79.7
+[109],[152]isused:detectthepersoninstanceusingaperson HRNetV2 HRNetV2-W40 45.2M 493.2 80.2
+HRNetV2 HRNetV2-W48 65.9M 696.2 81.1
+detector,andthenpredictdetectionkeypoints.
+HRNetV2+OCR[170] HRNetV2-W48 70.3M 1206.3 81.6
+We use the same person detectors provided by Sim-
+pleBaseline3 for both the val and test-dev sets. Fol-
+lowing [24], [105], [152], we compute the heatmap by av-
+TABLE4
+eraging the heatmaps of the original and flipped images.
+SemanticsegmentationresultsonCityscapestest.Weuse
+Eachkeypointlocationispredictedbyadjustingthehighest
+HRNetV2-W48,whoseparametercomplexityandcomputation
+heatvaluelocationwithaquarteroffsetinthedirectionfrom complexityarecomparabletodilated-ResNet-101basednetworks,for
+thehighestresponsetothesecondhighestresponse. comparison.Ourresultsaresuperiorintermsofthefourevaluation
+metrics.TheresultfromthecombinationwithOCR[170]isfurther
+Resultsonthevalset.Wereporttheresultsofourmethod improved.D-ResNet-101=Dilated-ResNet-101.
+and other state-of–the-art methods in Table 1. The network
+backbone mIoU iIoUcla. IoUcat. iIoUcat.
+- HRNetV1-W32, trained from scratch with the input size
+Modellearnedonthetrainset
+256 192, achieves an AP score 73.4, outperforming other
+× PSPNet[181] D-ResNet-101 78.4 56.7 90.6 78.6
+methods with the same input size. (i) Compared to Hour- PSANet[182] D-ResNet-101 78.6 - - -
+glass [105], our network improves AP by 6.5 points, and PAN[82] D-ResNet-101 78.6 - - -
+the GFLOP of our network is much lower and less than AAF[69] D-ResNet-101 79.1 - - -
+half,whilethenumbersofparametersaresimilarandours HRNetV2 HRNetV2-W48 80.4 59.2 91.5 80.8
+is slightly larger. (ii) Compared to CPN [24] w/o and w/ Modellearnedonthetrain+valset
+OHKM, our network, with slightly larger model size and GridNet[42] - 69.5 44.1 87.9 71.1
+slightlyhighercomplexity,achieves4.8and4.0pointsgain, LRR-4x[46] - 69.7 48.0 88.2 74.7
+DeepLab[19] D-ResNet-101 70.4 42.6 86.4 67.7
+respectively.(iii)Comparedtothepreviousbest-performed
+LC[84] - 71.1 - - -
+method SimpleBaseline [152], our HRNetV1-W32 obtains
+Piecewise[91] VGG-16 71.6 51.7 87.3 74.1
+significant improvements: 3.0 points gain for the backbone
+FRRN[114] - 71.8 45.5 88.9 75.1
+ResNet-50 with a similar model size and GFLOPs, and 1.4 RefineNet[90] ResNet-101 73.6 47.2 87.9 70.6
+pointsgainforthebackboneResNet-152whosemodelsize PEARL[65] D-ResNet-101 75.4 51.6 89.2 75.1
+(#Params)andGFLOPsaretwiceasmanyasours. DSSPN[88] D-ResNet-101 76.6 56.2 89.6 77.8
+Ournetworkcanbenefitfrom(i)trainingfromthemodel LKM[111] ResNet-152 76.9 - - -
+pretrained on the ImageNet: The gain is 1.0 points for DUC-HDC[144] - 77.6 53.6 90.1 75.2
+HRNetV1-W32;(ii)increasingthecapacitybyincreasingthe SAC[176] D-ResNet-101 78.1 - - -
+width: HRNetV1-W48 gets 0.7 and 0.5 points gain for the DepthSeg[73] D-ResNet-101 78.2 - - -
+ResNet38[151] WResNet-38 78.4 59.1 90.9 78.1
+inputsizes256 192and384 288,respectively.
+× × BiSeNet[166] ResNet-101 78.9 - - -
+Considering the input size 384 288, our HRNetV1-
+× DFN[167] ResNet-101 79.3 - - -
+W32 and HRNetV1-W48, get the 75.8 and 76.3 AP, which PSANet[182] D-ResNet-101 80.1 - - -
+have 1.4 and 1.2 improvements compared to the input PADNet[159] D-ResNet-101 80.3 58.8 90.8 78.5
+size 256 192. In comparison to SimpleBaseline [152] that CFNet[173] D-ResNet-101 79.6 - - -
+×
+uses ResNet-152 as the backbone, our HRNetV1-W32 and Auto-DeepLab[95] - 80.4 - - -
+HRNetV1-W48attain1.5and2.0pointsgainintermsofAP DenseASPP[181] WDenseNet-161 80.6 59.1 90.9 78.1
+at45%and92.4%computationalcost,respectively. SVCNet[33] ResNet-101 81.0 - - -
+ANN[195] D-ResNet-101 81.3 - - -
+Results on the test-dev set. Table 2 reports the pose CCNet[61] D-ResNet-101 81.4 - - -
+estimation performances of our approach and the existing DANet[43] D-ResNet-101 81.5 - - -
+state-of-the-art approaches. Our approach is significantly HRNetV2 HRNetV2-W48 81.6 61.8 92.1 82.2
+better than bottom-up approaches. On the other hand, our HRNetV2+OCR[170] HRNetV2-W48 82.5 61.7 92.1 81.6
+small network, HRNetV1-W32, achieves an AP of 74.9.
+It outperforms all the other top-down approaches, and is
+more efficient in terms of model size (#Params) and com-
+putation complexity (GFLOPs). Our big model, HRNetV1- SimpleBaseline [152] with the same input size, our small
+W48, achieves the highest AP score 75.5. Compared to andbignetworksreceive1.2and1.8improvements,respec-
+tively.WiththeadditionaldatafromAIChallenger[148]for
+3.https://github.com/Microsoft/human-pose-estimation.pytorch training,oursinglebignetworkcanobtainanAPof77.0.
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 7
+Fig.7.QualitativesegmentationexamplesfromCityscapes(lefttwo),PASCAL-Context(middletwo),andLIP(righttwo).
+TABLE5 qualitypixel-levelfinelyannotatedsceneimages.Thefinely-
+SemanticsegmentationresultsonPASCAL-Context.Themethodsare annotatedimagesaredividedinto2,975/500/1,525images
+evaluatedon59classesand60classes.Ourapproachperformsthe
+fortraining,validationandtesting.Thereare30classes,and
+bestfor60classes,andperformsworsefor59classesthanAPCN[51]
+thatdevelopedastrongcontextualmethod.Ourapproach,combined
+19classesamongthemareusedforevaluation.Inaddition
+withOCR[170],achievessignificantgain,andperformsthebest. to the mean of class-wise intersection over union (mIoU),
+D-ResNet-101=Dilated-ResNet-101.
+we report other three scores on the test set: IoU category
+backbone mIoU(59) mIoU(60) (cat.),iIoUclass(cla.)andiIoUcategory(cat.).
+FCN-8s[125] VGG-16 - 35.1 We follow the same training protocol [181], [182]. The
+BoxSup[29] - - 40.5 dataareaugmentedbyrandomcropping(from1024 2048
+HO CRF[2] - - 41.3 to 512 1024), random scaling in the range of [0.5,2 × ], and
+Piecewise[91] VGG-16 - 43.3 ×
+randomhorizontalflipping.WeusetheSGDoptimizerwith
+DeepLab-v2[19] D-ResNet-101 - 45.7
+thebaselearningrateof0.01,themomentumof0.9andthe
+RefineNet[90] ResNet-152 - 47.3
+weight decay of 0.0005. The poly learning rate policy with
+UNet++[189] ResNet-101 47.7 -
+PSPNet[181] D-ResNet-101 47.8 -
+thepowerof0.9isusedfordroppingthelearningrate.All
+Dingetal.[32] ResNet-101 51.6 - the models are trained for 120K iterations with the batch
+EncNet[172] D-ResNet-101 52.6 - sizeof12on4GPUsandsyncBN.
+DANet[43] D-ResNet-101 52.6 - Table 3 provides the comparison with several repre-
+ANN[195] D-ResNet-101 52.8 - sentative methods on the Cityscapes val set in terms
+SVCNet[33] ResNet-101 53.2 - of parameter and computation complexity and mIoU
+CFNet[173] D-ResNet-101 54.0 - class. (i) HRNetV2-W40 (40 indicates the width of the
+APCN[51] D-ResNet-101 55.6 -
+high-resolution convolution), with similar model size to
+HRNetV2 HRNetV2-W48 54.0 48.3
+DeepLabv3+andmuchlowercomputationcomplexity,gets
+HRNetV2+OCR[170] HRNetV2-W48 56.2 50.1
+betterperformance:4.7pointsgainoverUNet++,1.7points
+TABLE6 gain over DeepLabv3 and about 0.5 points gain over PSP-
+SemanticsegmentationresultsonLIP.Ourmethoddoesn’texploitany Net, DeepLabv3+. (ii) HRNetV2-W48, with similar model
+extrainformation,e.g.,poseoredge. Theoverallperformanceofour
+size to PSPNet and much lower computation complexity,
+approachisthebest,andtheOCRscheme[170]furtherimprovesthe
+segmentationquality.D-ResNet-101=Dilated-ResNet-101. achieves much significant improvement: 5.6 points gain
+over UNet++, 2.6 points gain over DeepLabv3 and about
+backbone extra. pixelacc. avg.acc. mIoU
+1.4pointsgainoverPSPNet,DeepLabv3+.Inthefollowing
+Attention+SSL[47] VGG16 Pose 84.36 54.94 44.73
+comparisons, we adopt HRNetV2-W48 that is pretrained
+DeepLabV3+[22] D-ResNet-101 - 84.09 55.62 44.80
+on ImageNet and has similar model size as most Dilated-
+MMAN[100] D-ResNet-101 - - - 46.81
+SS-NAN[183] ResNet-101 Pose 87.59 56.03 47.92
+ResNet-101basedmethods.
+MuLA[106] Hourglass Pose 88.50 60.50 49.30 Table 4 provides the comparison of our method with
+JPPNet[87] D-ResNet-101 Pose 86.39 62.32 51.37 state-of-the-art methods on the Cityscapes test set. All
+CE2P[98] D-ResNet-101 Edge 87.37 63.20 53.10 the results are with six scales and flipping. Two cases w/o
+HRNetV2 HRNetV2-W48 N 88.21 67.43 55.90 using coarse data are evaluated: One is about the model
+HRNetV2+OCR[170] HRNetV2-W48 N 88.24 67.84 56.48 learnedonthetrainset,andtheotherisaboutthemodel
+learned on the train+val set. In both cases, HRNetV2-
+5 SEMANTIC SEGMENTATION W48achievesthesuperiorperformance.
+PASCAL-Context. The PASCAL-Context dataset [103] in-
+Semanticsegmentationisaproblemofassigningaclassla- cludes 4,998 scene images for training and 5,105 images
+beltoeachpixel.Someexampleresultsbyourapproachare fortestingwith59semanticlabelsand1backgroundlabel.
+giveninFigure7.WefeedtheinputimagetotheHRNetV2
+The data augmentation and learning rate policy are the
+(Figure 4 (b)) and then pass the resulting 15C-dimensional
+same as Cityscapes. Following the widely-used training
+representation at each position to a linear classifier with strategy[32],[172],weresizetheimagesto480 480andset
+the softmax loss to predict the segmentation maps. The theinitiallearningrateto0.004andweightdec × ayto0.0001.
+segmentation maps are upsampled (4 times) to the input Thebatchsizeis16andthenumberofiterationsis60K.
+sizebybilinearupsamplingforbothtrainingandtesting.We
+We follow the standard testing procedure [32], [172].
+reporttheresultsovertwosceneparsingdatasets,PASCAL- The image is resized to 480 480 and then fed into our
+Context [103] and Cityscapes [28], and a human parsing network.Theresulting480 4 × 80labelmapsarethenresized
+dataset, LIP [47]. The mean of class-wise intersection over ×
+to the original image size. We evaluate the performance of
+union(mIoU)isadoptedastheevaluationmetric.
+our approach and other approaches using six scales and
+Cityscapes.TheCityscapesdataset[28]contains5,000high flipping.
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 8
+giraffe 1.00 giraffe 0.98
+bird 0.99 bird 0.97 giraffe 0.99 giraffe 0.98
+bird 0 bb . i 8 irrd 4 d 00..9805 bird 0.94 b c i o rd w 0 0 . . 8 9 6 9 bird co 0 w .8 0 5 .99 bird 0.92 bird 0.97bird 0.98 bird 0.94 cow 0.99 bird b i 0 rd .9 0 6 .95 person 1.00 sports ball 0.97 bear 1. b 0 i 0 rd 0.96 car 0.99 surfboard 0.99 persopne r0s.o8n2 0.93 car 0.95 zebra 1.00 zebra 1.00 zebra 1.00 bird 0.99 bird 0.83
+person 1.00
+person 1.00
+Fig.8.QualitativeexamplesforCOCOobjectdetection(leftthree)andinstancesegmentation(rightthree).
+TABLE7
+GFLOPsand#parametersforCOCOobjectdetection.Thenumbersareobtainedwiththeinputsize800×1200andifapplicable512proposals
+fedintoR-CNNexceptthenumbersforCenterNetareobtainedwiththeinputsize511×511.R-x=ResNet-x-FPN,X-101=ResNeXt-101-64×4d,
+H-x=HRNetV2p-Wx,andHG-52=Hourglass-52.
+FasterR-CNN[53] CascadeR-CNN[13] FCOS[136] CenterNet[36]
+R-50 H-18 R-101 H-32 X-101 H-48 R-50 H-18 R-101 H-32 X-101 H-48 R-50 H-18 R-101 H-32 HG-52 H-48 HG-104 H-64
+#param.(M) 39.8 26.2 57.8 45.0 94.9 79.4 69.4 55.1 88.4 74.9 127.3 111.0 32.0 17.5 51.0 37.3 104.8 73.6 210.1 127.7
+GFLOPs 172.3 159.1 239.4 245.3 381.8 399.1 226.2 207.8 298.7 300.8 448.3 466.5 190.0 180.3 261.2 273.3 227.0 217.1 388.4 318.5
+CascadeMaskR-CNN[13] HybridTaskCascade[16] MaskR-CNN[53]
+R-50 H-18 R-101 H-32 X-101 H-48 R-50 H-18 R-101 H-32 X-101 H-48 R-50 H-18 R-101 H-32
+#param.(M) 77.3 63.1 96.3 82.9 135.2 118.9 80.3 66.1 99.3 85.9 138.2 121.9 44.4 30.1 63.4 49.9
+GFLOPs 431.7 413.1 504.1 506.2 653.7 671.9 476.9 458.3 549.2 551.4 698.9 717.0 266.5 247.9 338.8 341.0
+TABLE8 TABLE9
+ObjectdetectionresultsonCOCOvalintheFasterR-CNNand ObjectdetectionresultsonCOCOvalintheFCOSandCenterNet
+CascadeR-CNNframeworks.LS=learningschedule.1×=12e,2×= frameworks.Theresultsareobtainedusingtheimplementations
+24e.OurapproachperformsbetterthanResNetandResNeXt.Our providedbytheauthors. OurapproachperformssuperiorlytoResNet
+approachgetsmoresignificantimprovementfor2×than1×andfor andHourglassforsimilarparameterandcomputationcomplexity.Our
+smallobjects(APS)thanmedium(APM)andlargeobjects(APL). HRNetV2p-W64performsslightlyworsethanHourglass-104,andthe
+reasonisthatHourglass-104ismuchmoreheavierthan
+backbone LS AP AP50 AP75 APS APM APL
+HRNetV2p-W64.SeeTable7for#parametersandGFLOPs.
+FasterR-CNN[92]
+ResNet-50-FPN 1× 36.7 58.3 39.9 20.9 39.8 47.9 backbone LS AP AP50 AP75 APS APM APL
+HRNetV2p-W18 1× 36.2 57.3 39.3 20.7 39.0 46.8 FCOS[136]
+ResNet-50-FPN 2× 37.6 58.7 41.3 21.4 40.8 49.7 ResNet-50-FPN 2× 37.1 55.9 39.8 21.3 41.0 47.8
+HRNetV2p-W18 2× 38.0 58.9 41.5 22.6 40.8 49.6 HRNetV2p-W18 2× 37.7 55.3 40.2 22.0 40.8 48.8
+ResNet-101-FPN 1× 39.2 61.1 43.0 22.3 42.9 50.9 ResNet-101-FPN 2× 41.4 60.3 44.8 25.0 45.6 53.1
+HRNetV2p-W32 1× 39.6 61.0 43.3 23.7 42.5 50.5 HRNetV2p-W32 2× 41.9 60.3 45.0 25.1 45.6 53.2
+ResNet-101-FPN 2× 39.8 61.4 43.4 22.9 43.6 52.4 CenterNet[36]
+HRNetV2p-W32 2× 40.9 61.8 44.8 24.4 43.7 53.3 Hourglass-52 - 41.3 59.2 43.9 23.6 43.8 55.8
+X-101-64×4d-FPN 1× 41.3 63.4 45.2 24.5 45.8 53.3 HRNetV2p-W48 - 43.4 61.8 45.6 23.8 47.1 59.3
+HRNetV2p-W48 1× 41.3 62.8 45.1 25.1 44.5 52.9 Hourglass-104 - 44.8 62.4 48.2 25.9 48.9 58.8
+X-101-64×4d-FPN 2× 40.8 62.1 44.6 23.2 44.5 53.7 HRNetV2p-W64 - 44.0 62.5 47.3 23.9 48.2 60.2
+HRNetV2p-W48 2× 41.8 62.8 45.9 25.0 44.7 54.6
+CascadeR-CNN[13]
+ResNet-50-FPN 20e 41.1 59.1 44.8 22.5 44.4 54.9 sizeis40andthenumberofiterationsis110K.
+HRNetV2p-W18 20e 41.3 59.2 44.9 23.7 44.2 54.1
+Table 6 provides the comparison of our method
+ResNet-101-FPN 20e 42.5 60.7 46.3 23.7 46.1 56.9
+with state-of-the-art methods. The overall performance of
+HRNetV2p-W32 20e 43.7 61.7 47.7 25.6 46.5 57.4
+X-101-64×4d-FPN 20e 44.7 63.1 49.0 25.8 48.3 58.8 HRNetV2-W48 performs the best with fewer parameters
+HRNetV2p-W48 20e 44.6 62.7 48.7 26.3 48.1 58.5 andlightercomputationcost.Wealsowouldliketomention
+thatournetworksdonotuseextrainformationsuchaspose
+oredge.
+Table 5 provides the comparison of our method with
+state-of-the-art methods. There are two kinds of evaluation
+schemes: mIoU over 59 classes and 60 classes (59 classes + 6 COCO OBJECT DETECTION
+background). In both cases, HRNetV2-W48 achieves state-
+WeperformtheevaluationontheMSCOCO2017detection
+of-the-art results except that the result from [51] is higher
+dataset, which contains about 118k images for training, 5k
+thanourswithoutusingtheOCRscheme[170].
+for validation (val) and 20k testing without provided
+LIP.TheLIPdataset[47]contains50,462elaboratelyanno-
+annotations(test-dev).T
+∼
+hestandardCOCO-styleevalua-
+tatedhumanimages,whicharedividedinto30,462training
+tion is adopted. Some example results by our approach are
+images, and 10,000 validation images. The methods are
+giveninFigure8.
+evaluated on 20 categories (19 human part labels and 1 We apply our multi-level representations (HRNetV2p)4,
+background label). Following the standard training and
+showninFigure4(c),forobjectdetection.Thedataisaug-
+testing settings [98], the images are resized to 473 473
+× mented by standard horizontal flipping. The input images
+and the performance is evaluated on the average of the
+are resized such that the shorter edge is 800 pixels [92].
+segmentationmapsoftheoriginalandflippedimages.
+Inferenceisperformedonasingleimagescale.
+The data augmentation and learning rate policy are the We compare our HRNet with the standard models:
+sameasCityscapes.Thetrainingstrategyfollowstherecent ResNet [54] and ResNeXt [156]. We evaluate the de-
+setting[98].Wesettheinitiallearningrateto0.007andthe
+momentumto0.9andtheweightdecayto0.0005.Thebatch 4.SameasFPN[93],wealsouse5levels.
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 9
+TABLE10   
+ObjectdetectionresultsonCOCOvalintheMaskR-CNNandits
+extendedframeworks. Theoverallperformanceofourapproachis   
+superiortoResNetexceptthatHRNetV2p-W18sometimesperforms
+worsethanResNet-50.Similartodetection(bbox),theimprovementfor
+smallobjects(APS)intermsofmaskisalsomoresignificantthan   
+medium(APM)andlargeobjects(APL).Theresultsareobtainedfrom
+MMDetection[17].   
+mask bbox
+backbone LS
+AP APS APM APL AP APS APM APL   
+MaskR-CNN[53]
+ResNet-50-FPN 1× 34.2 15.7 36.8 50.2 37.8 22.1 40.9 49.3   
+HRNetV2p-W18 1× 33.8 15.6 35.6 49.8 37.1 21.9 39.5 47.9
+ResNet-50-FPN 2× 35.0 16.0 37.5 52.0 38.6 21.7 41.6 50.9   
+HRNetV2p-W18 2× 35.3 16.9 37.5 51.8 39.2 23.7 41.7 51.0  + 5 1 H W 9   :    + 5 1 H W 9   :  
+ResNet-101-FPN 1× 36.1 16.2 39.0 53.0 40.0 22.6 43.4 52.3
+HRNetV2p-W32 1× 36.7 17.3 39.0 53.0 40.9 24.5 43.9 52.2
+ResNet-101-FPN 2× 36.7 17.0 39.5 54.8 41.0 23.4 44.4 53.9
+HRNetV2p-W32 2× 37.6 17.8 40.0 55.0 42.3 25.0 45.4 54.9
+CascadeMaskR-CNN[13]
+ResNet-50-FPN 20e 36.6 19.0 37.4 50.7 42.3 23.7 45.7 56.4
+HRNetV2p-W18 20e 36.4 17.0 38.6 52.9 41.9 23.8 44.9 55.0
+ResNet-101-FPN 20e 37.6 19.7 40.8 52.4 43.3 24.4 46.9 58.0
+HRNetV2p-W32 20e 38.5 18.9 41.1 56.1 44.5 26.1 47.9 58.5
+X-101-64×4d-FPN 20e 39.4 20.8 42.7 54.1 45.7 26.2 49.6 60.0
+HRNetV2p-W48 20e 39.5 19.7 41.8 56.9 46.0 27.5 48.9 60.1
+HybridTaskCascade[16]
+ResNet-50-FPN 20e 38.1 20.3 41.1 52.8 43.2 24.9 46.4 57.8
+HRNetV2p-W18 20e 37.9 18.8 39.9 55.2 43.1 26.6 46.0 56.9
+ResNet-101-FPN 20e 39.4 21.4 42.4 54.4 44.9 26.4 48.3 59.9
+HRNetV2p-W32 20e 39.6 19.1 42.0 57.9 45.3 27.0 48.4 59.5
+X-101-64×4d-FPN 20e 40.8 22.7 44.2 56.3 46.9 28.0 50.7 62.1
+HRNetV2p-W48 20e 40.7 19.7 43.4 59.3 46.8 28.0 50.2 61.7
+X-101-64×4d-FPN 28e 40.7 20.0 44.1 59.9 46.8 27.5 51.0 61.7
+HRNetV2p-W48 28e 41.0 20.8 43.9 59.9 47.0 28.8 50.3 62.2
+tection performance on COCO val. under two anchor-
+based frameworks: Faster R-CNN [118] and Cascade R-
+CNN [12], and two recently-developed anchor-free frame-
+works: FCOS [136] and CenterNet [36]. We train the
+Faster R-CNN and Cascade R-CNN models for both our
+HRNetV2pandtheResNetonthepublicMMDetectionplat-
+form [17] with the provided training setup, except that we
+usethelearningrateschedulesuggestedin[52]for2 ,and
+×
+FCOS [136] and CenterNet [36] from the implementations
+provided by the authors. Table 7 summarizes #parameters
+andGFLOPs.Table8andTable9reportdetectionscores.
+Wealsoevaluatetheperformanceofjointdetectionand
+instance segmentation, under three frameworks: Mask R-
+CNN [53], Cascade Mask R-CNN [13], and Hybrid Task
+Cascade[16].TheresultsareobtainedonthepublicMMDe-
+tectionplatform[17]andareinTable10.
+There are several observations. On the one hand, as
+shown in Tables 8 and 9, the overall object detection per-
+formance of HRNetV2 is better than ResNet under similar
+model size and computation complexity. In some cases, for
+1 , HRNetV2p-W18 performs worse than ResNet-50-FPN,
+×
+whichmightcomefrominsufficientoptimizationiterations.
+On the other hand, as shown in Table 10, the overall object
+detection and instance segmentation performance is better
+than ResNet and ResNeXt. In particular, under the Hy-
+bridTaskCascadeframework,theHRNetperformsslightly
+worsethanResNeXt-101-64 4d-FPNfor20e,butbetterfor
+×
+28e.ThisimpliesthatourHRNetbenefitsmorefromlonger
+     3 $
+  [   [   [
+           
+           
+           
+Fig. 9. Ablation study about the resolutions of the representations for
+humanposeestimation.1×,2×,4×correspondtotherepresentations
+ofthehigh,medium,lowresolutions,respectively. Theresultsimplythat
+higherresolutionimprovestheperformance.
+training.
+Table 11 reports the comparison of our network to
+state-of-the-art single-model object detectors on COCO
+test-dev without using multi-scale training and multi-
+scale testing that are done in [85], [97], [110], [115], [127],
+[128]. In the Faster R-CNN framework, our networks per-
+form better than ResNets with similar parameter and com-
+putation complexity: HRNetV2p-W32 vs. ResNet-101-FPN,
+HRNetV2p-W40 vs. ResNet-152-FPN, HRNetV2p-W48 vs.
+X-101-64 4d-FPN.In the CascadeR-CNNand CenterNet
+×
+framework, our HRNetV2 also performs better. In the Cas-
+cade Mask R-CNN and Hybrid Task Cascade frameworks,
+theHRNetgetstheoverallbetterperformance.
+7 ABLATION STUDY
+WeperformtheablationstudyforthecomponentsinHRNet
+overtwotasks:humanposeestimationonCOCOvalidation
+and semantic segmentation on Cityscapes validation. We
+mainlyuseHRNetV1-W32forhumanposeestimation,and
+HRNetV2-W48 for semantic segmentation. All results of
+poseestimationareobtainedovertheinputsize256 192.
+×
+We also present the results for comparing HRNetV1 and
+HRNetV2.
+Representationsofdifferentresolutions.Westudyhowthe
+representationresolutionaffectstheposeestimationperfor-
+mance by checking the quality of the heatmap estimated
+fromthefeaturemapsofeachresolutionfromhightolow.
+We train two HRNetV1 networks initialized by the
+model pretrained for the ImageNet classification. Our net-
+workoutputsfourresponsemapsfromhigh-to-lowresolu-
+tions. The quality of heatmap prediction over the lowest-
+resolution response map is too low and the AP score is
+below 10 points. The AP scores over the other three maps
+are reported in Figure 9. The comparison implies that the
+resolutiondoesimpactthekeypointpredictionquality.
+Repeated multi-resolution fusion. We empirically analyze
+theeffectoftherepeatedmulti-resolutionfusion.Westudy
+three variants of our network. (a) W/o intermediate fusion
+units(1fusion):Thereisnofusionbetweenmulti-resolution
+streams except the final fusion unit. (b) W/ across-stage
+fusion units (3 fusions): There is no fusion between par-
+allel streams within each stage. (c) W/ both across-stage
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 10
+TABLE11
+Comparisonwiththestate-of-the-artsingle-modelobjectdetectorsonCOCOtest-devwithBNparametersfixedandwithoutmutli-scaletraining
+andtesting.∗meansthattheresultisfromtheoriginalpaper[12].GFLOPsand#parametersofthemodelsaregiveninTable7. The
+observationsaresimilartothoseonCOCOval,andshowthattheHRNetperformsbetterthanResNetandResNeXtunderstate-of-the-artobject
+detectionandinstancesegmentationframeworks.
+backbone size LS AP AP50 AP75 APS APM APL
+MLKP[142] VGG16 - - 28.6 52.4 31.6 10.8 33.4 45.1
+STDN[187] DenseNet-169 513 - 31.8 51.0 33.6 14.4 36.1 43.4
+DES[179] VGG16 512 - 32.8 53.2 34.6 13.9 36.0 47.6
+CoupleNet[194] ResNet-101 - - 33.1 53.5 35.4 11.6 36.3 50.1
+DeNet[139] ResNet-101 512 - 33.8 53.4 36.1 12.3 36.1 50.8
+RFBNet[96] VGG16 512 - 34.4 55.7 36.4 17.6 37.0 47.6
+DFPR[74] ResNet-101 512 1× 34.6 54.3 37.3 - - -
+PFPNet[70] VGG16 512 - 35.2 57.6 37.9 18.7 38.6 45.9
+RefineDet[177] ResNet-101 512 - 36.4 57.5 39.5 16.6 39.9 51.4
+RelationNet[56] ResNet-101 600 - 39.0 58.6 42.9 - - -
+C-FRCNN[25] ResNet-101 800 1× 39.0 59.7 42.8 19.4 42.4 53.0
+RetinaNet[93] ResNet-101-FPN 800 1.5× 39.1 59.1 42.3 21.8 42.7 50.2
+DeepRegionlets[160] ResNet-101 800 1.5× 39.3 59.8 - 21.7 43.7 50.9
+FitnessNMS[140] ResNet-101 768 - 39.5 58.0 42.6 18.9 43.5 54.1
+DetNet[86] DetNet59-FPN 800 2× 40.3 62.1 43.8 23.6 42.6 50.0
+CornerNet[79] Hourglass-104 511 - 40.5 56.5 43.1 19.4 42.7 53.9
+M2Det[185] VGG16 800 ∼10× 41.0 59.7 45.0 22.1 46.5 53.8
+FasterR-CNN[92] ResNet-101-FPN 800 1× 39.3 61.3 42.7 22.1 42.1 49.7
+FasterR-CNN HRNetV2p-W32 800 1× 39.5 61.2 43.0 23.3 41.7 49.1
+FasterR-CNN[92] ResNet-101-FPN 800 2× 40.3 61.8 43.9 22.6 43.1 51.0
+FasterR-CNN HRNetV2p-W32 800 2× 41.1 62.3 44.9 24.0 43.1 51.4
+FasterR-CNN[92] ResNet-152-FPN 800 2× 40.6 62.1 44.3 22.6 43.4 52.0
+FasterR-CNN HRNetV2p-W40 800 2× 42.1 63.2 46.1 24.6 44.5 52.6
+FasterR-CNN[17] X-101-64×4d-FPN 800 2× 41.1 62.8 44.8 23.5 44.1 52.3
+FasterR-CNN HRNetV2p-W48 800 2× 42.4 63.6 46.4 24.9 44.6 53.0
+CascadeR-CNN[12]∗ ResNet-101-FPN 800 ∼1.6× 42.8 62.1 46.3 23.7 45.5 55.2
+CascadeR-CNN ResNet-101-FPN 800 ∼1.6× 43.1 61.7 46.7 24.1 45.9 55.0
+CascadeR-CNN HRNetV2p-W32 800 ∼1.6× 43.7 62.0 47.4 25.5 46.0 55.3
+CascadeR-CNN X-101-64×4d-FPN 800 ∼1.6× 44.9 63.7 48.9 25.9 47.7 57.1
+CascadeR-CNN HRNetV2p-W48 800 ∼1.6× 44.8 63.1 48.6 26.0 47.3 56.3
+FCOS[136] ResNet-50-FPN 800 2× 37.3 56.4 39.7 20.4 39.6 47.5
+FCOS HRNetV2p-W18 800 2× 37.8 56.1 40.4 21.6 39.8 47.4
+FCOS[136] ResNet-101-FPN 800 2× 39.2 58.8 41.6 21.8 41.7 50.0
+FCOS HRNetV2p-W32 800 2× 40.5 59.3 43.3 23.4 42.6 51.0
+CenterNet[36] Hourglass-52 511 − 41.6 59.4 44.2 22.5 43.1 54.1
+CenterNet HRNetV2-W48 511 − 43.5 62.1 46.5 22.2 46.5 57.8
+CascadeMaskR-CNN[13] ResNet-101-FPN 800 ∼1.6× 44.0 62.3 47.9 24.3 46.9 56.7
+CascadeMaskR-CNN HRNetV2p-W32 800 ∼1.6× 44.7 62.5 48.6 25.8 47.1 56.3
+CascadeMaskR-CNN[13] X-101-64×4d-FPN 800 ∼1.6× 45.9 64.5 50.0 26.6 49.0 58.6
+CascadeMaskR-CNN HRNetV2p-W48 800 ∼1.6× 46.1 64.0 50.3 27.1 48.6 58.3
+HybridTaskCascade[16] ResNet-101-FPN 800 ∼1.6× 45.1 64.3 49.0 25.2 48.0 58.2
+HybridTaskCascade HRNetV2p-W32 800 ∼1.6× 45.6 64.1 49.4 26.7 47.7 58.0
+HybridTaskCascade[16] X-101-64×4d-FPN 800 ∼1.6× 47.2 66.5 51.4 27.7 50.1 60.3
+HybridTaskCascade HRNetV2p-W48 800 ∼1.6× 47.0 65.8 51.0 27.9 49.4 59.7
+HybridTaskCascade[16] X-101-64×4d-FPN 800 ∼2.3× 47.2 66.6 51.3 27.5 50.1 60.6
+HybridTaskCascade HRNetV2p-W48 800 ∼2.3× 47.3 65.9 51.2 28.0 49.7 59.8
+TABLE12 and within-stage fusion units (totally 8 fusions): This is
+Ablationstudyformulti-resolutionfusionunitsonCOCOvalhuman our proposed method. All the networks are trained from
+poseestimation(AP)andCityscapesvalsemanticsegmentation
+scratch. The results on COCO human pose estimation and
+(mIoU).Final=finalfusionimmediatelybeforerepresentationhead,
+Across=intermediatefusionsacrossstages,Within=intermediate Cityscapes semantic segmentation (validation) given in Ta-
+fusionswithinstages. Wecanseethatthethreefusionsarebeneficial ble 12 show that the multi-resolution fusion unit is helpful
+forbothhumanposeestimationandsemanticsegmentation.
+andmorefusionsleadtobetterperformance.
+Method Final Across Within Pose(AP) Segmentation(mIoU)
+We also study other possible choices for the fusion de-
+(a) (cid:88) 70.8 74.8
+sign:(i)usebilineardownsampletoreplacestridedconvolu-
+(b) (cid:88) (cid:88) 71.9 75.4
+(c) (cid:88) (cid:88) (cid:88) 73.4 76.4 tions,and(ii)usethemultiplicationoperationtoreplacethe
+sum operation. In the former case, the COCO pose estima-
+tionAPscoreandtheCityscapessegmentationmIoUscore
+are reduced to 72.6 and 74.2. The reason is that downsam-
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 11
+plingreducesthevolumesize(width height #channels)
+× ×
+of the representation maps, and strided convolutions learn 82 55 42
+better volume size reduction than bilinear downsampling. 54 41
+Inthelatercase,theresultsaremuchworse:54.7and66.0, 81.5
+53 40
+respectively. The possible reason might be that multiplica- 81
+39
+t
+R
+v s f
+i
+o t a
+o
+e
+r u r e
+n
+s
+i r a
+o
+a
+i
+m s
+l
+n
+n
+u
+t t
+c
+r s
+t
+e
+r
+i
+o
+e
+a a
+o
+f
+a
+m r
+n
+e
+s
+t
+e
+s h
+m
+a
+s
+e a d
+t
+a
+r
+h
+d e H
+in
+e
+e t R d
+t
+h
+t
+e
+r
+N e
+n
+a
+a e
+i
+t s
+a
+n
+t a
+n
+: t
+i
+m h
+n
+c
+a
+e
+e
+g
+e l
+.
+l ; b
+d
+W
+t t e
+i
+h h
+f
+g
+e
+fi
+e e i
+c
+n f
+s
+u
+f u n
+t
+o
+u
+l
+s i u
+t
+n i
+d
+y
+o r g
+y
+n
+a
+h
+s
+a
+t
+s i n
+h
+g c
+p
+d
+e
+h h
+o
+e -
+i
+p
+t t
+n
+m h o
+e
+t
+e -
+e
+e
+r
+l
+f
+d
+s o
+o
+d w a
+r
+i
+e
+n
+m
+r p e r t
+[
+a
+e h
+1
+t
+n
+h s
+4
+s o
+c
+e
+5
+e
+o l
+]
+u s
+.
+f a
+o
+ti t m
+f
+o h n
+a
+e e
+)sepacsytiC
+( U oIm7
+8
+9
+0
+8 .
+.
+5
+5
+0
+4
+4 5
+5
+5
+8
+9 0
+1
+2)txetnoC
+L A C S A P ( U oIm
+)lav
+O C O C ( P A m3 3 3
+3
+5 6 7
+8
+to ours. Both the HRNets and the variants (with similar 79 34
+#ParamsandGFLOPs)aretrainedfromscratch. W18 Cityscapes 47 33 W18 LS=1
+78.5 W48 Cityscapes W18 LS=2
+Thehumanposeestimationperformance(AP)onCOCO W18 PASCAL Context 46 32 W32 LS=1
+val for the variant is 72.5, which is lower than 73.4 for 78 W48 PASCAL Context 45 31 W32 LS=2
+HRNetV1-W32. The segmentation performance (mIoU) on HRNetV1 HRNetV1h HRNetV2 HRNetV1 HRNetV1h HRNetV2p
+(a) (b)
+Cityscapes val for the variant is 75.7, which is lower than Fig. 10. Comparing HRNetV1 and HRNetV2. (a) Segmentation on
+76.4 for HRNetV2-W48. We believe that the reason is that CityscapesvalandPASCAL-ContextforcomparingHRNetV1andits
+the low-level features extracted from the early stages over variant HRNetV1h, and HRNetV2 (single scale and no flipping). (b)
+ObjectdetectiononCOCOvalforcomparingHRNetV1anditsvariant
+the low-resolution streams are less helpful. In addition,
+HRNetV1h,andHRNetV2p(LS=learningschedule).Wecanseethat
+another simple variant, only the high-resolution stream of HRNetV2issuperiortoHRNetV1forbothsemanticsegmentationand
+similar #parameters and GFLOPs without low-resolution objectdetection.
+parallelstreamsshowsmuchlowerperformanceonCOCO
+andCityscapes.
+other than extending, remediating or repairing representa-
+V1 vs. V2. We compare HRNetV2 and HRNetV2p, to tionslearnedfromlow-resolutionnetworks(e.g.,ResNetor
+HRNetV1 on pose estimation, semantic segmentation and VGGNet).
+COCO object detection. For human pose estimation, the
+Discussions. There is a possible misunderstanding: the
+performance is similar. For example, HRNetV2-W32 (w/o
+memory cost of the HRNet is larger as the resolution is
+ImageNetpretraining)achievestheAPscore73.6,whichis
+higher. In fact, the memory cost of the HRNet for all
+slightlyhigherthan73.4HRNetV1-W32.
+the three applications, human pose estimation, semantic
+The segmentation and object detection results, given
+segmentation and object detection, is comparable to state-
+in Figure 10 (a) and Figure 10 (b), imply that HRNetV2
+of-the-arts except that the training memory cost in object
+outperforms HRNetV1 significantly, except that the gain
+detectionisalittlelarger.
+is minor in the large model case (1 ) in segmentation for
+× Inaddition,wesummarizetheruntimecostcomparison
+Cityscapes. We also test a variant (denoted by HRNetV1h),
+on the PyTorch 1.0 platform. The training and inference
+which is built by appending a 1 1 convolution to align
+× time cost of the HRNet is comparable to previous state-
+the dimension of the output high-resolution representation
+of-the-arts except that (1) the inference time of the HRNet
+with the dimension of HRNetV2. The results in Figure 10
+for segmentation is much smaller and (2) the training time
+(a) and Figure 10 (b) show that the variant achieves slight
+of the HRNet for pose estimation is a little larger, but the
+improvement to HRNetV1, implying that aggregating the
+cost on the MXNet 1.5.1 platform, which supports static
+representationsfromlow-resolutionparallelconvolutionsin
+graphinference,issimilarasSimpleBaseline.Wewouldlike
+ourHRNetV2isessentialforimprovingthecapability.
+to highlight that for semantic segmentation the inference
+cost is significantly smaller than PSPNet and DeepLabv3.
+Table13summarizesmemoryandtimecostcomparisons5.
+8 CONCLUSIONS
+Futureandfollowupworks.Wewillstudythecombination
+In this paper, we present a high-resolution network for oftheHRNetwithothertechniquesforsemanticsegmenta-
+visual recognition problems. There are three fundamen- tion and instance segmentation. Currently, we have results
+tal differences from existing low-resolution classification (mIoU),whicharedepictedinTables3456,bycombining
+networks and high-resolution representation learning net- theHRNetwiththeobject-contextualrepresentation(OCR)
+works:(i)Connecthighandlowresolutionconvolutionsin scheme[170]6,avariantofobjectcontext[59],[171].Wewill
+parallel other than in series; (ii) Maintain high resolution conductthestudybyfurtherincreasingtheresolutionofthe
+through the whole process instead of recovering high reso- representation,e.g.,to 1 orevenafullresolution.
+2
+lution from low resolution; and (iii) Fuse multi-resolution The applications of the HRNet are not limited to the
+representations repeatedly, rendering rich high-resolution abovethatwehavedone,andaresuitabletootherposition-
+representationswithstrongpositionsensitivity. sensitive vision applications, such as facial landmark de-
+The superior results on a wide range of visual recog-
+nition problems suggest that our proposed HRNet is a
+5.Thedetailedcomparisonsaregiveninthesupplementaryfile.
+stronger backbone for computer vision problems. Our re-
+6.WeempiricallyobservedthattheHRNetcombinedwithASPP[20]
+search also encourages more research efforts for designing
+orPPM[181]didnotgetaperformanceimprovementonCityscape,but
+network architectures directly for specific vision problems gotaslightimprovementonPASCAL-ContextandLIP.
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 12
+TABLE13
+Memoryandtimecostcomparisonsforposeestimation,semanticsegmentationandobjectdetection(undertheFasterR-CNNframework)on
+PyTorch1.0intermsoftraining/inferencememoryandtraining/inferencetime.Wealsoreportinferencetime(in())forposeestimationonMXNet
+1.5.1,whichsupportsstaticgraphinferencethatmutli-branchconvolutionsusedintheHRNetbenefitsfrom.Thenumbersfortrainingareobtained
+onamachinewith4V100GPUcards.Duringtraining,theinputsizesare256×192,512×1024,and800×1333,andthebatchsizesare128,8
+and8forposeestimation,segmentationanddetectionrespectively.ThenumbersforinferenceareobtainedonasingleV100GPUcard.Theinput
+sizesare256×192,1024×2048,and800×1333,respectively.ThescoremeansAPforposeestimationonCOCOval(Table1)anddetection
+onCOCOval(Table8),andmIoUforcityscapessegmentation(Table3).Severalobservationsarehighlighted.Memory:TheHRNetconsumes
+similarmemoryforbothtrainingandinferenceexceptthatitconsumessmallermemoryfortraininginhumanposeestimation.Time:Thetraining
+andinferencetimecostoftheHRNetiscomparabletopreviousstate-of-the-artsexceptthattheinferencetimeoftheHRNetforsegmentationis
+muchsmaller.SB-ResNet-152=SimpleBaselinewiththebackboneofResNet-152.PSPNetandDeepLabV3usedilatedResNet-101asthe
+backbone(Table3).
+Poseestimation Segmentation Detection
+SB-ResNet-152 HRNetV1-W48 PSPNet DeepLabV3 HRNetV2-W48 ResNet-101 ResNeXt-101 HRNetV2p-W32 HRNetV2p-W48
+trainingmemory 14.8G 7.3G 14.4G 13.3G 13.9G 5.4G 9.5G 8.5G 11.3G
+inferencememory/image 0.29G 0.27G 1.60G 1.15G 1.79G 0.62G 0.77G 0.51G 0.79G
+trainingsecond/iteration 1.085 1.231 0.837 0.850 0.692 0.550 1.183 0.690 0.965
+inferencesecond/image 0.030(0.012) 0.058(0.017) 0.397 0.411 0.150 0.087 0.144 0.101 0.116
+score 72.0 75.1 79.7 78.5 81.1 39.8 40.8 40.9 41.8
+tection7, super-resolution, optical flow estimation, depth [11] Z.Cai,Q.Fan,R.S.Feris,andN.Vasconcelos. Aunifiedmulti-
+estimation, and so on. There are already followup works, scaledeepconvolutionalneuralnetworkforfastobjectdetection.
+InECCV,pages354–370,2016. 2
+e.g., image stylization [83], inpainting [50], image enhance-
+[12] Z.CaiandN.Vasconcelos. CascadeR-CNN:delvingintohigh
+ment[62],imagedehazing[1],temporalposeestimation[6], qualityobjectdetection.InCVPR,pages6154–6162,2018.2,9,10
+anddroneobjectdetection[190]. [13] Z.CaiandN.Vasconcelos. CascadeR-CNN:highqualityobject
+detection and instance segmentation. CoRR, abs/1906.09756,
+It is reported in [26] that a slightly-modified HRNet
+2019. 8,9,10
+combined with ASPP achieved the best performance for [14] X. Cao, Y. Wei, F. Wen, and J. Sun. Face alignment by explicit
+Mapillary panoptic segmentation in the single model case. shaperegression. InCVPR,pages2887–2894,2012. 20,21
+[15] Z.Cao,T.Simon,S.Wei,andY.Sheikh. Realtimemulti-person
+In the COCO + Mapillary Joint Recognition Challenge
+2d pose estimation using part affinity fields. In CVPR, pages
+Workshop at ICCV 2019, the COCO DensePose challenge 1302–1310,2017. 5
+winner and almost all the COCO keypoint detection chal- [16] K.Chen,J.Pang,J.Wang,Y.Xiong,X.Li,S.Sun,W.Feng,Z.Liu,
+J.Shi,W.Ouyang,C.C.Loy,andD.Lin.Hybridtaskcascadefor
+lenge participants adopted the HRNet. The OpenImage
+instancesegmentation. CoRR,abs/1901.07518,2019. 2,8,9,10
+instance segmentation challenge winner (ICCV 2019) also [17] K.Chen,J.Wang,J.Pang,Y.Cao,Y.Xiong,X.Li,S.Sun,W.Feng,
+usedtheHRNet. Z. Liu, J. Xu, Z. Zhang, D. Cheng, C. Zhu, T. Cheng, Q. Zhao,
+B.Li,X.Lu,R.Zhu,Y.Wu,J.Dai,J.Wang,J.Shi,W.Ouyang,C.C.
+Loy, and D. Lin. Mmdetection: Open mmlab detection toolbox
+REFERENCES andbenchmark. CoRR,abs/1906.07155,2019. 9,10,22
+[18] L.Chen,G.Papandreou,I.Kokkinos,K.Murphy,andA.L.Yuille.
+[1] C.O.Ancuti,C.Ancuti,R.Timofte,L.VanGool,L.Zhang,and Semanticimagesegmentationwithdeepconvolutionalnetsand
+M.-H. Yang. Ntire 2019 image dehazing challenge report. In fullyconnectedcrfs. CoRR,abs/1412.7062,2014. 2
+CVPRWorkshops,June2019. 12 [19] L.Chen,G.Papandreou,I.Kokkinos,K.Murphy,andA.L.Yuille.
+[2] A. Arnab, S. Jayasumana, S. Zheng, and P. H. S. Torr. Higher Deeplab:Semanticimagesegmentationwithdeepconvolutional
+order conditional random fields in deep neural networks. In nets, atrous convolution, and fully connected crfs. IEEE Trans.
+ECCV,pages524–540,2016. 7 PatternAnal.Mach.Intell.,40(4):834–848,2018. 1,2,6,7
+[3] V.Badrinarayanan,A.Kendall,andR.Cipolla. Segnet:Adeep [20] L. Chen, G. Papandreou, F. Schroff, and H. Adam. Rethinking
+convolutional encoder-decoder architecture for image segmen- atrous convolution for semantic image segmentation. CoRR,
+tation. IEEE Trans. Pattern Anal. Mach. Intell., 39(12):2481–2495, abs/1706.05587,2017. 6,11
+2017. 1,2 [21] L.Chen,Y.Yang,J.Wang,W.Xu,andA.L.Yuille. Attentionto
+[4] T. Baltrusaitis, P. Robinson, and L. Morency. Constrained local scale:Scale-awaresemanticimagesegmentation.InCVPR,pages
+neuralfieldsforrobustfaciallandmarkdetectioninthewild. In 3640–3649,2016. 2
+ICCVW,pages354–361,2013. 21 [22] L. Chen, Y. Zhu, G. Papandreou, F. Schroff, and H. Adam.
+[5] P. N. Belhumeur, D. W. Jacobs, D. J. Kriegman, and N. Kumar. Encoder-decoderwithatrousseparableconvolutionforsemantic
+Localizingpartsoffacesusingaconsensusofexemplars. IEEE imagesegmentation. InECCV,pages833–851,2018. 2,6,7
+Trans.PatternAnal.Mach.Intell.,35(12):2930–2940,2013. 19 [23] Y. Chen, C. Shen, X. Wei, L. Liu, and J. Yang. Adversarial
+[6] G. Bertasius, C. Feichtenhofer, D. Tran, J. Shi, and L. Torresani. posenet: A structure-aware convolutional network for human
+Learningtemporalposeestimationfromsparsely-labeledvideos. poseestimation. InICCV,pages1221–1230,2017. 19,21
+CoRR,abs/1906.04016,2019. 12 [24] Y. Chen, Z. Wang, Y. Peng, Z. Zhang, G. Yu, and J. Sun. Cas-
+[7] A. Bulat and G. Tzimiropoulos. Human pose estimation via cadedpyramidnetworkformulti-personposeestimation.CoRR,
+convolutionalpartheatmapregression.InECCV,pages717–732, abs/1711.07319,2017. 2,5,6
+2016. 2 [25] Z. Chen, S. Huang, and D. Tao. Context refinement for object
+[8] A. Bulat and G. Tzimiropoulos. Binarized convolutional land- detection. InECCV,pages74–89,2018. 10
+mark localizers for human pose estimation and face alignment [26] B.Cheng,M.D.Collins,Y.Zhu,T.Liu,T.S.Huang,H.Adam,and
+withlimitedresources. InICCV,pages3726–3734,2017. 2 L.Chen.Panoptic-deeplab:Asimple,strong,andfastbaselinefor
+[9] A.BulatandG.Tzimiropoulos.Howfararewefromsolvingthe bottom-uppanopticsegmentation. CoRR,abs/1911.10194,2019.
+2d&3dfacealignmentproblem?(andadatasetof230,0003d 12
+faciallandmarks). InICCV,pages1021–1030,2017. 2 [27] X.Chu,W.Yang,W.Ouyang,C.Ma,A.L.Yuille,andX.Wang.
+[10] X. P. Burgos-Artizzu, P. Perona, and P. Dolla´r. Robust face Multi-context attention for human pose estimation. In CVPR,
+landmarkestimationunderocclusion.InICCV,pages1513–1520, pages5669–5678,2017. 2
+2013. 19,20 [28] M. Cordts, M. Omran, S. Ramos, T. Rehfeld, M. Enzweiler,
+R.Benenson,U.Franke,S.Roth,andB.Schiele. Thecityscapes
+7. We provide the facial landmark detection results in the supple- datasetforsemanticurbansceneunderstanding.InCVPR,pages
+mentaryfile. 3213–3223,2016. 7
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 13
+[29] J.Dai,K.He,andJ.Sun. Boxsup:Exploitingboundingboxesto objectdetection. InCVPR,pages3588–3597,2018. 10
+superviseconvolutionalnetworksforsemanticsegmentation. In [57] P.HuandD.Ramanan.Bottom-upandtop-downreasoningwith
+ICCV,pages1635–1643,2015. 7 hierarchicalrectifiedgaussians.InCVPR,pages5600–5609,2016.
+[30] J.Deng,Q.Liu,J.Yang,andD.Tao. M3CSR:multi-view,multi- 2
+scale and multi-component cascade shape regression. Image [58] G. Huang, D. Chen, T. Li, F. Wu, L. van der Maaten, and
+VisionComput.,47:19–26,2016. 21 K.Q.Weinberger. Multi-scaledenseconvolutionalnetworksfor
+[31] J.Deng,G.Trigeorgis,Y.Zhou,andS.Zafeiriou.Jointmulti-view efficientprediction. CoRR,abs/1703.09844,2017. 2
+facealignmentinthewild. CoRR,abs/1708.06023,2017. 2,21 [59] L. Huang, Y. Yuan, J. Guo, C. Zhang, X. Chen, and J. Wang.
+[32] H. Ding, X. Jiang, B. Shuai, A. Q. Liu, and G. Wang. Context Interlacedsparseself-attentionforsemanticsegmentation.CoRR,
+contrasted feature and gated multi-scale aggregation for scene abs/1907.12273,2019. 11
+segmentation. InCVPR,pages2393–2402,2018. 7 [60] S. Huang, M. Gong, and D. Tao. A coarse-fine network for
+[33] H. Ding, X. Jiang, B. Shuai, A. Q. Liu, and G. Wang. Semantic keypointlocalization.InICCV,pages3047–3056.IEEEComputer
+correlationpromotedshape-variantcontextforsegmentation. In Society,2017. 5
+CVPR,June2019. 6,7 [61] Z. Huang, X. Wang, L. Huang, C. Huang, Y. Wei, and W. Liu.
+[34] X. Dong, Y. Yan, W. Ouyang, and Y. Yang. Style aggregated Ccnet: Criss-cross attention for semantic segmentation. CoRR,
+networkforfaciallandmarkdetection. InCVPR,pages379–388, abs/1811.11721,2018. 6
+2018. 20,21 [62] A. Ignatov and R. Timofte. Ntire 2019 challenge on image
+[35] X. Dong, S. Yu, X. Weng, S. Wei, Y. Yang, and Y. Sheikh. enhancement:Methodsandresults. InCVPRW,June2019. 12
+Supervision-by-registration: An unsupervised approach to im- [63] E. Insafutdinov, L. Pishchulin, B. Andres, M. Andriluka, and
+provetheprecisionoffaciallandmarkdetectors.InCVPR,pages B.Schiele.Deepercut:Adeeper,stronger,andfastermulti-person
+360–368,2018. 20,21 poseestimationmodel. InECCV,pages34–50,2016. 2
+[36] K.Duan,S.Bai,L.Xie,H.Qi,Q.Huang,andQ.Tian. Centernet: [64] M. A. Islam, M. Rochan, N. D. B. Bruce, and Y. Wang. Gated
+Keypoint triplets for object detection. CoRR, abs/1904.08189, feedbackrefinementnetworkfordenseimagelabeling.InCVPR,
+2019. 2,8,9,10 pages4877–4885,2017. 2
+[37] H.FanandE.Zhou. Approachinghumanlevelfaciallandmark [65] X.Jin,X.Li,H.Xiao,X.Shen,Z.Lin,J.Yang,Y.Chen,J.Dong,
+localization by deep learning. Image Vision Comput., 47:27–35, L. Liu, Z. Jie, J. Feng, and S. Yan. Video scene parsing with
+2016. 21 predictivefeaturelearning. InICCV,pages5581–5589,2017. 6
+[38] H.Fang,S.Xie,Y.Tai,andC.Lu. RMPE:regionalmulti-person [66] A. Kanazawa, A. Sharma, and D. W. Jacobs. Locally scale-
+poseestimation. InICCV,pages2353–2362,2017. 5 invariantconvolutionalneuralnetworks. CoRR,abs/1412.5104,
+[39] Z.Feng,G.Hu,J.Kittler,W.J.Christmas,andX.Wu. Cascaded 2014. 2
+collaborative regression for robust facial landmark detection [67] V.KazemiandJ.Sullivan. Onemillisecondfacealignmentwith
+trained using a mixture of synthetic and real images with dy- anensembleofregressiontrees.InCVPR,pages1867–1874,2014.
+namicweighting. IEEETrans.ImageProcessing,24(11):3425–3440, 20,21
+[68] L.Ke,M.Chang,H.Qi,andS.Lyu. Multi-scalestructure-aware
+2015. 20
+[40] Z. Feng, J. Kittler, M. Awais, P. Huber, and X. Wu. Wing loss networkforhumanposeestimation.CoRR,abs/1803.09894,2018.
+forrobustfaciallandmarklocalisationwithconvolutionalneural 2
+[69] T.Ke,J.Hwang,Z.Liu,andS.X.Yu. Adaptiveaffinityfieldsfor
+networks. InCVPR,pages2235–2245,2018. 19,20
+[41] Z. Feng, J. Kittler, W. J. Christmas, P. Huber, and X. Wu. Dy- semanticsegmentation. InECCV,pages605–621,2018. 6
+[70] S. Kim, H. Kook, J. Sun, M. Kang, and S. Ko. Parallel feature
+namicattention-controlledcascadedshaperegressionexploiting
+pyramidnetworkforobjectdetection. InECCV,pages239–256,
+trainingdataaugmentationandfuzzy-setsampleweighting. In
+2018. 10
+CVPR,pages3681–3690,2017. 20
+[42] D. Fourure, R. Emonet, E´. Fromont, D. Muselet, A. Tre´meau, [71] D.P.KingmaandJ.Ba.Adam:Amethodforstochasticoptimiza-
+tion. CoRR,abs/1412.6980,2014. 6
+and C. Wolf. Residual conv-deconv grid network for semantic
+[72] M.Kocabas,S.Karagoz,andE.Akbas. Multiposenet:Fastmulti-
+segmentation. InBMVC,2017. 2,6
+personposeestimationusingposeresidualnetwork. InECCV,
+[43] J.Fu,J.Liu,H.Tian,Z.Fang,andH.Lu. Dualattentionnetwork
+pages437–453.Springer,2018. 5
+forscenesegmentation. CoRR,abs/1809.02983,2018. 6,7
+[73] S. Kong and C. C. Fowlkes. Recurrent scene parsing with
+[44] J. Fu, J. Liu, Y. Wang, and H. Lu. Stacked deconvolutional
+perspectiveunderstandingintheloop. InCVPR,pages956–965,
+networkforsemanticsegmentation.CoRR,abs/1708.04943,2017.
+2018. 6
+2
+[74] T.Kong,F.Sun,W.Huang,andH.Liu. Deepfeaturepyramid
+[45] G. Ghiasi and C. C. Fowlkes. Occlusion coherence: Localizing
+reconfiguration for object detection. In ECCV, pages 172–188,
+occluded faces with a hierarchical deformable part model. In
+2018. 10
+CVPR,pages1899–1906,2014. 20
+[75] M.Ko¨stinger,P.Wohlhart,P.M.Roth,andH.Bischof.Annotated
+[46] G.GhiasiandC.C.Fowlkes. Laplacianpyramidreconstruction
+faciallandmarksinthewild:Alarge-scale,real-worlddatabase
+andrefinementforsemanticsegmentation. InECCV,pages519–
+forfaciallandmarklocalization. InICCV,pages2144–2151,2011.
+534,2016. 6
+19
+[47] K.Gong,X.Liang,X.Shen,andL.Lin. Lookintoperson:Self-
+[76] M.Kowalski,J.Naruniec,andT.Trzcinski. Deepalignmentnet-
+supervised structure-sensitive learning and A new benchmark
+work:Aconvolutionalneuralnetworkforrobustfacealignment.
+forhumanparsing. CoRR,abs/1703.05446,2017. 7,8
+CoRR,abs/1706.01789,2017. 2,21
+[48] R.A.Gu¨ler,G.Trigeorgis,E.Antonakos,P.Snape,S.Zafeiriou,
+[77] A.Krizhevsky,I.Sutskever,andG.E.Hinton. Imagenetclassifi-
+and I. Kokkinos. Densereg: Fully convolutional dense shape
+cationwithdeepconvolutionalneuralnetworks. InNIPS,pages
+regressionin-the-wild. InCVPR,pages2614–2623,2017. 21
+1106–1114,2012. 1
+[49] J.Guo,J.Deng,N.Xue,andS.Zafeiriou. Stackeddenseu-nets
+[78] A.KumarandR.Chellappa.Disentangling3dposeinadendritic
+with dual transformers for robust face alignment. In BMVC,
+CNNforunconstrained2dfacealignment. InCVPR,pages430–
+page44,2018. 2
+439.IEEEComputerSociety,2018. 21
+[50] Z. Guo, Z. Chen, T. Yu, J. Chen, and S. Liu. Progressive
+[79] H. Law and J. Deng. Cornernet: Detecting objects as paired
+image inpainting with full-resolution residual network. CoRR,
+keypoints. InECCV,pages765–781,2018. 10
+abs/1907.10478,2019. 12
+[80] V.Le,J.Brandt,Z.Lin,L.D.Bourdev,andT.S.Huang.Interactive
+[51] J.He,Z.Deng,L.Zhou,Y.Wang,andY.Qiao.Adaptivepyramid
+facial feature localization. In ECCV (3), volume 7574 of Lecture
+contextnetworkforsemanticsegmentation. InCVPR,June2019.
+NotesinComputerScience,pages679–692.Springer,2012. 19
+7,8
+[81] Y. Lecun, L. Bottou, Y. Bengio, and P. Haffner. Gradient-based
+[52] K. He, R. B. Girshick, and P. Dolla´r. Rethinking imagenet pre-
+learning applied to document recognition. In Proceedings of the
+training. CoRR,abs/1811.08883,2018. 9
+IEEE,pages2278–2324,1998. 1
+[53] K.He,G.Gkioxari,P.Dolla´r,andR.B.Girshick. MaskR-CNN.
+[82] H.Li,P.Xiong,J.An,andL.Wang. Pyramidattentionnetwork
+InICCV,pages2980–2988,2017. 2,5,8,9
+forsemanticsegmentation. InBMVC,page285,2018. 6
+[54] K.He,X.Zhang,S.Ren,andJ.Sun. Deepresiduallearningfor
+[83] M.Li,C.Ye,andW.Li.High-resolutionnetworkforphotorealis-
+imagerecognition. InCVPR,pages770–778,2016. 1,2,6,8,16
+ticstyletransfer. CoRR,abs/1904.11617,2019. 12
+[55] S. Honari, J. Yosinski, P. Vincent, and C. J. Pal. Recombinator
+[84] X. Li, Z. Liu, P. Luo, C. C. Loy, and X. Tang. Not all pixels
+networks:Learningcoarse-to-finefeatureaggregation. InCVPR,
+areequal:Difficulty-awaresemanticsegmentationviadeeplayer
+pages5743–5752,2016. 2,20,21
+cascade. InCVPR,pages6459–6468,2017. 6
+[56] H.Hu,J.Gu,Z.Zhang,J.Dai,andY.Wei. Relationnetworksfor
+[85] Z.Li,Y.Chen,G.Yu,andY.Deng. R-FCN++:towardsaccurate
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 14
+region-based fully convolutional networks for object detection. (1),volume9905,pages38–56,2016. 1,2
+InAAAI,pages7073–7080,2018. 9 [113] L.Pishchulin,E.Insafutdinov,S.Tang,B.Andres,M.Andriluka,
+[86] Z. Li, C. Peng, G. Yu, X. Zhang, Y. Deng, and J. Sun. Detnet: P.V.Gehler,andB.Schiele. Deepcut:Jointsubsetpartitionand
+Designbackboneforobjectdetection. InECCV,pages339–354, labelingformultipersonposeestimation. InCVPR,pages4929–
+2018. 2,10 4937,2016. 2
+[87] X.Liang,K.Gong,X.Shen,andL.Lin. Lookintoperson:Joint [114] T.Pohlen,A.Hermans,M.Mathias,andB.Leibe.Full-resolution
+bodyparsing&poseestimationnetworkandAnewbenchmark. residualnetworksforsemanticsegmentationinstreetscenes. In
+CoRR,abs/1804.01984,2018. 7 CVPR,pages3309–3318,2017. 2,6
+[88] X. Liang, H. Zhou, and E. Xing. Dynamic-structured semantic [115] L. Qi, S. Liu, J. Shi, and J. Jia. Sequential context encoding for
+propagationnetwork. InCVPR,pages752–761,2018. 6 duplicateremoval. InNeurIPS,pages2053–2062,2018. 9
+[89] I. Lifshitz, E. Fetaya, and S. Ullman. Human pose estimation [116] S.Ren,X.Cao,Y.Wei,andJ.Sun.Facealignmentat3000FPSvia
+usingdeepconsensusvoting. InECCV,pages246–260,2016. 2 regressinglocalbinaryfeatures.InCVPR,pages1685–1692,2014.
+[90] G.Lin,A.Milan,C.Shen,andI.D.Reid. Refinenet:Multi-path 20,21
+refinementnetworksforhigh-resolutionsemanticsegmentation. [117] S.Ren,X.Cao,Y.Wei,andJ.Sun. Facealignmentviaregressing
+InCVPR,pages5168–5177,2017. 2,6,7 local binary features. IEEE Trans. Image Processing, 25(3):1233–
+[91] G. Lin, C. Shen, A. van den Hengel, and I. D. Reid. Efficient 1245,2016. 19
+piecewise training of deep structured models for semantic seg- [118] S.Ren,K.He,R.B.Girshick,andJ.Sun. FasterR-CNN:towards
+mentation. InCVPR,pages3194–3203,2016. 6,7 real-timeobjectdetectionwithregionproposalnetworks. IEEE
+[92] T. Lin, P. Dolla´r, R. B. Girshick, K. He, B. Hariharan, and S. J. Trans.PatternAnal.Mach.Intell.,39(6):1137–1149,2017. 9
+Belongie. Feature pyramid networks for object detection. In [119] O. Ronneberger, P. Fischer, and T. Brox. U-net: Convolutional
+CVPR,pages936–944,2017. 2,8,10 networksforbiomedicalimagesegmentation. InMICCAI,pages
+[93] T.Lin,P.Goyal,R.B.Girshick,K.He,andP.Dolla´r. Focalloss 234–241,2015. 1,2
+fordenseobjectdetection. InICCV,pages2999–3007,2017. 8,10 [120] O. Russakovsky, J. Deng, H. Su, J. Krause, S. Satheesh, S. Ma,
+[94] T.Lin,M.Maire,S.J.Belongie,J.Hays,P.Perona,D.Ramanan, Z. Huang, A. Karpathy, A. Khosla, M. S. Bernstein, A. C. Berg,
+P.Dolla´r,andC.L.Zitnick. MicrosoftCOCO:commonobjectsin and F. Li. Imagenet large scale visual recognition challenge.
+context. InECCV,pages740–755,2014. 1,5 InternationalJournalofComputerVision,115(3):211–252,2015. 16
+[95] C.Liu,L.-C.Chen,F.Schroff,H.Adam,W.Hua,A.Yuille,and [121] C.Sagonas,G.Tzimiropoulos,S.Zafeiriou,andM.Pantic. 300
+L.Fei-Fei. Auto-deeplab:Hierarchicalneuralarchitecturesearch facesin-the-wildchallenge:Thefirstfaciallandmarklocalization
+forsemanticimagesegmentation.arXivpreprintarXiv:1901.02985, challenge. InICCVWorkshops,pages397–403,2013. 19
+2019. 6 [122] M.Samy,K.Amer,K.Eissa,M.Shaker,andM.ElHelw. Nu-net:
+[96] S. Liu, D. Huang, and Y. Wang. Receptive field block net for Deepresidualwidefieldofviewconvolutionalneuralnetwork
+accurateandfastobjectdetection.InECCV,pages404–419,2018. forsemanticsegmentation. InCVPRW,June2018. 2
+10 [123] S.SaxenaandJ.Verbeek. Convolutionalneuralfabrics. InNIPS,
+[97] S.Liu,L.Qi,H.Qin,J.Shi,andJ.Jia. Pathaggregationnetwork pages4053–4061,2016. 2
+forinstancesegmentation. InCVPR,pages8759–8768,2018. 9 [124] P. Sermanet, D. Eigen, X. Zhang, M. Mathieu, R. Fergus, and
+[98] T.Liu,T.Ruan,Z.Huang,Y.Wei,S.Wei,Y.Zhao,andT.Huang. Y. LeCun. Overfeat: Integrated recognition, localization and
+Devilinthedetails:Towardsaccuratesingleandmultiplehuman detection using convolutional networks. CoRR, abs/1312.6229,
+parsing. CoRR,abs/1809.05996,2018. 7,8 2013. 2
+[99] J. Long, E. Shelhamer, and T. Darrell. Fully convolutional net- [125] E. Shelhamer, J. Long, and T. Darrell. Fully convolutional net-
+works for semantic segmentation. In CVPR, pages 3431–3440, worksforsemanticsegmentation.IEEETrans.PatternAnal.Mach.
+2015. 2 Intell.,39(4):640–651,2017. 7
+[100] Y.Luo,Z.Zheng,L.Zheng,T.Guan,J.Yu,andY.Yang. Macro- [126] K. Simonyan and A. Zisserman. Very deep convolutional net-
+microadversarialnetworkforhumanparsing. InECCV,pages worksforlarge-scaleimagerecognition. InICLR,2015. 1,2
+424–440,2018. 7 [127] B.SinghandL.S.Davis.Ananalysisofscaleinvarianceinobject
+[101] J.Lv,X.Shao,J.Xing,C.Cheng,andX.Zhou. Adeepregression detection SNIP. InCVPR,pages3578–3587,2018. 9
+architecturewithtwo-stagere-initializationforhighperformance [128] B.Singh,M.Najibi,andL.S.Davis.SNIPER:efficientmulti-scale
+faciallandmarkdetection. InCVPR,pages3691–3700,2017. 20 training. InNeurIPS,pages9333–9343,2018. 9
+[102] X. Miao, X. Zhen, X. Liu, C. Deng, V. Athitsos, and H. Huang. [129] K.Sun,M.Li,D.Liu,andJ.Wang. IGCV3:interleavedlow-rank
+Directshaperegressionnetworksforend-to-endfacealignment. groupconvolutionsforefficientdeepneuralnetworks.InBMVC,
+InCVPR,pages5040–5049,2018. 20,21 page101.BMVAPress,2018. 3
+[103] R.Mottaghi,X.Chen,X.Liu,N.Cho,S.Lee,S.Fidler,R.Urtasun, [130] K. Sun, B. Xiao, D. Liu, and J. Wang. Deep high-resolution
+and A. L. Yuille. The role of context for object detection and representation learning for human pose estimation. In CVPR,
+semantic segmentation in the wild. In CVPR, pages 891–898, 2019. 3,17
+2014. 7 [131] K. Sun, Y. Zhao, B. Jiang, T. Cheng, B. Xiao, D. Liu, Y. Mu,
+[104] A.Newell,Z.Huang,andJ.Deng. Associativeembedding:End- X.Wang,W.Liu,andJ.Wang. High-resolutionrepresentations
+to-endlearningforjointdetectionandgrouping. InNIPS,pages forlabelingpixelsandregions. CoRR,abs/1904.04514,2019. 3
+2274–2284,2017. 5 [132] X.Sun,B.Xiao,F.Wei,S.Liang,andY.Wei.Integralhumanpose
+[105] A.Newell,K.Yang,andJ.Deng.Stackedhourglassnetworksfor regression. InECCV,pages536–553,2018. 5
+humanposeestimation. InECCV,pages483–499,2016. 1,2,5,6, [133] C.Szegedy,W.Liu,Y.Jia,P.Sermanet,S.E.Reed,D.Anguelov,
+19 D.Erhan,V.Vanhoucke,andA.Rabinovich. Goingdeeperwith
+[106] X. Nie, J. Feng, and S. Yan. Mutual learning to adapt for joint convolutions. InCVPR,pages1–9,2015. 1
+human parsing and pose estimation. In ECCV, pages 519–534, [134] W.Tang,P.Yu,andY.Wu.Deeplylearnedcompositionalmodels
+2018. 7 forhumanposeestimation. InECCV,September2018. 2
+[107] H.Noh,S.Hong,andB.Han. Learningdeconvolutionnetwork [135] Z.Tang,X.Peng,S.Geng,L.Wu,S.Zhang,andD.N.Metaxas.
+forsemanticsegmentation. InICCV,pages1520–1528,2015. 1,2 Quantizeddenselyconnectedu-netsforefficientlandmarklocal-
+[108] G.Papandreou,T.Zhu,L.-C.Chen,S.Gidaris,J.Tompson,and ization. InECCV,pages348–364,2018. 2
+K.Murphy. Personlab:Personposeestimationandinstanceseg- [136] Z.Tian,C.Shen,H.Chen,andT.He. FCOS:fullyconvolutional
+mentation with a bottom-up, part-based, geometric embedding one-stageobjectdetection. CoRR,abs/1904.01355,2019. 2,8,9,
+model. InECCV,2018. 5 10
+[109] G. Papandreou, T. Zhu, N. Kanazawa, A. Toshev, J. Tompson, [137] J. Tompson, R. Goroshin, A. Jain, Y. LeCun, and C. Bregler.
+C.Bregler,andK.Murphy. Towardsaccuratemulti-personpose Efficient object localization using convolutional networks. In
+estimationinthewild. InCVPR,pages3711–3719,2017. 5,6 CVPR,pages648–656,2015. 2
+[110] C. Peng, T. Xiao, Z. Li, Y. Jiang, X. Zhang, K. Jia, G. Yu, and [138] G. Trigeorgis, P. Snape, M. A. Nicolaou, E. Antonakos, and
+J. Sun. Megdet: A large mini-batch object detector. In CVPR, S. Zafeiriou. Mnemonic descent method: A recurrent process
+pages6181–6189,2018. 9 applied for end-to-end face alignment. In CVPR, pages 4177–
+[111] C. Peng, X. Zhang, G. Yu, G. Luo, and J. Sun. Large kernel 4187,2016. 21
+matters-improvesemanticsegmentationbyglobalconvolutional [139] L. Tychsen-Smith and L. Petersson. Denet: Scalable real-time
+network. InCVPR,pages1743–1751,2017. 2,6 objectdetectionwithdirectedsparsesampling. InICCV,pages
+[112] X. Peng, R. S. Feris, X. Wang, and D. N. Metaxas. A recurrent 428–436,2017. 10
+encoder-decodernetworkforsequentialfacealignment.InECCV [140] L.Tychsen-SmithandL.Petersson.Improvingobjectlocalization
+withfitnessNMSandboundediouloss. InCVPR,pages6877–
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 15
+6885,2018. 10 cascaded deformable shape model. In ICCV, pages 1944–1951.
+[141] R. Valle, J. M. Buenaposada, A. Valde´s, and L. Baumela. A IEEEComputerSociety,2013. 20
+deeply-initializedcoarse-to-fineensembleofregressiontreesfor [170] Y.Yuan,X.Chen,andJ.Wang.Object-contextualrepresentations
+facealignment. InECCV,pages609–624,2018. 2,19,20,21 forsemanticsegmentation. CoRR,abs/1909.11065,2019. 6,7,8,
+[142] H. Wang, Q. Wang, M. Gao, P. Li, and W. Zuo. Multi-scale 11
+location-aware kernel representation for object detection. In [171] Y. Yuan and J. Wang. Ocnet: Object context network for scene
+CVPR,pages1248–1257,2018. 10 parsing. CoRR,abs/1809.00916,2018. 11
+[143] J.Wang,Z.Wei,T.Zhang,andW.Zeng.Deeply-fusednets.CoRR, [172] H. Zhang, K. J. Dana, J. Shi, Z. Zhang, X. Wang, A. Tyagi, and
+abs/1605.07716,2016. 3 A. Agrawal. Context encoding for semantic segmentation. In
+[144] P.Wang,P.Chen,Y.Yuan,D.Liu,Z.Huang,X.Hou,andG.W. CVPR,pages7151–7160,2018. 7
+Cottrell. Understandingconvolutionforsemanticsegmentation. [173] H.Zhang,H.Zhang,C.Wang,andJ.Xie. Co-occurrentfeatures
+InWACV,2018. 6 insemanticsegmentation. InCVPR,June2019. 6,7
+[145] Y.Wang,L.Xie,C.Liu,S.Qiao,Y.Zhang,W.Zhang,Q.Tian,and [174] J. Zhang, M. Kan, S. Shan, and X. Chen. Occlusion-free face
+A.L.Yuille. SORT:second-orderresponsetransformforvisual alignment: Deep regression networks coupled with de-corrupt
+recognition. InICCV,pages1368–1377,2017. 11 autoencoders. InCVPR,pages3428–3437,2016. 20
+[146] Z.Wang,W.Li,B.Yin,Q.Peng,T.Xiao,Y.Du,Z.Li,X.Zhang, [175] J. Zhang, S. Shan, M. Kan, and X. Chen. Coarse-to-fine auto-
+G. Yu, and J. Sun. Mscoco keypoints challenge 2018. In Joint encodernetworks(CFAN)forreal-timefacealignment.InECCV
+RecognitionChallengeWorkshopatECCV2018,2018. 6 (2),volume8690,pages1–16.Springer,2014. 21
+[147] Z.Wojna,J.R.R.Uijlings,S.Guadarrama,N.Silberman,L.Chen, [176] R. Zhang, S. Tang, Y. Zhang, J. Li, and S. Yan. Scale-adaptive
+A.Fathi,andV.Ferrari. Thedevilisinthedecoder. InBMVC, convolutionsforsceneparsing. InICCV,pages2050–2058,2017.
+2017. 2 6
+[148] J. Wu, H. Zheng, B. Zhao, Y. Li, B. Yan, R. Liang, W. Wang, [177] S. Zhang, L. Wen, X. Bian, Z. Lei, and S. Z. Li. Single-shot
+S. Zhou, G. Lin, Y. Fu, et al. Ai challenger: A large-scale refinementneuralnetworkforobjectdetection. InCVPR,pages
+datasetforgoingdeeperinimageunderstanding. arXivpreprint 4203–4212,2018. 10
+arXiv:1711.06475,2017. 6 [178] T. Zhang, G. Qi, B. Xiao, and J. Wang. Interleaved group
+[149] W.Wu,C.Qian,S.Yang,Q.Wang,Y.Cai,and Q.Zhou. Look convolutions. InICCV,pages4383–4392,2017. 3,4
+at boundary: A boundary-aware face alignment algorithm. In [179] Z. Zhang, S. Qiao, C. Xie, W. Shen, B. Wang, and A. L. Yuille.
+CVPR,pages2129–2138,2018. 2,19,20,21 Single-shotobjectdetectionwithenrichedsemantics. InCVPR,
+[150] W.WuandS.Yang.Leveragingintraandinter-datasetvariations pages5813–5821,2018. 10
+forrobustfacealignment. InCVPR,pages2096–2105,2017. 20 [180] Z. Zhang, X. Zhang, C. Peng, X. Xue, and J. Sun. Exfuse:
+[151] Z. Wu, C. Shen, and A. van den Hengel. Wider or deeper: Enhancingfeaturefusionforsemanticsegmentation. InECCV,
+Revisiting the resnet model for visual recognition. CoRR, pages273–288,2018. 2
+abs/1611.10080,2016. 6 [181] H.Zhao,J.Shi,X.Qi,X.Wang,andJ.Jia. Pyramidsceneparsing
+[152] B. Xiao, H. Wu, and Y. Wei. Simple baselines for human pose network. InCVPR,pages6230–6239,2017. 1,2,6,7,11
+estimationandtracking. InECCV,pages472–487,2018. 1,2,5,6 [182] H. Zhao, Y. Zhang, S. Liu, J. Shi, C. C. Loy, D. Lin, and J. Jia.
+[153] S. Xiao, J. Feng, J. Xing, H. Lai, S. Yan, and A. A. Kassim. Ro- Psanet:Point-wisespatialattentionnetworkforsceneparsing.In
+bustfaciallandmarkdetectionviarecurrentattentive-refinement ECCV,pages270–286,2018. 6,7
+networks. InECCV,pages57–72,2016. 20 [183] J. Zhao, J. Li, X. Nie, F. Zhao, Y. Chen, Z. Wang, J. Feng, and
+[154] T.Xiao,Y.Liu,B.Zhou,Y.Jiang,andJ.Sun. Unifiedperceptual S.Yan. Self-supervisedneuralaggregationnetworksforhuman
+parsingforsceneunderstanding. InECCV,pages432–448,2018. parsing. InCVPRW,pages1595–1603,2017. 7
+2 [184] L.Zhao,M.Li,D.Meng,X.Li,Z.Zhang,Y.Zhuang,Z.Tu,and
+[155] G.Xie,J.Wang,T.Zhang,J.Lai,R.Hong,andG.Qi. Interleaved J.Wang. Deepconvolutionalneuralnetworkswithmerge-and-
+structuredsparseconvolutionalneuralnetworks.InCVPR,pages runmappings. InIJCAI,pages3170–3176,2018. 3
+8847–8856.IEEEComputerSociety,2018. 3 [185] Q.Zhao,T.Sheng,Y.Wang,Z.Tang,Y.Chen,L.Cai,andH.Ling.
+[156] S. Xie, R. B. Girshick, P. Dolla´r, Z. Tu, and K. He. Aggregated M2det:Asingle-shotobjectdetectorbasedonmulti-levelfeature
+residual transformations for deep neural networks. In CVPR, pyramidnetwork. CoRR,abs/1811.04533,2018. 10
+pages5987–5995,2017. 8 [186] E. Zhou, H. Fan, Z. Cao, Y. Jiang, and Q. Yin. Extensive facial
+[157] S. Xie and Z. Tu. Holistically-nested edge detection. In ICCV, landmarklocalizationwithcoarse-to-fineconvolutionalnetwork
+pages1395–1403,2015. 2 cascade. InICCVW,pages386–391,2013. 21
+[158] X.XiongandF.D.laTorre. Superviseddescentmethodandits [187] P. Zhou, B. Ni, C. Geng, J. Hu, and Y. Xu. Scale-transferrable
+applications to face alignment. In CVPR, pages 532–539. IEEE objectdetection. InCVPR,pages528–537,2018. 10
+ComputerSociety,2013. 20,21 [188] Y.Zhou,X.Hu,andB.Zhang. Interlinkedconvolutionalneural
+[159] D. Xu, W. Ouyang, X. Wang, and N. Sebe. Pad-net: Multi- networksforfaceparsing. InISNN,pages222–231,2015. 2
+tasks guided prediction-and-distillation network for simultane- [189] Z.Zhou,M.M.R.Siddiquee,N.Tajbakhsh,andJ.Liang.Unet++:
+ousdepthestimationandsceneparsing.InCVPR,pages675–684, Anestedu-netarchitectureformedicalimagesegmentation. In
+2018. 6 MICCAI,pages3–11,2018. 2,6,7
+[160] H.Xu,X.Lv,X.Wang,Z.Ren,N.Bodla,andR.Chellappa. Deep [190] P. Zhu, D. Du, L. Wen, X. Bian, H. Ling, Q. Hu, T. Peng,
+regionletsforobjectdetection. InECCV,pages827–844,2018. 10 J. Zheng, X. Wang, Y. Zhang, L. Bo, H. Shi, R. Zhu, B. Dong,
+[161] Y.Xu,T.Xiao,J.Zhang,K.Yang,andZ.Zhang. Scale-invariant D.ReddyPailla,F.Ni,G.Gao,G.Liu,H.Xiong,J.Ge,J.Zhou,
+convolutionalneuralnetworks. CoRR,abs/1411.6369,2014. 2 J.Hu,L.Sun,L.Chen,M.Lauer,Q.Liu,S.SakethChennamsetty,
+[162] J. Yan, Z. Lei, D. Yi, and S. Z. Li. Learn to combine multiple T. Sun, T. Wu, V. Alex Kollerathu, W. Tian, W. Qin, X. Chen,
+hypothesesforaccuratefacealignment. InICCVW,pages392– X. Zhao, Y. Lian, Y. Wu, Y. Li, Y. Li, Y. Wang, Y. Song, Y. Yao,
+396,2013. 21 Y. Zhang, Z. Pi, Z. Chen, Z. Xu, Z. Xiao, Z. Luo, and Z. Liu.
+[163] J. Yang, Q. Liu, and K. Zhang. Stacked hourglass network for Visdrone-vid2019: The vision meets drone object detection in
+robustfaciallandmarklocalisation. InCVPR,pages2025–2033, videochallengeresults. InICCVWorkshop,Oct2019. 12
+2017. 2 [191] S.Zhu,C.Li,C.C.Loy,andX.Tang. Facealignmentbycoarse-
+[164] S. Yang, P. Luo, C. C. Loy, and X. Tang. WIDER FACE: A face to-fineshapesearching. InCVPR,pages4998–5006,2015. 19,20,
+detectionbenchmark. InCVPR,pages5525–5533,2016. 19 21
+[165] W.Yang,S.Li,W.Ouyang,H.Li,andX.Wang. Learningfeature [192] S. Zhu, C. Li, C. C. Loy, and X. Tang. Unconstrained face
+pyramidsforhumanposeestimation.InICCV,pages1290–1299, alignmentviacascadedcompositionallearning. InCVPR,pages
+2017. 2,5 3409–3417,2016. 20
+[166] C. Yu, J. Wang, C. Peng, C. Gao, G. Yu, and N. Sang. Bisenet: [193] X. Zhu and D. Ramanan. Face detection, pose estimation, and
+Bilateralsegmentationnetworkforreal-timesemanticsegmenta- landmark localization in the wild. In CVPR, pages 2879–2886,
+tion. InECCV,pages334–349,2018. 6 2012. 19
+[167] C.Yu,J.Wang,C.Peng,C.Gao,G.Yu,andN.Sang. Learning [194] Y.Zhu,C.Zhao,J.Wang,X.Zhao,Y.Wu,andH.Lu. Couplenet:
+adiscriminativefeaturenetworkforsemanticsegmentation. In Couplingglobalstructurewithlocalpartsforobjectdetection.In
+CVPR,pages1857–1866,2018. 6 ICCV,pages4146–4154,2017. 10
+[168] F.Yu,V.Koltun,andT.A.Funkhouser.Dilatedresidualnetworks. [195] Z. Zhu, M. Xu, S. Bai, T. Huang, and X. Bai. Asymmetric
+CoRR,abs/1705.09914,2017. 2 non-local neural networks for semantic segmentation. CoRR,
+[169] X. Yu, J. Huang, S. Zhang, W. Yan, and D. N. Metaxas. Pose- abs/1908.07678,2019. 6,7
+free facial landmark fitting via optimized part mixtures and
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 16
+APPENDIX A
+NETWORK INSTANTIATION
+Ourcurrentdesign(exceptthestandardstemandthehead,)containsfourstages,asshowninTable14.Eachstageconsists
+ofmodularizedblocks,repeated1,1,4,and3times,respectivelyforthefourstages.Themodularizedblockconsistsof1
+(2,3and4)branchesforthe1st(2nd,3rdand4th)stages.Eachbranchcorrespondstodifferentresolution,andiscompose
+offourresidualunitsandonemulti-resolutionfusionunit(SeeFigure3inthemainpaper).
+TABLE14
+ThearchitectureoftheHRNet(mainbody).Therearefourstages.Eachstageconsistsofmodularizedblocks,repeated1,1,4,and3times,
+respectivelyforthefourstages.Themodularizedblockconsistsof1(2,3and4)branchesforthe1st(2nd,3rdand4th)stages.Eachbranch
+correspondstoadifferentresolution,andiscomposedoffourresidualunitsandonemulti-resolutionfusionunit.Forclarify,thefusionunit(after
+eachmodulizedblock)isnotdepictedinthetable,andcouldbeunderstoodfromFigure3inthemainpaper.Inthetable,eachcellconsistsof
+threecomponents:thefirstone([ · ])istheresidualunit,thesecondnumberistherepetitiontimesoftheresidualunits,andthelastnumberisthe
+repetitiontimesofthemodualizedblocks.Cineachresidualunitisthenumberofchannels.
+Resolution Stage1 Stage2 Stage3 Stage4
+ 
+1×1,64 (cid:34) (cid:35) (cid:34) (cid:35) (cid:34) (cid:35)
+3×3,C 3×3,C 3×3,C
+4×  3×3,64 ×4×1 ×4×1 ×4×4 ×4×3
+  3×3,C 3×3,C 3×3,C
+1×1,256
+(cid:34) (cid:35) (cid:34) (cid:35) (cid:34) (cid:35)
+3×3,2C 3×3,2C 3×3,2C
+8× ×4×1 ×4×4 ×4×3
+3×3,2C 3×3,2C 3×3,2C
+(cid:34) (cid:35) (cid:34) (cid:35)
+3×3,4C 3×3,4C
+16× ×4×4 ×4×3
+3×3,4C 3×3,4C
+(cid:34) (cid:35)
+3×3,8C
+32× ×4×3
+3×3,8C
+APPENDIX B
+NETWORK PRETRAINING
+We pretrain our network, which is augmented by a classification head shown in Figure 11, on ImageNet [120]. The
+classification head is described as below. First, the four-resolution feature maps are fed into a bottleneck and the output
+channelsareincreasedfromC,2C,4C,and8C to128,256,512,and1024,respectively.Then,wedownsamplethe high-
+resolutionrepresentationbya2-strided3 3convolutionoutputting256channelsandaddittotherepresentationofthe
+×
+second-high-resolution.Thisprocessisrepeatedtwotimestoget1024featurechannelsoverthesmallresolution.Last,we
+transformthe1024channelsto2048channelsthrougha1 1convolution,followedbyaglobalaveragepoolingoperation.
+×
+Theoutput2048-dimensionalrepresentationisfedintotheclassifier.
+Fig.11.RepresentationforImageNetclassification.Theinputoftheboxistherepresentationsoffourresolutions.
+Weadoptthesamedataaugmentationschemefortrainingimagesasin[54],andtrainourmodelsfor100epochswith
+a batch size of 256. The initial learning rate is set to 0.1 and is reduced by 10 times at epoch 30, 60 and 90. We use SGD
+withaweightdecayof0.0001andaNesterovmomentumof0.9.Weadoptstandardsingle-croptesting,sothat224 224
+×
+pixelsarecroppedfromeachimage.Thetop-1andtop-5errorarereportedonthevalidationset.
+Table15showsourImageNetclassificationresults.Asacomparison,wealsoreporttheresultsofResNets.Weconsider
+two types of residual units: One is formed by a bottleneck, and the other is formed by two 3 3 convolutions. We
+×
+follow the PyTorch implementation of ResNets and replace the 7 7 convolution in the input stem with two 2-strided
+×
+3 3convolutionsdecreasingtheresolutionto1/4asinournetworks.Whentheresidualunitsareformedbytwo3 3
+× ×
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 17
+TABLE15
+ImageNetClassificationresultsofHRNetandResNets.TheproposedmethodisnamedHRNet-Wx-C.xmeansthewidth.
+#Params. GFLOPs top-1err. top-5err.
+Residualbranchformedbytwo3×3convolutions
+ResNet-38 28.3M 3.80 24.6% 7.4%
+HRNet-W18-C 21.3M 3.99 23.1% 6.5%
+ResNet-72 48.4M 7.46 23.3% 6.7%
+HRNet-W30-C 37.7M 7.55 21.9% 5.9%
+ResNet-106 64.9M 11.1 22.7% 6.4%
+HRNet-W40-C 57.6M 11.8 21.1% 5.6%
+Residualbranchformedbyabottleneck
+ResNet-50 25.6M 3.82 23.3% 6.6%
+HRNet-W44-C 21.9M 3.90 23.0% 6.5%
+ResNet-101 44.6M 7.30 21.6% 5.8%
+HRNet-W76-C 40.8M 7.30 21.5% 5.8%
+ResNet-152 60.2M 10.7 21.2% 5.7%
+HRNet-W96-C 57.5M 10.2 21.0% 5.6%
+convolutions,anextrabottleneckisusedtoincreasethedimensionofoutputfeaturemapsfrom512to2048.Onecansee
+thatundersimilar#parametersandGFLOPs,ourresultsarecomparabletoandslightlybetterthanResNets.
+Inaddition,welookattheresultsoftwoalternativeschemes:(i)thefeaturemapsoneachresolutiongothroughaglobal
+poolingseparatelyandthenareconcatenatedtogethertooutputa15C-dimensionalrepresentationvector,namedHRNet-
+Wx-Ci; (ii) the feature maps on each resolution are fed into several 2-strided residual units (bottleneck, each dimension
+is increased to the double) to increase the dimension to 512, and concatenate and average-pool them together to reach a
+2048-dimensional representation vector, named HRNet-Wx-Cii, which is used in [130]. Table 16 shows such an ablation
+study.Onecanseethattheproposedmannerissuperiortothetwoalternatives.
+TABLE16
+AblationstudyonImageNetclassificationbycomparingourapproach(abbreviatedasHRNet-Wx-C)withtwoalternatives:HRNet-Wx-Ciand
+HRNet-Wx-Cii(residualbranchformedbytwo3×3convolutions).
+#Params. GFLOPs top-1err. top-5err.
+HRNet-W27-Ci 21.4M 5.55 26.0% 7.7%
+HRNet-W25-Cii 21.7M 5.04 24.1% 7.1%
+HRNet-W18-C 21.3M 3.99 23.1% 6.5%
+HRNet-W36-Ci 37.5M 9.00 24.3% 7.3%
+HRNet-W34-Cii 36.7M 8.29 22.8% 6.3%
+HRNet-W30-C 37.7M 7.55 21.9% 5.9%
+HRNet-W45-Ci 58.2M 13.4 23.6% 7.0%
+HRNet-W43-Cii 56.3M 12.5 22.2% 6.1%
+HRNet-W40-C 57.6M 11.8 21.1% 5.6%
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 18
+APPENDIX C
+TRAINING/INFERENCE COST
+Tables 17, 18 and 19 provide GPU memory comparisons between HRNets and other standard networks for both training
+andinferenceinthePyTorchplatform.Comparedtostate-of-the-artsforhumanposeestimation,thetrainingandinference
+memorycostsoftheHRNetaresimilarorlowerforsimilarparametercomplexity(Table17).Comparedtostate-of-the-arts
+forsemanticsegmentation,thetrainingandinferencememorycostsaresimilar(Table18)forsimilarparametercomplexity.
+Comparedtostate-of-the-artsforobjectdetectionforsimilarparametercomplexity,thetrainingandinferencememorycosts
+aresimilarorslightlyhigher(Table19).
+In addition, we provide the runtime cost comparison. (1) For semantic segmentation, the time cost of the HRNet for
+training is slightly smaller and for inference significantly smaller than PSPNet and DeepLabv3 (Table 18). (2) For object
+detection, the time cost of the HRNet for training is larger than ResNet based networks and smaller than ResNext based
+networks,andforinferencetheHRNetissmallerforsimilarGFLOPs(Table19).(3)Forhumanposeestimation,thetime
+costoftheHRNetfortrainingissimilarandforinferencelarger;andthetimecostoftheHRNetfortrainingandinference
+intheMXNetplatformissimilarasSimpleBaseline(Table17).
+TABLE17
+HumanposeestimationcomplexitiesonPyTorch1.0intermsof#parameters,GFLOPs,training/inferencememory.Wealsoreport
+training/inferencetimeonPytorch1.0andMXNet1.5.1,shownastime(Pytorch)/time(MXNet).Thereasonthattheruntimecostissmallerthan
+PyTorchisthatMXNetsupportsdynamicgraphwhichtheHRNetbenefitsfrom.WecomparetheHRNetandthepreviousstate-of-the-art,
+Simplebaseline.Training:4V100GPUcards,inputsize256×192,andbatchsize128.Inference:asingleV100GPUcard,inputsize256×192,
+andbatchsize1,4,8and16.Twoobservationsarehighlightedhere:(1)TheHRNetconsumessmallermemoryforbothtrainingandinferencefor
+similar#parameters,andforsimilarAPscores;(2)TheHRNettakesslightlyhighertrainingruntimecostandalittlehigherinferenceruntimecost
+onPytorchandsimilaronMXNetforsimilarGFLOPs,andtheinferenceefficiencyofHRNetforisimprovedforlargerbatchsize.sec.=seconds,
+iter.=iteration,mem.=memory,bs=batchsize.
+infersec./batch infermem./batch
+backbone GFLOPs #params trainsec./iter. trainmem. AP
+bs=1 bs=4 bs=8 bs=16 bs=1 bs=4 bs=8 bs=16
+SB-Res-50 8.90 34.0M 0.946/0.211 11.9G 0.012/0.005 0.013/0.010 0.015/0.017 0.024/0.027 0.16G 0.17G 0.21G 0.30G 70.4
+SB-Res-101 12.4 53.0M 1.008/0.320 13.2G 0.020/0.009 0.021/0.014 0.024/0.023 0.035/0.038 0.23G 0.24G 0.28G 0.37G 71.4
+SB-Res-152 15.7 68.6M 1.085/0.415 14.8G 0.030/0.012 0.033/0.019 0.035/0.031 0.048/0.051 0.29G 0.31G 0.35G 0.43G 72.0
+HRNetV1-W32 7.10 28.5M 1.153/0.389 5.7G 0.057/0.015 0.059/0.017 0.061/0.020 0.062/0.031 0.13G 0.15G 0.19G 0.28G 74.4
+HRNetV1-W48 14.6 63.6M 1.231/0.507 7.3G 0.058/0.017 0.060/0.021 0.062/0.033 0.066/0.051 0.27G 0.30G 0.32G 0.44G 75.1
+TABLE18
+SemanticsegmentationcomplexitiesonPyTorch1.0.Training:4V100GPUcards,inputsize512×1024,andbatchsize8.Inference:asingle
+V100GPUcard,inputsize1024×2048,andbatchsize1,4,and8.Severalobservationsarehighlighted:(1)Thetrainingmemorycostsare
+similar,andtheinferencememorycostsaresimilarbutlargerforourapproachwithlargerbatchsize;(2)Thetrainingandinferencetimecostsof
+ourapproacharemuchsmaller.TheresultsareobtainedonCityscapesval.
+infersec./batch infermem./batch
+backbone GFLOPs #params trainsec./iter. trainmem. mIoU
+bs=1 bs=4 bs=8 bs=1 bs=4 bs=8
+Dilated-ResNet 1661.6 52.1M 0.6611 12.4G 0.3351 1.2882 2.7039 1.13G 3.92G 7.64G 75.7
+PSPNet 2017.6 65.9M 0.8368 14.4G 0.3972 1.5296 3.2003 1.60G 5.04G 9.81G 79.7
+DeepLabv3 1778.7 58.0M 0.8502 13.3G 0.4113 1.5307 3.2000 1.15G 3.95G 7.67G 78.5
+HRNetV2-W48 696.2 65.9M 0.6920 13.9G 0.1502 0.05421 1.1032 1.79G 6.37G 12.5G 81.1
+TABLE19
+COCOobjectdetectioncomplexitiesonPyTorch1.0.Training:4V100GPUcards,inputsize800×1333,andbatchsize8.Inference:asingleV100
+GPUcard,inputsize800×1333,andbatchsize1,4,and8.TheperformancearereportedontheCOCO2017valforeachmodelwiththelearning
+scheduleof2×.Severalobservationsareasfollows:(1)ThetrainingmemoryfortheHRNetisalittlelargerforsimilar#params,buttheinference
+memoryaresimilarwithhigherAPscores;(2)ThetrainingruntimecostsoftheHRNetarealittlelargerthanResNetbasednetworksandsmaller
+thanResNextbasednetworks,andtheinferenceruntimecostsissmallerforsimilarGFLOPs.
+infersec./batch infermem./batch
+backbone GFLOPs #params sec./iter. trainmem. AP AP50 AP75 APS APM APL
+bs=1 bs=4 bs=8 bs=1 bs=4 bs=8
+ResNet-50 172.34 39.77M 0.4167 3.4G 0.0739 0.2495 0.4921 0.55G 1.68G 2.93G 37.6 58.7 41.3 21.4 40.8 49.7
+ResNet-101 239.37 57.83M 0.5502 5.4G 0.0870 0.3018 0.6089 0.62G 1.76G 3.25G 39.8 61.4 43.4 22.9 43.6 52.4
+X-101-64×4d 381.83 94.85M 1.1828 9.5G 0.1438 0.4832 0.9764 0.77G 1.92G 3.41G 40.8 62.1 44.6 23.2 44.5 53.7
+HRNetV2p-W18 159.06 26.18M 0.6166 6.2G 0.0968 0.2320 0.4471 0.33G 1.01G 1.91G 38.0 58.9 41.5 22.6 40.8 49.6
+HRNetV2p-W32 245.33 45.04M 0.6901 8.5G 0.1014 0.2738 0.5546 0.51G 1.51G 2.83G 40.9 61.8 44.8 24.4 43.7 53.3
+HRNetV2p-W48 399.12 79.42M 0.9648 11.3G 0.1162 0.3762 0.7296 0.79G 2.16G 3.99G 41.8 62.8 45.9 25.0 44.7 54.6
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 19
+APPENDIX D
+FACIAL LANDMARK DETECTION
+Facial landmark detection a.k.a. face alignment is a problem of detecting the keypoints from a face image. We perform
+the evaluation over four standard datasets: WFLW [149], AFLW [75], COFW [10], and 300W [121]. We mainly use the
+normalized mean error (NME) for evaluation. We use the inter-ocular distance as normalization for WFLW, COFW, and
+300W,andthefaceboundingboxasnormalizationforAFLW.Wealsoreportarea-under-the-curvescores(AUC)andfailure
+rates.
+We follow the standard scheme [149] for training. All the faces are cropped by the provided boxes according to the
+centerlocationandresizedto256 256.Weaugmentthedataby 30degreesin-planerotation,0.75 1.25scaling,and
+× ± −
+randomlyflipping.Thebaselearningrateis0.0001andisdroppedto0.00001and0.000001atthe30thand50thepochs.
+The models are trained for 60 epochs with the batch size of 16 on one GPU. Different from semantic segmentation, the
+heatmapsarenotupsampledfrom1/4totheinputsize,andthelossfunctionisoptimizedoverthe1/4maps.
+Attesting,eachkeypointlocationispredictedbytransformingthehighestheatvaluelocationfrom1/4totheoriginal
+image space and adjusting it with a quarter offset in the direction from the highest response to the second highest
+response[23].
+WeadoptHRNetV2-W18forfacelandmarkdetectionwhoseparameterandcomputationcostaresimilartoorsmaller
+thanmodelswithwidely-usedbackbones:ResNet-50andHourglass[105].HRNetV2-W18:#parameters=9.3M,GFLOPs
+= 4.3G; ResNet-50: #parameters = 25.0M, GFLOPs = 3.8G; Hourglass: #parameters = 25.1M, GFLOPs = 19.1G. The
+numbersareobtainedontheinputsize256 256.Itshouldbenotedthatthefaciallandmarkdetectionmethodsadopting
+×
+ResNet-50andHourglassasbackbonesintroduceextraparameterandcomputationoverhead.
+WFLW. The WFLW dataset [149] is a recently-built dataset based on the WIDER Face [164]. There are 7,500 training and
+2,500testingimageswith98manualannotatedlandmarks.Wereporttheresultsonthetestsetandseveralsubsets:large
+pose(326images),expression(314images),illumination(698images),make-up(206images),occlusion(736images)and
+blur(773images).
+Table 20 provides the comparison of our method with state-of-the-art methods. Our approach is significantly better
+than other methods on the test set and all the subsets, including LAB that exploits extra boundary information [149] and
+PDBthatusesstrongerdataaugmentation[40].
+AFLW.TheAFLW[75]datasetisawidelyusedbenchmarkdataset,whereeachimagehas19faciallandmarks.Following
+[149], [191], we train our models on 20,000 training images, and report the results on the AFLW-Full set (4,386 testing
+images)andtheAFLW-Frontalset(1314testingimagesselectedfrom4386testingimages).
+Table 21 provides the comparison of our method with state-of-the-art methods. Our approach achieves the best
+performance among methods without extra information and stronger data augmentation and even outperforms DCFE
+with extra 3D information. Our approach performs slightly worse than LAB that uses extra boundary information [149]
+andPDB[40]thatusesstrongerdataaugmentation.
+COFW.TheCOFWdataset[10]consistsof1,345trainingand507testingfaceswithocclusions,whereeachimagehas29
+faciallandmarks.
+Table22providesthecomparisonofourmethodwithstate-of-the-artmethods.HRNetV2outperformsothermethods
+by a large margin. In particular, it achieves the better performance than LAB with extra boundary information and PDB
+withstrongerdataaugmentation.
+300W.Thedataset[121]isacombinationofHELEN[80],LFPW [5],AFW[193],XM2VTS andIBUGdatasets,whereeach
+facehas68landmarks.Following[117],weusethe3,148trainingimages,whichcontainsthetrainingsubsetsofHELEN
+and LFPW and the full set of AFW. We evaluate the performance using two protocols, full set and test set. The full set
+contains689imagesandisfurtherdividedintoacommonsubset(554images)fromHELENandLFPW,andachallenging
+subset(135images)fromIBUG.Theofficialtestset,usedforcompetition,contains600images(300indoorand300outdoor
+images).
+Table23providestheresultsonthefullset,anditstwosubsets:commonandchallenging.Table24providestheresults
+on the test set. In comparison to Chen et al. [23] that uses Hourglass with large parameter and computation complexity
+asthebackbone,ourscoresarebetterexcepttheAUC0.08 scores.OurHRNetV2getstheoverallbestperformanceamong
+methods without extra information and stronger data augmentation, and is even better than LAB with extra boundary
+informationandDCFE[141]thatexploresextra3Dinformation.
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 20
+TABLE20
+Faciallandmarkdetectionresults(NME)onWFLWtestand6subsets:pose,expression(expr.),illumination(illu.),make-up(mu.),occlusion
+(occu.)andblur.LAB[149]istrainedwithextraboundaryinformation(B).PDB[40]adoptsstrongerdataaugmentation(DA).Lowerisbetter.
+backbone test pose expr. illu. mu occu. blur
+ESR[14] - 11.13 25.88 11.47 10.49 11.05 13.75 12.20
+SDM[158] - 10.29 24.10 11.45 9.32 9.38 13.03 11.28
+CFSS[191] - 9.07 21.36 10.09 8.30 8.74 11.76 9.96
+DVLN[150] VGG-16 6.08 11.54 6.78 5.73 5.98 7.33 6.88
+Ourapproach HRNetV2-W18 4.60 7.94 4.85 4.55 4.29 5.44 5.42
+Modeltrainedwithextrainfo.
+LAB(w/B)[149] Hourglass 5.27 10.24 5.51 5.23 5.15 6.79 6.32
+PDB(w/DA)[40] ResNet-50 5.11 8.75 5.36 4.93 5.41 6.37 5.81
+TABLE21
+Faciallandmarkdetectionresults(NME)onAFLW.DCFE[141]usesextra3Dinformation(3D).Lowerisbetter.
+backbone full frontal
+RCN[55] - 5.60 5.36
+CDM[169] - 5.43 3.77
+ERT[67] - 4.35 2.75
+LBF[116] - 4.25 2.74
+SDM[158] - 4.05 2.94
+CFSS[191] - 3.92 2.68
+RCPR[10] - 3.73 2.87
+CCL[192] - 2.72 2.17
+DAC-CSR[41] 2.27 1.81
+TSR[101] VGG-S 2.17 -
+CPM+SBR[35] CPM 2.14 -
+SAN[34] ResNet-152 1.91 1.85
+DSRN[102] - 1.86 -
+LAB(w/oB)[149] Hourglass 1.85 1.62
+Ourapproach HRNetV2-W18 1.57 1.46
+Modeltrainedwithextrainfo.
+DCFE(w/3D)[141] - 2.17 -
+PDB(w/DA)[40] ResNet-50 1.47 -
+LAB(w/B)[149] Hourglass 1.25 1.14
+TABLE22
+FaciallandmarkdetectionresultsonCOFWtest.Thefailurerateiscalculatedatthethreshold0.1.LowerisbetterforNMEandFR0.1.
+backbone NME FR0.1
+Human - 5.60 -
+ESR[14] - 11.20 36.00
+RCPR[10] - 8.50 20.00
+HPM[45] - 7.50 13.00
+CCR[39] - 7.03 10.90
+DRDA[174] - 6.46 6.00
+RAR[153] - 6.03 4.14
+DAC-CSR[41] - 6.03 4.73
+LAB(w/oB)[149] Hourglass 5.58 2.76
+Ourapproach HRNetV2-W18 3.45 0.19
+Modeltrainedwithextrainfo.
+PDB(w/DA)[40] ResNet-50 5.07 3.16
+LAB(w/B)[149] Hourglass 3.92 0.39
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 21
+TABLE23
+Faciallandmarkdetectionresults(NME)on300W:common,challengingandfull.Lowerisbetter.
+backbone common challenging full
+RCN[55] - 4.67 8.44 5.41
+DSRN[102] - 4.12 9.68 5.21
+PCD-CNN[78] - 3.67 7.62 4.44
+CPM+SBR[35] CPM 3.28 7.58 4.10
+SAN[34] ResNet-152 3.34 6.60 3.98
+DAN[76] - 3.19 5.24 3.59
+Ourapproach HRNetV2-W18 2.87 5.15 3.32
+Modeltrainedwithextrainfo.
+LAB(w/B)[149] Hourglass 2.98 5.19 3.49
+DCFE(w/3D)[141] - 2.76 5.22 3.24
+TABLE24
+Faciallandmarkdetectionresultson300Wtest.DCFE[141]usesextra3Dinformation(3D).LAB[149]istrainedwithextraboundaryinformation
+(B).LowerisbetterforNME,FR0.08andFR0.1,andhigherisbetterforAUC0.08andAUC0.1.
+backbone NME AUC0.08 AUC0.1 FR0.08 FR0.1
+Balt.etal.[4] - - 19.55 - 38.83 -
+ESR[14] - 8.47 26.09 - 30.50 -
+ERT[67] - 8.41 27.01 - 28.83 -
+LBF[116] - 8.57 25.27 - 33.67 -
+Face++[186] - - 32.81 - 13.00 -
+SDM[158] - 5.83 36.27 - 13.00 -
+CFAN[175] - 5.78 34.78 - 14.00 -
+Yanetal.[162] - - 34.97 - 12.67 -
+CFSS[191] - 5.74 36.58 - 12.33 -
+MDM[138] - 4.78 45.32 - 6.80 -
+DAN[76] - 4.30 47.00 - 2.67 -
+Chenetal.[23] Hourglass 3.96 53.64 - 2.50 -
+Dengetal.[30] - - - 47.52 - 5.50
+Fanetal.[37] - - - 48.02 - 14.83
+DReg+MDM[48] ResNet101 - - 52.19 - 3.67
+JMFA[31] Hourglass - - 54.85 - 1.00
+Ourapproach HRNetV2-W18 3.85 52.09 61.55 1.00 0.33
+Modeltrainedwithextrainfo.
+LAB(w/B)[149] Hourglass - - 58.85 - 0.83
+DCFE(w/3D)[141] - 3.88 52.42 - 1.83 -
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 22
+APPENDIX E
+MORE OBJECT DETECTION AND INSTANCE RESULTS ON COCO VAL2017
+TABLE 25: More object detection and instance segmentation results on COCO val. APb and APm denote box mAP and mask
+mAPrespectively.Mostresultsaretakenfrom[17]exceptthattheresultsusingHRNetareobtainedbyrunningthecodeathttps:
+//github.com/open-mmlab/mmdetection.
+Backbone LS APb APb APb APb APb APb APm APm APm APm APm APm
+50 75 S M L 50 75 S M L
+FCOS
+R-50(c) 1x 36.7 55.8 39.2 21.0 40.7 48.4 - - - - - -
+R-101(c) 1x 39.1 58.5 41.8 22.0 43.5 51.1 - - - - - -
+R-50(c) 2x 36.9 55.8 39.1 20.4 40.1 49.2 - - - - - -
+R-101(c) 2x 39.1 58.6 41.7 22.1 42.4 52.5 - - - - - -
+HRNetV2-W18 1x 35.2 52.9 37.3 20.4 37.8 46.1 - - - - - -
+HRNetV2-W32 1x 38.2 56.2 40.9 22.2 41.8 50.0 - - - - - -
+HRNetV2-W18 2x 37.7 55.9 40.1 22.0 40.8 48.5 - - - - - -
+HRNetV2-W32 2x 40.3 58.7 43.3 23.6 43.4 52.9 - - - - - -
+FCOS(mstrain)
+R-50(c) 2x 38.7 58.0 41.4 23.4 42.8 49.0 - - - - - -
+R-101(c) 2x 40.8 60.1 43.8 24.5 44.5 52.8 - - - - - -
+HRNetV2-W18 2x 38.1 56.3 40.6 22.9 41.1 48.6 - - - - - -
+HRNetV2-W32 2x 41.4 60.3 44.2 25.2 44.8 52.3 - - - - - -
+HRNetV2-W48 2x 42.9 61.9 45.9 26.4 46.7 54.6 - - - - - -
+X-101-64x4d 2x 42.8 62.6 45.7 26.5 46.9 54.5 - - - - - -
+MaskR-CNN
+R-50(c) 1x 37.4 58.9 40.4 21.7 41.0 49.1 34.3 55.8 36.4 18.0 37.6 47.3
+R-101(c) 1x 39.9 61.5 43.6 23.9 44.0 51.8 36.1 57.9 38.7 19.8 39.8 49.5
+R-50 1x 37.3 59.0 40.2 21.9 40.9 48.1 34.2 55.9 36.2 18.2 37.5 46.3
+R-101 1x 39.4 60.9 43.3 23.0 43.7 51.4 35.9 57.7 38.4 19.2 39.7 49.7
+HRNetV2-W18 1x 37.3 58.2 40.7 22.1 40.2 47.6 34.2 55.0 36.2 18.4 36.7 46.0
+HRNetV2-W32 1x 40.7 61.9 44.6 25.1 44.4 51.8 36.8 58.7 39.5 20.9 40.0 49.3
+X-101-32x4d 1x 41.1 62.8 45.0 24.0 45.4 52.6 37.1 59.4 39.8 19.7 41.1 50.1
+X-101-64x4d 1x 42.1 63.8 46.3 24.4 46.6 55.3 38.0 60.6 40.9 20.2 42.1 52.4
+R-50 2x 38.5 59.9 41.8 22.6 42.0 50.5 35.1 56.8 37.0 18.9 38.0 48.3
+R-101 2x 40.3 61.5 44.1 22.2 44.8 52.9 36.5 58.1 39.1 18.4 40.2 50.4
+HRNetV2-W18 2x 39.2 60.1 42.9 24.2 42.1 50.8 35.7 57.3 38.1 17.6 37.8 52.3
+HRNetV2-W32 2x 42.3 62.7 46.1 26.1 45.5 54.7 37.6 59.7 40.3 21.4 40.5 51.2
+X-101-32x4d 2x 41.4 62.5 45.4 24.0 45.4 54.5 37.1 59.4 39.5 19.9 40.6 51.3
+X-101-64x4d 2x 42.0 63.1 46.1 23.9 45.8 55.6 37.7 59.9 40.4 19.6 41.3 52.5
+CascadeMaskR-CNN
+R-50 1x 41.2 59.1 45.1 23.3 44.5 54.5 35.7 56.3 38.6 18.5 38.6 49.2
+R-101 1x 42.6 60.7 46.7 23.8 46.4 56.9 37.0 58.0 39.9 19.1 40.5 51.4
+X-101-32x4d 1x 44.4 62.6 48.6 25.4 48.1 58.7 38.2 59.6 41.2 20.3 41.9 52.4
+X-101-64x4d 1x 45.4 63.7 49.7 25.8 49.2 60.6 39.1 61.0 42.1 20.5 42.6 54.1
+R-50 20e 42.3 60.5 46.0 23.7 45.7 56.4 36.6 57.6 39.5 19.0 39.4 50.7
+R-101 20e 43.3 61.3 47.0 24.4 46.9 58.0 37.6 58.5 40.6 19.7 40.8 52.4
+HRNetV2-W18 20e 41.9 59.6 45.7 23.8 44.9 55.0 36.4 56.8 39.3 17.0 38.6 52.9
+HRNetV2-W32 20e 44.5 62.3 48.6 26.1 47.9 58.5 38.5 59.6 41.9 18.9 41.1 56.1
+HRNetV2-W48 20e 46.0 63.7 50.3 27.5 48.9 60.1 39.5 61.1 42.8 19.7 41.8 56.9
+X-101-32x4d 20e 44.7 63.0 48.9 25.9 48.7 58.9 38.6 60.2 41.7 20.9 42.1 52.7
+X-101-64x4d 20e 45.7 64.1 50.0 26.2 49.6 60.0 39.4 61.3 42.9 20.8 42.7 54.1
+HybridTaskCascade
+R-50 1x 42.1 60.8 45.9 23.9 45.5 56.2 37.3 58.2 40.2 19.5 40.6 51.7
+R-50 20e 43.2 62.1 46.8 24.9 46.4 57.8 38.1 59.4 41.0 20.3 41.1 52.8
+R-101 20e 44.9 63.8 48.7 26.4 48.3 59.9 39.4 60.9 42.4 21.4 42.4 54.4
+HRNetV2-W18 20e 43.1 61.5 46.8 26.6 46.0 56.9 37.9 59.0 40.6 18.8 39.9 55.2
+HRNetV2-W32 20e 45.3 63.6 49.1 27.0 48.4 59.5 39.6 61.2 43.0 19.1 42.0 57.9
+HRNetV2-W48 20e 46.8 65.3 51.1 28.0 50.2 61.7 40.7 62.6 44.2 19.7 43.4 59.3
+Continuedonnextpage
+
+IEEETRANSACTIONSONPATTERNANALYSISANDMACHINEINTELLIGENCE,MARCH2020 23
+TABLE25–Continuedfrompreviouspage
+Backbone LrSchd APb APb APb APb APb APb APm APm APm APm APm APm
+50 75 S M L 50 75 S M L
+HRNetV2-W48 28e 47.0 65.5 51.0 28.8 50.3 62.2 41.0 63.0 44.7 20.8 43.9 59.9
+X-101-32x4d 20e 46.1 65.1 50.2 27.5 49.8 61.2 40.3 62.2 43.5 22.3 43.7 55.5
+X-101-64x4d 20e 46.9 66.0 51.2 28.0 50.7 62.1 40.8 63.3 44.1 22.7 44.2 56.3
+X-101-64x4d 28e 46.8 65.6 50.9 27.5 51.0 61.7 40.7 63.1 43.9 20.0 44.1 59.9

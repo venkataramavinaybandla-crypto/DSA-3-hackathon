@@ -1,0 +1,515 @@
+Neural Discrete Representation Learning
+AaronvandenOord OriolVinyals KorayKavukcuoglu
+DeepMind DeepMind DeepMind
+avdnoord@google.com vinyals@google.com korayk@google.com
+Abstract
+Learningusefulrepresentationswithoutsupervisionremainsakeychallengein
+machine learning. In this paper, we propose a simple yet powerful generative
+modelthatlearnssuchdiscreterepresentations. Ourmodel,theVectorQuantised-
+Variational AutoEncoder (VQ-VAE), differs from VAEs in two key ways: the
+encoder network outputs discrete, rather than continuous, codes; and the prior
+islearntratherthanstatic. Inordertolearnadiscretelatentrepresentation, we
+incorporateideasfromvectorquantisation(VQ).UsingtheVQmethodallowsthe
+modeltocircumventissuesof“posteriorcollapse”-—wherethelatentsareignored
+whentheyarepairedwithapowerfulautoregressivedecoder-—typicallyobserved
+intheVAEframework. Pairingtheserepresentationswithanautoregressiveprior,
+themodelcangeneratehighqualityimages,videos,andspeechaswellasdoing
+highqualityspeakerconversionandunsupervisedlearningofphonemes,providing
+furtherevidenceoftheutilityofthelearntrepresentations.
+1 Introduction
+Recentadvancesingenerativemodellingofimages[38,12,13,22,10],audio[37,26]andvideos
+[20,11]haveyieldedimpressivesamplesandapplications[24,18]. Atthesametime,challenging
+taskssuchasfew-shotlearning[34],domainadaptation[17],orreinforcementlearning[35]heavily
+relyonlearntrepresentationsfromrawdata,buttheusefulnessofgenericrepresentationstrainedin
+anunsupervisedfashionisstillfarfrombeingthedominantapproach.
+Maximumlikelihoodandreconstructionerroraretwocommonobjectivesusedtotrainunsupervised
+models in the pixel domain, however their usefulness depends on the particular application the
+features are used in. Our goal is to achieve a model that conserves the important features of the
+datainitslatentspacewhileoptimisingformaximumlikelihood. Astheworkin[7]suggests,the
+bestgenerativemodels(asmeasuredbylog-likelihood)willbethosewithoutlatentsbutapowerful
+decoder(suchasPixelCNN).However,inthispaper,weargueforlearningdiscreteandusefullatent
+variables,whichwedemonstrateonavarietyofdomains.
+Learning representations with continuous features have been the focus of many previous work
+[16,39,6,9]howeverweconcentrateondiscreterepresentations[27,33,8,28]whicharepotentially
+amorenaturalfitformanyofthemodalitiesweareinterestedin. Languageisinherentlydiscrete,
+similarlyspeechistypicallyrepresentedasasequenceofsymbols. Imagescanoftenbedescribed
+concisely by language [40]. Furthermore, discrete representations are a natural fit for complex
+reasoning,planningandpredictivelearning(e.g.,ifitrains,Iwilluseanumbrella). Whileusing
+discretelatentvariablesindeeplearninghasprovenchallenging,powerfulautoregressivemodels
+havebeendevelopedformodellingdistributionsoverdiscretevariables[37].
+Inourwork,weintroduceanewfamilyofgenerativemodelssuccesfullycombiningthevariational
+autoencoder(VAE)frameworkwithdiscretelatentrepresentationsthroughanovelparameterisation
+oftheposteriordistributionof(discrete)latentsgivenanobservation. Ourmodel,whichrelieson
+vector quantization (VQ), is simple to train, does not suffer from large variance, and avoids the
+31stConferenceonNeuralInformationProcessingSystems(NIPS2017),LongBeach,CA,USA.
+8102
+yaM
+03
+]GL.sc[
+2v73900.1171:viXra
+
+“posteriorcollapse”issuewhichhasbeenproblematicwithmanyVAEmodelsthathaveapowerful
+decoder,oftencausedbylatentsbeingignored. Additionally,itisthefirstdiscretelatentVAEmodel
+thatgetsimilarperformanceasitscontinuouscounterparts,whileofferingtheflexibilityofdiscrete
+distributions. WetermourmodeltheVQ-VAE.
+Since VQ-VAE can make effective use of the latent space, it can successfully model important
+featuresthatusuallyspanmanydimensionsindataspace(forexampleobjectsspanmanypixelsin
+images,phonemesinspeech,themessageinatextfragment,etc.) asopposedtofocusingorspending
+capacityonnoiseandimperceptibledetailswhichareoftenlocal.
+Lastly,onceagooddiscretelatentstructureofamodalityisdiscoveredbytheVQ-VAE,wetrain
+a powerful prior over these discrete random variables, yielding interesting samples and useful
+applications. For instance, when trained on speech we discover the latent structure of language
+withoutanysupervisionorpriorknowledgeaboutphonemesorwords. Furthermore,wecanequip
+our decoder with the speaker identity, which allows for speaker conversion, i.e., transferring the
+voicefromonespeakertoanotherwithoutchangingthecontents. Wealsoshowpromisingresultson
+learninglongtermstructureofenvironmentsforRL.
+Ourcontributionscanthusbesummarisedas:
+• IntroducingtheVQ-VAEmodel,whichissimple,usesdiscretelatents,doesnotsufferfrom
+“posteriorcollapse”andhasnovarianceissues.
+• Weshowthatadiscretelatentmodel(VQ-VAE)performaswellasitscontinuousmodel
+counterpartsinlog-likelihood.
+• Whenpairedwithapowerfulprior,oursamplesarecoherentandhighqualityonawide
+varietyofapplicationssuchasspeechandvideogeneration.
+• Weshowevidenceoflearninglanguagethroughrawspeech,withoutanysupervision,and
+showapplicationsofunsupervisedspeakerconversion.
+2 RelatedWork
+Inthisworkwepresentanewwayoftrainingvariationalautoencoders[23,32]withdiscretelatent
+variables[27]. Usingdiscretevariablesindeeplearninghasprovenchallenging,assuggestedby
+thedominanceofcontinuouslatentvariablesinmostofcurrentwork–evenwhentheunderlying
+modalityisinherentlydiscrete.
+ThereexistmanyalternativesfortrainingdiscreteVAEs.TheNVIL[27]estimatoruseasingle-sample
+objectivetooptimisethevariationallowerbound,andusesvariousvariance-reductiontechniquesto
+speeduptraining. VIMCO[28]optimisesamulti-sampleobjective[5],whichspeedsupconvergence
+furtherbyusingmultiplesamplesfromtheinferencenetwork.
+Recentlyafewauthorshavesuggestedtheuseofanewcontinuousreparemetrisationbasedonthe
+so-calledConcrete[25]orGumbel-softmax[19]distribution,whichisacontinuousdistributionand
+hasatemperatureconstantthatcanbeannealedduringtrainingtoconvergetoadiscretedistribution
+inthelimit. Inthebeginningoftrainingthevarianceofthegradientsislowbutbiased,andtowards
+theendoftrainingthevariancebecomeshighbutunbiased.
+Noneoftheabovemethods,however,closetheperformancegapofVAEswithcontinuouslatent
+variableswhereonecanusetheGaussianreparameterisationtrickwhichbenefitsfrommuchlower
+varianceinthegradients. Furthermore,mostofthesetechniquesaretypicallyevaluatedonrelatively
+smalldatasetssuchasMNIST,andthedimensionalityofthelatentdistributionsissmall(e.g.,below
+8). Inourwork,weusethreecompleximagedatasets(CIFAR10,ImageNet,andDeepMindLab)and
+arawspeechdataset(VCTK).
+Ourworkalsoextendsthelineofresearchwhereautoregressivedistributionsareusedinthedecoder
+ofVAEsand/orintheprior[14].ThishasbeendoneforlanguagemodellingwithLSTMdecoders[4],
+andmorerecentlywithdilatedconvolutionaldecoders[42]. PixelCNNs[29,38]areconvolutional
+autoregressivemodelswhichhavealsobeenusedasdistributioninthedecoderofVAEs[15,7].
+Finally,ourapproachalsorelatestoworkinimagecompressionwithneuralnetworks. Theiset. al.
+[36]usescalarquantisationtocompressactivationsforlossyimagecompressionbeforearithmetic
+encoding.Otherauthors[1]proposeamethodforsimilarcompressionmodelwithvectorquantisation.
+2
+
+The authors propose a continuous relaxation of vector quantisation which is annealed over time
+toobtainahardclustering. Intheirexperimentstheyfirsttrainanautoencoder,afterwardsvector
+quantisationisappliedtotheactivationsoftheencoder,andfinallythewholenetworkisfinetuned
+usingthesoft-to-hardrelaxationwithasmalllearningrate. Inourexperimentswewereunableto
+trainusingthesoft-to-hardrelaxationapproachfromscratchasthedecoderwasalwaysabletoinvert
+thecontinuousrelaxationduringtraining,sothatnoactualquantisationtookplace.
+3 VQ-VAE
+Perhaps the work most related to our approach are VAEs. VAEs consist of the following parts:
+anencodernetworkwhichparameterisesaposteriordistributionq(z|x)ofdiscretelatentrandom
+variableszgiventheinputdatax,apriordistributionp(z),andadecoderwithadistributionp(x|z)
+overinputdata.
+Typically,theposteriorsandpriorsinVAEsareassumednormallydistributedwithdiagonalcovari-
+ance,whichallowsfortheGaussianreparametrisationtricktobeused[32,23]. Extensionsinclude
+autoregressivepriorandposteriormodels[14],normalisingflows[31,10],andinverseautoregressive
+posteriors[22].
+InthisworkweintroducetheVQ-VAEwhereweusediscretelatentvariableswithanewwayof
+training,inspiredbyvectorquantisation(VQ).Theposteriorandpriordistributionsarecategorical,
+andthesamplesdrawnfromthesedistributionsindexanembeddingtable. Theseembeddingsare
+thenusedasinputintothedecodernetwork.
+3.1 DiscreteLatentvariables
+Wedefinealatentembeddingspacee∈RK×D whereK isthesizeofthediscretelatentspace(i.e.,
+aK-waycategorical),andD isthedimensionalityofeachlatentembeddingvectore . Notethat
+i
+thereareK embeddingvectorse ∈RD,i∈1,2,...,K. AsshowninFigure1,themodeltakesan
+i
+inputx,thatispassedthroughanencoderproducingoutputz (x). Thediscretelatentvariablesz
+e
+arethencalculatedbyanearestneighbourlook-upusingthesharedembeddingspaceeasshownin
+equation1. Theinputtothedecoderisthecorrespondingembeddingvectore asgiveninequation2.
+k
+Onecanseethisforwardcomputationpipelineasaregularautoencoderwithaparticularnon-linearity
+thatmapsthelatentsto1-of-Kembeddingvectors. Thecompletesetofparametersforthemodelare
+unionofparametersoftheencoder,decoder,andtheembeddingspacee. Forsakeofsimplicitywe
+useasinglerandomvariableztorepresentthediscretelatentvariablesinthisSection,howeverfor
+speech,imageandvideosweactuallyextracta1D,2Dand3Dlatentfeaturespacesrespectively.
+Theposteriorcategoricaldistributionq(z|x)probabilitiesaredefinedasone-hotasfollows:
+(cid:26)1 for k=argmin (cid:107)z (x)−e (cid:107) ,
+j e j 2
+q(z =k|x)= , (1)
+0 otherwise
+where z (x) is the output of the encoder network. We view this model as a VAE in which we
+e
+canboundlogp(x)withtheELBO.Ourproposaldistributionq(z = k|x)isdeterministic,andby
+definingasimpleuniformprioroverzweobtainaKLdivergenceconstantandequaltologK.
+Therepresentationz (x)ispassedthroughthediscretisationbottleneckfollowedbymappingonto
+e
+thenearestelementofembeddingeasgiveninequations1and2.
+z (x)=e , where k =argmin (cid:107)z (x)−e (cid:107) (2)
+q k j e j 2
+3.2 Learning
+Note that there is no real gradient defined for equation 2, however we approximate the gradient
+similar to the straight-through estimator [3] and just copy gradients from decoder input z (x) to
+q
+encoderoutputz (x). Onecouldalsousethesubgradientthroughthequantisationoperation,butthis
+e
+simpleestimatorworkedwellfortheinitialexperimentsinthispaper.
+3
+
+Figure1: Left: AfiguredescribingtheVQ-VAE.Right: Visualisationoftheembeddingspace. The
+outputoftheencoderz(x)ismappedtothenearestpointe . Thegradient∇ L(inred)willpushthe
+2 z
+encodertochangeitsoutput,whichcouldaltertheconfigurationinthenextforwardpass.
+Duringforwardcomputationthenearestembeddingz (x)(equation2)ispassedtothedecoder,and
+q
+duringthebackwardspassthegradient∇ Lispassedunalteredtotheencoder. Sincetheoutput
+z
+representation of the encoder and the input to the decoder share the same D dimensional space,
+thegradientscontainusefulinformationforhowtheencoderhastochangeitsoutputtolowerthe
+reconstructionloss.
+AsseenonFigure1(right),thegradientcanpushtheencoder’soutputtobediscretiseddifferentlyin
+thenextforwardpass,becausetheassignmentinequation1willbedifferent.
+Equation 3 specifies the overall loss function. It is has three components that are used to train
+differentpartsofVQ-VAE.Thefirsttermisthereconstructionloss(orthedataterm)whichoptimizes
+thedecoderandtheencoder(throughtheestimatorexplainedabove). Duetothestraight-through
+gradientestimationofmappingfromz (x)toz (x),theembeddingse receivenogradientsfrom
+e q i
+thereconstructionlosslogp(z|z (x)). Therefore,inordertolearntheembeddingspace,weuseone
+q
+ofthesimplestdictionarylearningalgorithms,VectorQuantisation(VQ).TheVQobjectiveuses
+thel errortomovetheembeddingvectorse towardstheencoderoutputsz (x)asshowninthe
+2 i e
+secondtermofequation3. Becausethislosstermisonlyusedforupdatingthedictionary,onecan
+alternativelyalsoupdatethedictionaryitemsasfunctionofmovingaveragesofz (x)(notusedfor
+e
+theexperimentsinthiswork). FormoredetailsseeAppendixA.1.
+Finally, since the volume of the embedding space is dimensionless, it can grow arbitrarily if the
+embeddingse donottrainasfastastheencoderparameters. Tomakesuretheencodercommitsto
+i
+anembeddinganditsoutputdoesnotgrow,weaddacommitmentloss,thethirdterminequation3.
+Thus,thetotaltrainingobjectivebecomes:
+L=logp(x|z (x))+(cid:107)sg[z (x)]−e(cid:107)2+β(cid:107)z (x)−sg[e](cid:107)2, (3)
+q e 2 e 2
+wheresgstandsforthestopgradientoperatorthatisdefinedasidentityatforwardcomputationtime
+andhaszeropartialderivatives,thuseffectivelyconstrainingitsoperandtobeanon-updatedconstant.
+Thedecoderoptimisesthefirstlosstermonly,theencoderoptimisesthefirstandthelastlossterms,
+andtheembeddingsareoptimisedbythemiddlelossterm. Wefoundtheresultingalgorithmtobe
+quiterobusttoβ,astheresultsdidnotvaryforvaluesofβrangingfrom0.1to2.0. Weuseβ =0.25
+inallourexperiments,althoughingeneralthiswoulddependonthescaleofreconstructionloss.
+Sinceweassumeauniformpriorforz,theKLtermthatusuallyappearsintheELBOisconstant
+w.r.t. theencoderparametersandcanthusbeignoredfortraining.
+InourexperimentswedefineN discretelatents(e.g.,weuseafieldof32x32latentsforImageNet,
+or8x8x10forCIFAR10). TheresultinglossLisidentical,exceptthatwegetanaverageoverN
+termsfork-meansandcommitmentloss–oneforeachlatent.
+Thelog-likelihoodofthecompletemodellogp(x)canbeevaluatedasfollows:
+(cid:88)
+logp(x)=log p(x|z )p(z ),
+k k
+k
+Becausethedecoderp(x|z)istrainedwithz =z (x)fromMAP-inference,thedecodershouldnot
+q
+allocateanyprobabilitymasstop(x|z)forz (cid:54)=z (x)onceithasfullyconverged. Thus,wecanwrite
+q
+4
+
+logp(x)≈logp(x|z (x))p(z (x)). Weempiricallyevaluatethisapproximationinsection4. From
+q q
+Jensen’sinequality,wealsocanwritelogp(x)≥logp(x|z (x))p(z (x)).
+q q
+3.3 Prior
+Thepriordistributionoverthediscretelatentsp(z)isacategoricaldistribution,andcanbemade
+autoregressivebydependingonotherzinthefeaturemap. WhilsttrainingtheVQ-VAE,theprioris
+keptconstantanduniform. Aftertraining,wefitanautoregressivedistributionoverz,p(z),sothat
+wecangeneratexviaancestralsampling. WeuseaPixelCNNoverthediscretelatentsforimages,
+andaWaveNetforrawaudio. TrainingthepriorandtheVQ-VAEjointly,whichcouldstrengthenour
+results,isleftasfutureresearch.
+4 Experiments
+4.1 Comparisonwithcontinuousvariables
+AsafirstexperimentwecompareVQ-VAEwithnormalVAEs(withcontinuousvariables),aswellas
+VIMCO[28]withindependentGaussianorcategoricalpriors. Wetrainthesemodelsusingthesame
+standardVAEarchitectureonCIFAR10,whilevaryingthelatentcapacity(numberofcontinuousor
+discretelatentvariables,aswellasthedimensionalityofthediscretespaceK).Theencoderconsists
+of 2 strided convolutional layers with stride 2 and window size 4×4, followed by two residual
+3×3blocks(implementedasReLU,3x3conv,ReLU,1x1conv),allhaving256hiddenunits. The
+decodersimilarlyhastworesidual3×3blocks,followedbytwotransposedconvolutionswithstride
+2andwindowsize4×4. WeusetheADAMoptimiser[21]withlearningrate2e-4andevaluate
+the performance after 250,000 steps with batch-size 128. For VIMCO we use 50 samples in the
+multi-sampletrainingobjective.
+TheVAE,VQ-VAEandVIMCOmodelsobtain4.51bits/dim,4.67bits/dimand5.14respectively.
+Allreportedlikelihoodsarelowerbounds. OurnumbersforthecontinuousVAEarecomparableto
+thosereportedforaDeepconvolutionalVAE:4.54bits/dim[13]onthisdataset.
+Ourmodelisthefirstamongthoseusingdiscretelatentvariableswhichchallengestheperformance
+ofcontinuousVAEs. Thus,wegetverygoodreconstructionslikeregularVAEsprovide,withthe
+compressedrepresentationthatsymbolicrepresentationsprovide. Afewinterestingcharacteristics,
+implicationsandapplicationsoftheVQ-VAEsthatwetrainisshowninthenextsubsections.
+4.2 Images
+Imagescontainalotofredundantinformationasmostofthepixelsarecorrelatedandnoisy,therefore
+learningmodelsatthepixellevelcouldbewasteful.
+Inthisexperimentweshowthatwecanmodelx=128×128×3imagesbycompressingthemtoa
+z =32×32×1discretespace(withK=512)viaapurelydeconvolutionalp(x|z). Soareductionof
+128×128×3×8 ≈42.6inbits. Wemodelimagesbylearningapowerfulprior(PixelCNN)overz. This
+32×32×9
+allowstonotonlygreatlyspeeduptrainingandsampling,butalsotousethePixelCNNscapacityto
+capturetheglobalstructureinsteadofthelow-levelstatisticsofimages.
+Figure2: Left: ImageNet128x128x3images,right: reconstructionsfromaVQ-VAEwitha32x32x1
+latentspace,withK=512.
+5
+
+Reconstructionsfromthe32x32x1spacewithdiscretelatentsareshowninFigure2.Evenconsidering
+thatwegreatlyreducethedimensionalitywithdiscreteencoding,thereconstructionslookonlyslightly
+blurrierthantheoriginals. ItwouldbepossibletouseamoreperceptuallossfunctionthanMSEover
+pixelshere(e.g.,aGAN[12]),butweleavethatasfuturework.
+Next,wetrainaPixelCNNprioronthediscretised32x32x1latentspace. Asweonlyhave1channel
+(not3aswithcolours),weonlyhavetousespatialmaskinginthePixelCNN.Thecapacityofthe
+PixelCNNweusedwassimilartothoseusedbytheauthorsofthePixelCNNpaper[38].
+Figure3: Samples(128x128)fromaVQ-VAEwithaPixelCNNpriortrainedonImageNetimages.
+Fromlefttoright: kitfox,graywhale,brownbear,admiral(butterfly),coralreef,alp,microwave,
+pickup.
+SamplesdrawnfromthePixelCNNweremappedtopixel-spacewiththedecoderoftheVQ-VAE
+andcanbeseeninFigure3.
+Figure4: Samples(128x128)fromaVQ-VAEwithaPixelCNNpriortrainedonframescaptured
+fromDeepMindLab.
+Wealsorepeatthesameexperimentfor84x84x3framesdrawnfromtheDeepMindLabenvironment
+[2]. Thereconstructionslookednearlyidenticaltotheiroriginals. SamplesdrawnfromthePixelCNN
+priortrainedonthe21x21x1latentspaceanddecodedtothepixelspaceusingadeconvolutional
+modeldecodercanbeseeninFigure4.
+Finally,wetrainasecondVQ-VAEwithaPixelCNNdecoderontopofthe21x21x1latentspace
+fromthefirstVQ-VAEonDM-LABframes. ThissetuptypicallybreaksVAEsastheysufferfrom
+"posterior collapse", i.e., the latents are ignored as the decoder is powerful enough to model x
+perfectly.Ourmodelhoweverdoesnotsufferfromthis,andthelatentsaremeaningfullyused.Weuse
+onlythreelatentvariables(eachwithK=512andtheirownembeddingspacee)atthesecondstage
+formodellingthewholeimageandassuchthemodelcannotreconstructtheimageperfectly–which
+isconsequenceofcompressingtheimageonto3x9bits,i.e. lessthanafloat32. Reconstructions
+sampledfromthediscretisedglobalcodecanbeseeninFigure5.
+6
+
+Figure5: Toporiginalimages,Bottom: reconstructionsfroma2stageVQ-VAE,with3latentsto
+modelthewholeimage(27bits),andassuchthemodelcannotreconstructtheimagesperfectly. The
+reconstructionsaregeneratedbysampledfromthesecondPixelCNNpriorinthe21x21latentdomain
+offirstVQ-VAE,andthendecodedwithstandardVQ-VAEdecoderto84x84. Alotoftheoriginal
+scene,includingtextures,roomlayoutandnearbywallsremain,butthemodeldoesnottrytostore
+thepixelvaluesthemselves,whichmeansthetexturesaregeneratedprocedurallybythePixelCNN.
+Figure6: Left: originalwaveform,middle: reconstructedwithsamespeaker-id,right: reconstructed
+withdifferentspeaker-id. Thecontentsofthethreewaveformsarethesame.
+4.3 Audio
+Inthissetofexperimentsweevaluatethebehaviourofdiscretelatentvariablesonmodelsofraw
+audio. Inallouraudioexperiments,wetrainaVQ-VAEthathasadilatedconvolutionalarchitecture
+similar to WaveNet decoder. All samples for this section can be played from the following url:
+https://avdnoord.github.io/homepage/vqvae/.
+We first consider the VCTK dataset, which has speech recordings of 109 different speakers [41].
+WetrainaVQ-VAEwheretheencoderhas6stridedconvolutionswithstride2andwindow-size4.
+Thisyieldsalatentspace64xsmallerthantheoriginalwaveform. Thelatentsconsistofonefeature
+mapandthediscretespaceis512-dimensional. Thedecoderisconditionedonboththelatentsanda
+one-hotembeddingforthespeaker.
+First, we ran an experiment to show that VQ-VAE can extract a latent space that only conserves
+long-termrelevantinformation. Aftertrainingthemodel,givenanaudioexample,wecanencode
+ittothediscretelatentrepresentation,andreconstructbysamplingfromthedecoder. Becausethe
+dimensionality of the discrete representation is 64 times smaller, the original sample cannot be
+perfectlyreconstructedsamplebysample. Asitcanbeheardfromtheprovidedsamples, andas
+showninFigure7,thereconstructionhasthesamecontent(sametextcontents),butthewaveform
+is quite different and prosody in the voice is altered. This means that the VQ-VAE has, without
+anyformoflinguisticsupervision,learnedahigh-levelabstractspacethatisinvarianttolow-level
+featuresandonlyencodesthecontentofthespeech. Thisexperimentconfirmsourobservationsfrom
+beforethatimportantfeaturesareoftenthosethatspanmanydimensionsintheinputdataspace(in
+thiscasephonemeandotherhigh-levelcontentinwaveform).
+Wehavethenanalysedtheunconditionalsamplesfromthemodeltounderstanditscapabilities. Given
+thecompactandabstractlatentrepresentationextractedfromtheaudio,wetrainedthepriorontopof
+thisrepresentationtomodelthelong-termdependenciesinthedata. Forthistaskwehaveuseda
+largerdatasetof460speakers[30]andtrainedaVQ-VAEmodelwheretheresolutionofdiscrete
+spaceis128timessmaller. Nextwetrainedthepriorasusualontopofthisrepresentationonchunks
+of40960timesteps(2.56seconds),whichyields320latenttimesteps.Whilesamplesdrawnfromeven
+thebestspeechmodelsliketheoriginalWaveNet[37]soundlikebabbling,samplesfromVQ-VAE
+containclearwordsandpart-sentences(seesampleslinkedabove). WeconcludethatVQ-VAEwas
+abletomodelarudimentaryphoneme-levellanguagemodelinacompletelyunsupervisedfashion
+fromrawaudiowaveforms.
+7
+
+Next,weattemptedthespeakerconversionwherethelatentsareextractedfromonespeakerandthen
+reconstructedthroughthedecoderusingaseparatespeakerid. Ascanbeheardfromthesamples,
+the synthesised speech has the same content as the original sample, but with the voice from the
+secondspeaker. Thisexperimentagaindemonstratesthattheencodedrepresentationhasfactoredout
+speaker-specificinformation: theembeddingsnotonlyhavethesamemeaningregardlessofdetails
+inthewaveform,butalsoacrossdifferentvoice-characteristics.
+Finally,inanattempttobetterunderstandthecontentofthediscretecodeswehavecomparedthe
+latentsone-to-onewiththeground-truthphoneme-sequence(whichwasnotusedanywaytotrainthe
+VQ-VAE).Witha128-dimensionaldiscretespacethatrunsat25Hz(encoderdownsamplingfactor
+of640),wemappedeveryofthe128possiblelatentvaluestooneofthe41possiblephonemevalues1
+(bytakingtheconditionallymostlikelyphoneme). Theaccuracyofthis41-wayclassificationwas
+49.3%,whilearandomlatentspacewouldresultinanaccuracyof7.2%(priormostlikelyphoneme).
+Itisclearthatthesediscretelatentcodesobtainedinafullyunsupervisedwayarehigh-levelspeech
+descriptorsthatarecloselyrelatedtophonemes.
+4.4 Video
+ForourfinalexperimentwehaveusedtheDeepMindLab[2]environmenttotrainagenerativemodel
+conditionedonagivenactionsequence. InFigure7weshowtheinitial6framesthatareinputtothe
+modelfollowedby10framesthataresampledfromVQ-VAEwithallactionssettoforward(toprow)
+andright(bottomrow). GenerationofthevideosequencewiththeVQ-VAEmodelisdonepurelyin
+thelatentspace,z withouttheneedtogeneratetheactualimagesthemselves. Eachimageinthe
+t
+sequencex isthencreatedbymappingthelatentswithadeterministicdecodertothepixelspace
+t
+afterallthelatentsaregeneratedusingonlythepriormodelp(z ,...,z ). Therefore,VQ-VAEcan
+1 T
+beusedtoimaginelongsequencespurelyinlatentspacewithoutresortingtopixelspace. Itcanbe
+seenthatthemodelhaslearnttosuccessfullygenerateasequenceofframesconditionedongiven
+actionwithoutanydegradationinthevisualqualitywhilstkeepingthelocalgeometrycorrect. For
+completeness,wetrainedamodelwithoutactionsandobtainedsimilarresults,notshowndueto
+spaceconstraints.
+Figure7: First6framesareprovidedtothemodel,followingframesaregeneratedconditionedonan
+action. Top: repeatedaction"moveforward",bottom: repeatedaction"moveright".
+5 Conclusion
+InthisworkwehaveintroducedVQ-VAE,anewfamilyofmodelsthatcombineVAEswithvector
+quantisationtoobtainadiscretelatentrepresentation. WehaveshownthatVQ-VAEsarecapableof
+modellingverylongtermdependenciesthroughtheircompresseddiscretelatentspacewhichwehave
+demonstratedbygenerating128×128colourimages,samplingactionconditionalvideosequences
+andfinallyusingaudiowhereevenanunconditionalmodelcangeneratesurprisinglymeaningful
+chunksofspeechanddoingspeakerconversion. Alltheseexperimentsdemonstratedthatthediscrete
+latentspacelearntbyVQ-VAEscaptureimportantfeaturesofthedatainacompletelyunsupervised
+manner. Moreover,VQ-VAEsachievelikelihoodsthatarealmostasgoodastheircontinuouslatent
+variablecounterpartsonCIFAR10data. Webelievethatthisisthefirstdiscretelatentvariablemodel
+thatcansuccessfullymodellongrangesequencesandfullyunsupervisedlylearnhigh-levelspeech
+descriptorsthatarecloselyrelatedtophonemes.
+1Notethattheencoder/decoderpairscouldmakethemeaningofeverydiscretelatentdependonprevious
+latentsinthesequence,e.g..bi/tri-grams(andthusachieveahighercompression)whichmeansamoreadvanced
+mappingtophonemeswouldresultsinhigheraccuracy.
+8
+
+References
+[1] EirikurAgustsson,FabianMentzer,MichaelTschannen,LukasCavigelli,RaduTimofte,LucaBenini,and
+LucVanGool. Soft-to-hardvectorquantizationforend-to-endlearnedcompressionofimagesandneural
+networks. arXivpreprintarXiv:1704.00648,2017.
+[2] CharlesBeattie,JoelZLeibo,DenisTeplyashin,TomWard,MarcusWainwright,HeinrichKüttler,Andrew
+Lefrancq,SimonGreen,VíctorValdés,AmirSadik,etal.Deepmindlab.arXivpreprintarXiv:1612.03801,
+2016.
+[3] YoshuaBengio,NicholasLéonard,andAaronCourville. Estimatingorpropagatinggradientsthrough
+stochasticneuronsforconditionalcomputation. arXivpreprintarXiv:1308.3432,2013.
+[4] SamuelRBowman,LukeVilnis,OriolVinyals,AndrewMDai,RafalJozefowicz,andSamyBengio.
+Generatingsentencesfromacontinuousspace. arXivpreprintarXiv:1511.06349,2015.
+[5] YuriBurda,RogerGrosse,andRuslanSalakhutdinov. Importanceweightedautoencoders. arXivpreprint
+arXiv:1509.00519,2015.
+[6] Xi Chen, Yan Duan, Rein Houthooft, John Schulman, Ilya Sutskever, and Pieter Abbeel. Infogan:
+Interpretable representation learning by information maximizing generative adversarial nets. CoRR,
+abs/1606.03657,2016.
+[7] XiChen,DiederikPKingma,TimSalimans,YanDuan,PrafullaDhariwal,JohnSchulman,IlyaSutskever,
+andPieterAbbeel. Variationallossyautoencoder. arXivpreprintarXiv:1611.02731,2016.
+[8] AaronCourville,JamesBergstra,andYoshuaBengio. Aspikeandslabrestrictedboltzmannmachine. In
+ProceedingsoftheFourteenthInternationalConferenceonArtificialIntelligenceandStatistics,pages
+233–241,2011.
+[9] EmilyDenton,SamGross,andRobFergus. Semi-supervisedlearningwithcontext-conditionalgenerative
+adversarialnetworks. arXivpreprintarXiv:1611.06430,2016.
+[10] LaurentDinh,JaschaSohl-Dickstein,andSamyBengio. Densityestimationusingrealnvp. arXivpreprint
+arXiv:1605.08803,2016.
+[11] ChelseaFinn,IanGoodfellow,andSergeyLevine. Unsupervisedlearningforphysicalinteractionthrough
+videoprediction. InAdvancesinNeuralInformationProcessingSystems,pages64–72,2016.
+[12] IanGoodfellow,JeanPouget-Abadie,MehdiMirza,BingXu,DavidWarde-Farley,SherjilOzair,Aaron
+Courville,andYoshuaBengio. Generativeadversarialnets. InAdvancesinneuralinformationprocessing
+systems,pages2672–2680,2014.
+[13] KarolGregor,FredericBesse,DaniloJimenezRezende,IvoDanihelka,andDaanWierstra. Towards
+conceptualcompression. InAdvancesInNeuralInformationProcessingSystems,pages3549–3557,2016.
+[14] KarolGregor,IvoDanihelka,AndriyMnih,CharlesBlundell,andDaanWierstra. Deepautoregressive
+networks. arXivpreprintarXiv:1310.8499,2013.
+[15] IshaanGulrajani,KundanKumar,FarukAhmed,AdrienAliTaiga,FrancescoVisin,DavidVázquez,and
+AaronC.Courville. Pixelvae:Alatentvariablemodelfornaturalimages. CoRR,abs/1611.05013,2016.
+[16] GeoffreyEHintonandRuslanRSalakhutdinov. Reducingthedimensionalityofdatawithneuralnetworks.
+science,313(5786):504–507,2006.
+[17] Judy Hoffman, Erik Rodner, Jeff Donahue, Trevor Darrell, and Kate Saenko. Efficient learning of
+domain-invariantimagerepresentations. arXivpreprintarXiv:1301.3224,2013.
+[18] PhillipIsola,Jun-YanZhu,TinghuiZhou,andAlexeiAEfros.Image-to-imagetranslationwithconditional
+adversarialnetworks. arXivpreprintarXiv:1611.07004,2016.
+[19] EricJang,ShixiangGu,andBenPoole. Categoricalreparameterizationwithgumbel-softmax. arXiv
+preprintarXiv:1611.01144,2016.
+[20] NalKalchbrenner,AaronvandenOord,KarenSimonyan,IvoDanihelka,OriolVinyals,AlexGraves,and
+KorayKavukcuoglu. Videopixelnetworks. arXivpreprintarXiv:1610.00527,2016.
+[21] Diederik Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint
+arXiv:1412.6980,2014.
+[22] DiederikPKingma,TimSalimans,RafalJozefowicz,XiChen,IlyaSutskever,andMaxWelling.Improved
+variationalinferencewithinverseautoregressiveflow. NIPS2016,2016.
+[23] DiederikPKingmaandMaxWelling. Auto-encodingvariationalbayes. arXivpreprintarXiv:1312.6114,
+2013.
+[24] ChristianLedig,LucasTheis,FerencHuszár,JoseCaballero,AndrewCunningham,AlejandroAcosta,
+AndrewAitken,AlykhanTejani,JohannesTotz,ZehanWang,etal. Photo-realisticsingleimagesuper-
+resolutionusingagenerativeadversarialnetwork. arXivpreprintarXiv:1609.04802,2016.
+9
+
+[25] ChrisJMaddison,AndriyMnih,andYeeWhyeTeh. Theconcretedistribution:Acontinuousrelaxationof
+discreterandomvariables. arXivpreprintarXiv:1611.00712,2016.
+[26] SoroushMehri,KundanKumar,IshaanGulrajani,RitheshKumar,ShubhamJain,JoseSotelo,Aaron
+Courville,andYoshuaBengio. Samplernn:Anunconditionalend-to-endneuralaudiogenerationmodel.
+arXivpreprintarXiv:1612.07837,2016.
+[27] AndriyMnihandKarolGregor. Neuralvariationalinferenceandlearninginbeliefnetworks. arXiv
+preprintarXiv:1402.0030,2014.
+[28] AndriyMnihandDaniloJimenezRezende. Variationalinferenceformontecarloobjectives. CoRR,
+abs/1602.06725,2016.
+[29] AaronvandenOord,NalKalchbrenner,andKorayKavukcuoglu. Pixelrecurrentneuralnetworks. arXiv
+preprintarXiv:1601.06759,2016.
+[30] VassilPanayotov, GuoguoChen, DanielPovey, andSanjeevKhudanpur. Librispeech: anasrcorpus
+basedonpublicdomainaudiobooks. InAcoustics,SpeechandSignalProcessing(ICASSP),2015IEEE
+InternationalConferenceon,pages5206–5210.IEEE,2015.
+[31] DaniloJimenezRezendeandShakirMohamed. Variationalinferencewithnormalizingflows. arXiv
+preprintarXiv:1505.05770,2015.
+[32] DaniloJimenezRezende,ShakirMohamed,andDaanWierstra. Stochasticbackpropagationandapproxi-
+mateinferenceindeepgenerativemodels. arXivpreprintarXiv:1401.4082,2014.
+[33] RuslanSalakhutdinovandGeoffreyHinton. Deepboltzmannmachines. InArtificialIntelligenceand
+Statistics,pages448–455,2009.
+[34] AdamSantoro,SergeyBartunov,MatthewBotvinick,DaanWierstra,andTimothyLillicrap. One-shot
+learningwithmemory-augmentedneuralnetworks. arXivpreprintarXiv:1605.06065,2016.
+[35] RichardSSuttonandAndrewGBarto. Reinforcementlearning:Anintroduction,volume1. MITpress
+Cambridge,1998.
+[36] LucasTheis,WenzheShi,AndrewCunningham,andFerencHuszár. Lossyimagecompressionwith
+compressiveautoencoders. arXivpreprintarXiv:1703.00395,2017.
+[37] AäronvandenOord,SanderDieleman,HeigaZen,KarenSimonyan,OriolVinyals,AlexGraves,Nal
+Kalchbrenner,AndrewSenior,andKorayKavukcuoglu. Wavenet: Agenerativemodelforrawaudio.
+CoRRabs/1609.03499,2016.
+[38] AaronvandenOord,NalKalchbrenner,LasseEspeholt,OriolVinyals,AlexGraves,etal. Conditional
+imagegenerationwithpixelcnndecoders. InAdvancesinNeuralInformationProcessingSystems,pages
+4790–4798,2016.
+[39] PascalVincent,HugoLarochelle,IsabelleLajoie,YoshuaBengio,andPierre-AntoineManzagol. Stacked
+denoisingautoencoders:Learningusefulrepresentationsinadeepnetworkwithalocaldenoisingcriterion.
+JournalofMachineLearningResearch,11(Dec):3371–3408,2010.
+[40] OriolVinyals,AlexanderToshev,SamyBengio,andDumitruErhan. Showandtell: Aneuralimage
+captiongenerator. InProceedingsoftheIEEEConferenceonComputerVisionandPatternRecognition,
+pages3156–3164,2015.
+[41] JunichiYamagishi. Englishmulti-speakercorpusforcstrvoicecloningtoolkit. URLhttp://homepages.inf.
+ed.ac.uk/jyamagis/page3/page58/page58.html,2012.
+[42] ZichaoYang, ZhitingHu, RuslanSalakhutdinov, andTaylorBerg-Kirkpatrick. Improvedvariational
+autoencodersfortextmodelingusingdilatedconvolutions. CoRR,abs/1702.08139,2017.
+10
+
+A Appendix
+A.1 VQ-VAEdictionaryupdateswithExponentialMovingAverages
+AsmentionedinSection3.2,onecanalsouseexponentialmovingaverages(EMA)toupdatethedictionary
+itemsinsteadofthelosstermfromEquation3:
+(cid:107)sg[z (x)]−e(cid:107)2. (4)
+e 2
+Let{z ,z ,...,z }bethesetofn outputsfromtheencoderthatareclosesttodictionaryiteme ,sothat
+i,1 i,2 i,ni i i
+wecanwritethelossas:
+(cid:88)
+ni
+(cid:107)z −e (cid:107)2. (5)
+i,j i 2
+j
+Theoptimalvaluefore hasaclosedformsolution,whichissimplytheaverageofelementsintheset:
+i
+1 (cid:88)
+ni
+e = z .
+i n i,j
+i
+j
+ThisupdateistypicallyusedinalgorithmssuchasK-Means.
+However,wecannotusethisupdatedirectlywhenworkingwithminibatches.Insteadwecanuseexponential
+movingaveragesasanonlineversionofthisupdate:
+N(t) :=N(t−1)∗γ+n(t)(1−γ) (6)
+i i i
+m(t) :=m(t−1)∗γ+ (cid:88) z(t)(1−γ) (7)
+i i i,j
+j
+m(t)
+e(t) := i , (8)
+i N(t)
+i
+withγavaluebetween0and1.Wefoundγ =0.99toworkwellinpractice.
+11

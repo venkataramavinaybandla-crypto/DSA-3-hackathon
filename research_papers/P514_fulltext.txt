@@ -1,0 +1,672 @@
+You Only Look Once:
+Unified, Real-Time Object Detection
+JosephRedmon∗,SantoshDivvala∗†,RossGirshick¶,AliFarhadi∗†
+UniversityofWashington∗,AllenInstituteforAI†,FacebookAIResearch¶
+http://pjreddie.com/yolo/
+Abstract
+Person: 0.64
+We present YOLO, a new approach to object detection. Horse: 0.28
+Priorworkonobjectdetectionrepurposesclassifierstoper- 1. Resize image. Dog: 0.30
+2. Run convolutional network.
+formdetection. Instead,weframeobjectdetectionasare- 3. Non-max suppression.
+gressionproblemtospatiallyseparatedboundingboxesand
+associatedclassprobabilities. Asingleneuralnetworkpre- Figure 1: The YOLO Detection System. Processing images
+dicts bounding boxes and class probabilities directly from withYOLOissimpleandstraightforward. Oursystem(1)resizes
+full images in one evaluation. Since the whole detection theinputimageto448×448,(2)runsasingleconvolutionalnet-
+pipelineisasinglenetwork,itcanbeoptimizedend-to-end workontheimage,and(3)thresholdstheresultingdetectionsby
+directlyondetectionperformance. themodel’sconfidence.
+Our unified architecture is extremely fast. Our base
+YOLO model processes images in real-time at 45 frames
+methodstofirstgeneratepotentialboundingboxesinanim-
+persecond. Asmallerversionofthenetwork, FastYOLO,
+ageandthenrunaclassifierontheseproposedboxes. After
+processes an astounding 155 frames per second while
+classification, post-processing is used to refine the bound-
+still achieving double the mAP of other real-time detec-
+ing boxes, eliminate duplicate detections, and rescore the
+tors.Comparedtostate-of-the-artdetectionsystems,YOLO
+boxesbasedonotherobjectsinthescene[13]. Thesecom-
+makes more localization errors but is less likely to predict
+plex pipelines are slow and hard to optimize because each
+false positives on background. Finally, YOLO learns very
+individualcomponentmustbetrainedseparately.
+generalrepresentationsofobjects. Itoutperformsotherde-
+Wereframeobjectdetectionasasingleregressionprob-
+tectionmethods, includingDPMandR-CNN,whengener-
+lem, straight from image pixels to bounding box coordi-
+alizingfromnaturalimagestootherdomainslikeartwork.
+nates and class probabilities. Using our system, you only
+lookonce(YOLO)atanimagetopredictwhatobjectsare
+presentandwheretheyare.
+YOLO is refreshingly simple: see Figure 1. A sin-
+1.Introduction
+gle convolutional network simultaneously predicts multi-
+Humansglanceatanimageandinstantlyknowwhatob- pleboundingboxesandclassprobabilitiesforthoseboxes.
+jects are in the image, where they are, and how they inter- YOLO trains on full images and directly optimizes detec-
+act. The human visual system is fast and accurate, allow- tion performance. This unified model has several benefits
+ingustoperformcomplextaskslikedrivingwithlittlecon- overtraditionalmethodsofobjectdetection.
+scious thought. Fast, accurate algorithms for object detec- First,YOLOisextremelyfast. Sinceweframedetection
+tion would allow computers to drive cars without special- asaregressionproblemwedon’tneedacomplexpipeline.
+ized sensors, enable assistive devices to convey real-time We simply run our neural network on a new image at test
+sceneinformationtohumanusers,andunlockthepotential time to predict detections. Our base network runs at 45
+forgeneralpurpose,responsiveroboticsystems. frames per second with no batch processing on a Titan X
+Current detection systems repurpose classifiers to per- GPU and a fast version runs at more than 150 fps. This
+form detection. To detect an object, these systems take a means we can process streaming video in real-time with
+classifierforthatobjectandevaluateitatvariouslocations less than 25 milliseconds of latency. Furthermore, YOLO
+and scales in a test image. Systems like deformable parts achieves more than twice the mean average precision of
+models (DPM) use a sliding window approach where the otherreal-timesystems. Forademoofoursystemrunning
+classifier is run at evenly spaced locations over the entire in real-time on a webcam please see our project webpage:
+image[10]. http://pjreddie.com/yolo/.
+MorerecentapproacheslikeR-CNNuseregionproposal Second, YOLO reasons globally about the image when
+1
+6102
+yaM
+9
+]VC.sc[
+5v04620.6051:viXra
+
+making predictions. Unlike sliding window and region onesetofclassprobabilitiespergridcell,regardlessofthe
+proposal-based techniques, YOLO sees the entire image numberofboxesB.
+duringtrainingandtesttimesoitimplicitlyencodescontex- Attesttimewemultiplytheconditionalclassprobabili-
+tual information about classes as well as their appearance. tiesandtheindividualboxconfidencepredictions,
+Fast R-CNN, a top detection method [14], mistakes back-
+truth truth
+groundpatchesinanimageforobjectsbecauseitcan’tsee
+Pr(Classi|Object)∗Pr(Object)∗IOUpred =Pr(Classi)∗IOUpred (1)
+thelargercontext. YOLOmakeslessthanhalfthenumber which gives us class-specific confidence scores for each
+ofbackgrounderrorscomparedtoFastR-CNN. box. Thesescoresencodeboththeprobabilityofthatclass
+Third,YOLOlearnsgeneralizablerepresentationsofob- appearingintheboxandhowwellthepredictedboxfitsthe
+jects. When trained on natural images and tested on art- object.
+work,YOLOoutperformstopdetectionmethodslikeDPM
+andR-CNNbyawidemargin. SinceYOLOishighlygen-
+eralizable it is less likely to break down when applied to
+newdomainsorunexpectedinputs.
+YOLOstilllagsbehindstate-of-the-artdetectionsystems
+in accuracy. While it can quickly identify objects in im-
+ages it struggles to precisely localize some objects, espe- Bounding boxes + confidence
+ciallysmallones. Weexaminethesetradeoffsfurtherinour
+experiments.
+All of our training and testing code is open source. A S × S grid on input Final detections
+varietyofpretrainedmodelsarealsoavailabletodownload.
+2.UnifiedDetection Class probability map
+We unify the separate components of object detection
+Figure2: TheModel.Oursystemmodelsdetectionasaregres-
+into a single neural network. Our network uses features
+sionproblem.ItdividestheimageintoanS×Sgridandforeach
+fromtheentireimagetopredicteachboundingbox. Italso
+gridcellpredictsB boundingboxes,confidenceforthoseboxes,
+predicts all bounding boxes across all classes for an im-
+and C class probabilities. These predictions are encoded as an
+agesimultaneously. Thismeansournetworkreasonsglob-
+S×S×(B∗5+C)tensor.
+ally about the full image and all the objects in the image.
+The YOLO design enables end-to-end training and real-
+ForevaluatingYOLOon PASCALVOC,weuseS = 7,
+timespeedswhilemaintaininghighaverageprecision.
+B = 2. PASCAL VOChas20labelledclassessoC = 20.
+OursystemdividestheinputimageintoanS ×S grid. Ourfinalpredictionisa7×7×30tensor.
+Ifthecenterofanobjectfallsintoagridcell,thatgridcell
+2.1.NetworkDesign
+isresponsiblefordetectingthatobject.
+EachgridcellpredictsBboundingboxesandconfidence Weimplementthismodelasaconvolutionalneuralnet-
+scoresforthoseboxes. Theseconfidencescoresreflecthow workandevaluateitonthePASCALVOCdetectiondataset
+confident the model is that the box contains an object and [9]. Theinitialconvolutionallayersofthenetworkextract
+also how accurate it thinks the box is that it predicts. For- features from the image while the fully connected layers
+mallywedefineconfidenceasPr(Object)∗IOUt p r r u e t d h. Ifno predicttheoutputprobabilitiesandcoordinates.
+object exists in that cell, the confidence scores should be Our network architecture is inspired by the GoogLeNet
+zero. Otherwisewewanttheconfidencescoretoequalthe model for image classification [34]. Our network has 24
+intersection over union (IOU) between the predicted box convolutional layers followed by 2 fully connected layers.
+andthegroundtruth. Instead of the inception modules used by GoogLeNet, we
+Eachboundingboxconsistsof5predictions: x,y,w,h, simplyuse1×1reductionlayersfollowedby3×3convo-
+andconfidence. The(x,y)coordinatesrepresentthecenter lutionallayers,similartoLinetal[22]. Thefullnetworkis
+oftheboxrelativetotheboundsofthegridcell. Thewidth showninFigure3.
+andheightarepredictedrelativetothewholeimage.Finally We also train a fast version of YOLO designed to push
+the confidence prediction represents the IOU between the the boundaries of fast object detection. Fast YOLO uses a
+predictedboxandanygroundtruthbox. neural network with fewer convolutional layers (9 instead
+Each grid cell also predicts C conditional class proba- of24)andfewerfiltersinthoselayers. Otherthanthesize
+bilities, Pr(Class |Object). These probabilities are condi- of the network, all training and testing parameters are the
+i
+tionedonthegridcellcontaininganobject.Weonlypredict samebetweenYOLOandFastYOLO.
+
+448
+7
+7
+112
+3
+56
+3 3
+448 3 283
+3 143 73 7 7
+112 56 28 14 3 7 3 7 7
+3 192 256 512 1024 1024 1024 4096 30
+Conv. Layer Conv. Layer Conv. Layers Conv. Layers Conv. Layers Conv. Layers Conn. Layer Conn. Layer
+7x7x64-s-2 3x3x192 1x1x128 1x1x256}×4 1x1x512 }×2 3x3x1024
+Maxpool Layer Maxpool Layer 3x3x256 3x3x512 3x3x1024 3x3x1024
+2x2-s-2 2x2-s-2 1x1x256 1x1x512 3x3x1024
+3x3x512 3x3x1024 3x3x1024-s-2
+Maxpool Layer Maxpool Layer
+2x2-s-2 2x2-s-2
+Figure3: TheArchitecture.Ourdetectionnetworkhas24convolutionallayersfollowedby2fullyconnectedlayers.Alternating1×1
+convolutionallayersreducethefeaturesspacefromprecedinglayers. WepretraintheconvolutionallayersontheImageNetclassification
+taskathalftheresolution(224×224inputimage)andthendoubletheresolutionfordetection.
+Thefinaloutputofournetworkisthe7×7×30tensor model. Weusesum-squarederrorbecauseitiseasytoop-
+ofpredictions. timize,howeveritdoesnotperfectlyalignwithourgoalof
+maximizing average precision. It weights localization er-
+2.2.Training
+rorequallywithclassificationerrorwhichmaynotbeideal.
+We pretrain our convolutional layers on the ImageNet Also, in every image many grid cells do not contain any
+1000-classcompetitiondataset[30]. Forpretrainingweuse object. This pushes the “confidence” scores of those cells
+thefirst20convolutionallayersfromFigure3followedbya towards zero, often overpowering the gradient from cells
+average-poolinglayerandafullyconnectedlayer. Wetrain that do contain objects. This can lead to model instability,
+thisnetworkforapproximatelyaweekandachieveasingle causingtrainingtodivergeearlyon.
+croptop-5accuracyof88%ontheImageNet2012valida-
+tion set, comparable to the GoogLeNet models in Caffe’s Toremedythis,weincreasethelossfromboundingbox
+Model Zoo [24]. We use the Darknet framework for all coordinate predictions and decrease the loss from confi-
+trainingandinference[26]. dencepredictionsforboxesthatdon’tcontainobjects. We
+Wethenconvertthemodeltoperformdetection. Renet usetwoparameters,λ andλ toaccomplishthis.We
+coord noobj
+al. showthataddingbothconvolutionalandconnectedlay- setλ =5andλ =.5.
+coord noobj
+ers to pretrained networks can improve performance [29].
+Following their example, we add four convolutional lay-
+Sum-squared error also equally weights errors in large
+ersandtwofullyconnectedlayerswithrandomlyinitialized
+boxesandsmallboxes. Ourerrormetricshouldreflectthat
+weights. Detectionoftenrequiresfine-grainedvisualinfor-
+small deviations in large boxes matter less than in small
+mation so we increase the input resolution of the network
+boxes. To partially address this we predict the square root
+from224×224to448×448.
+oftheboundingboxwidthandheightinsteadofthewidth
+Our final layer predicts both class probabilities and
+andheightdirectly.
+boundingboxcoordinates. Wenormalizetheboundingbox
+widthandheightbytheimagewidthandheightsothatthey
+fall between 0 and 1. We parametrize the bounding box x YOLO predicts multiple bounding boxes per grid cell.
+andycoordinatestobeoffsetsofaparticulargridcellloca- Attrainingtimeweonlywantoneboundingboxpredictor
+to be responsible for each object. We assign one predictor
+tionsotheyarealsoboundedbetween0and1.
+tobe“responsible”forpredictinganobjectbasedonwhich
+Weusealinearactivationfunctionforthefinallayerand
+prediction has the highest current IOU with the ground
+allotherlayersusethefollowingleakyrectifiedlinearacti-
+truth.Thisleadstospecializationbetweentheboundingbox
+vation:
+predictors. Each predictor gets better at predicting certain
+(cid:40)
+x, ifx>0 sizes, aspect ratios, or classes of object, improving overall
+φ(x)= (2) recall.
+0.1x, otherwise
+We optimize for sum-squared error in the output of our During training we optimize the following, multi-part
+
+lossfunction: theborderofmultiplecellscanbewelllocalizedbymulti-
+plecells.Non-maximalsuppressioncanbeusedtofixthese
+λcoord (cid:88) S2 (cid:88) B 1o
+i
+b
+j
+j(cid:104) (xi−xˆi)2+(yi−yˆi)2(cid:105) m
+is
+u
+f
+l
+o
+ti
+r
+p
+R
+le
+-C
+de
+N
+te
+N
+ct
+o
+io
+r
+n
+D
+s.
+P
+W
+M
+h
+,
+i
+n
+le
+on
+n
+-
+o
+m
+t
+a
+c
+x
+ri
+i
+t
+m
+ic
+a
+a
+l
+l
+s
+to
+up
+p
+p
+e
+r
+r
+e
+f
+s
+o
+s
+r
+i
+m
+on
+an
+a
+c
+d
+e
+d
+a
+s
+s
+2
+i
+-
+t
+i=0j=0
++λcoord (cid:88) S2 (cid:88) B 1o i b j j (cid:20)(cid:16)√ wi− (cid:112) wˆi (cid:17)2 + (cid:18) (cid:112) hi− (cid:113) hˆ i (cid:19)2(cid:21) 3%inmAP.
+i=0j=0 2.4.LimitationsofYOLO
++ (cid:88) S2 (cid:88) B 1o i b j j(cid:16) Ci−Cˆ i (cid:17)2 YOLO imposes strong spatial constraints on bounding
+i=0j=0
+boxpredictionssinceeachgridcellonlypredictstwoboxes
++λnoobj (cid:88) S2 (cid:88) B 1n i o j obj(cid:16) Ci−Cˆ i (cid:17)2 and can only have one class. This spatial constraint lim-
+i=0j=0 its the number of nearby objects that our model can pre-
+S2 dict. Ourmodelstruggleswithsmallobjectsthatappearin
++ (cid:88)1o i bj (cid:88) (pi(c)−pˆi(c))2 (3) groups,suchasflocksofbirds.
+i=0 c∈classes
+Since our model learns to predict bounding boxes from
+where 1obj denotes if object appears in cell i and 1obj de- data,itstrugglestogeneralizetoobjectsinneworunusual
+i ij
+notes that the jth bounding box predictor in cell i is “re- aspect ratios or configurations. Our model also uses rela-
+sponsible”forthatprediction. tively coarse features for predicting bounding boxes since
+Note that the loss function only penalizes classification ourarchitecturehasmultipledownsamplinglayersfromthe
+errorifanobjectispresentinthatgridcell(hencethecon- inputimage.
+ditionalclassprobabilitydiscussedearlier). Italsoonlype- Finally, while we train on a loss function that approxi-
+nalizes bounding box coordinate error if that predictor is matesdetectionperformance,ourlossfunctiontreatserrors
+“responsible”forthegroundtruthbox(i.e. hasthehighest the same in small bounding boxes versus large bounding
+IOUofanypredictorinthatgridcell). boxes. Asmallerrorinalargeboxisgenerallybenignbuta
+Wetrainthenetworkforabout135epochsonthetrain- smallerrorinasmallboxhasamuchgreatereffectonIOU.
+ing and validation data sets from PASCAL VOC 2007 and Ourmainsourceoferrorisincorrectlocalizations.
+2012. Whentestingon2012wealsoincludetheVOC2007
+test data for training. Throughout training we use a batch 3.ComparisontoOtherDetectionSystems
+sizeof64,amomentumof0.9andadecayof0.0005.
+Our learning rate schedule is as follows: For the first Object detection is a core problem in computer vision.
+epochsweslowlyraisethelearningratefrom10−3to10−2. Detection pipelines generally start by extracting a set of
+Ifwestartatahighlearningrateourmodeloftendiverges robust features from input images (Haar [25], SIFT [23],
+duetounstablegradients. Wecontinuetrainingwith10−2 HOG [4], convolutional features [6]). Then, classifiers
+for 75 epochs, then 10−3 for 30 epochs, and finally 10−4 [36, 21, 13, 10] or localizers [1, 32] are used to identify
+for30epochs. objects in the feature space. These classifiers or localizers
+To avoid overfitting we use dropout and extensive data areruneitherinslidingwindowfashionoverthewholeim-
+augmentation. Adropoutlayerwithrate=.5afterthefirst ageoronsomesubsetofregionsintheimage[35,15,39].
+connectedlayerpreventsco-adaptationbetweenlayers[18]. WecomparetheYOLOdetectionsystemtoseveraltopde-
+For data augmentation we introduce random scaling and tectionframeworks,highlightingkeysimilaritiesanddiffer-
+translations of up to 20% of the original image size. We ences.
+alsorandomlyadjusttheexposureandsaturationoftheim- Deformable parts models. Deformable parts models
+agebyuptoafactorof1.5intheHSVcolorspace. (DPM) use a sliding window approach to object detection
+[10]. DPMusesadisjointpipelinetoextractstaticfeatures,
+2.3.Inference
+classify regions, predict bounding boxes for high scoring
+Justlikeintraining,predictingdetectionsforatestimage regions,etc.Oursystemreplacesallofthesedisparateparts
+onlyrequiresonenetworkevaluation.OnPASCALVOCthe with a single convolutional neural network. The network
+network predicts 98 bounding boxes per image and class performsfeatureextraction,boundingboxprediction,non-
+probabilities for each box. YOLO is extremely fast at test maximalsuppression,andcontextualreasoningallconcur-
+timesinceitonlyrequiresasinglenetworkevaluation,un- rently. Insteadofstaticfeatures,thenetworktrainsthefea-
+likeclassifier-basedmethods. turesin-lineandoptimizesthemforthedetectiontask. Our
+The grid design enforces spatial diversity in the bound- unified architecture leads to a faster, more accurate model
+ing box predictions. Often it is clear which grid cell an thanDPM.
+objectfallsintoandthenetworkonlypredictsoneboxfor R-CNN.R-CNNanditsvariantsuseregionproposalsin-
+each object. However, some large objects or objects near steadofslidingwindowstofindobjectsinimages.Selective
+
+Search[35]generatespotentialboundingboxes,aconvolu- graspdetectionbyRedmonetal[27]. Ourgridapproachto
+tionalnetworkextractsfeatures,anSVMscorestheboxes,a boundingboxpredictionisbasedontheMultiGraspsystem
+linearmodeladjuststheboundingboxes,andnon-maxsup- forregressiontograsps.However,graspdetectionisamuch
+pressioneliminatesduplicatedetections. Eachstageofthis simpler task than object detection. MultiGrasp only needs
+complex pipeline must be precisely tuned independently topredictasinglegraspableregionforanimagecontaining
+andtheresultingsystemisveryslow, takingmorethan40 one object. It doesn’t have to estimate the size, location,
+secondsperimageattesttime[14]. orboundariesoftheobjectorpredictit’sclass,onlyfinda
+YOLOsharessomesimilaritieswithR-CNN.Eachgrid regionsuitableforgrasping. YOLOpredictsbothbounding
+cell proposes potential bounding boxes and scores those boxesandclassprobabilitiesformultipleobjectsofmulti-
+boxes using convolutional features. However, our system pleclassesinanimage.
+puts spatial constraints on the grid cell proposals which
+4.Experiments
+helps mitigate multiple detections of the same object. Our
+system also proposes far fewer bounding boxes, only 98
+First we compare YOLO with other real-time detection
+per image compared to about 2000 from Selective Search.
+systems on PASCAL VOC 2007. To understand the differ-
+Finally, our system combines these individual components
+encesbetweenYOLOandR-CNNvariantsweexplorethe
+intoasingle,jointlyoptimizedmodel.
+errorsonVOC2007madebyYOLOandFastR-CNN,one
+OtherFastDetectorsFastandFasterR-CNNfocuson
+of the highest performing versions of R-CNN [14]. Based
+speeding up the R-CNN framework by sharing computa-
+on the different error profiles we show that YOLO can be
+tion and using neural networks to propose regions instead
+used to rescore Fast R-CNN detections and reduce the er-
+of Selective Search [14] [28]. While they offer speed and
+rors from background false positives, giving a significant
+accuracyimprovementsoverR-CNN,bothstillfallshortof
+performanceboost. WealsopresentVOC2012resultsand
+real-timeperformance.
+compare mAP to current state-of-the-art methods. Finally,
+Many research efforts focus on speeding up the DPM
+weshowthatYOLOgeneralizestonewdomainsbetterthan
+pipeline [31] [38] [5]. They speed up HOG computation,
+otherdetectorsontwoartworkdatasets.
+use cascades, and push computation to GPUs. However,
+only30HzDPM[31]actuallyrunsinreal-time. 4.1.ComparisontoOtherReal-TimeSystems
+Instead of trying to optimize individual components of
+Manyresearcheffortsinobjectdetectionfocusonmak-
+a large detection pipeline, YOLO throws out the pipeline
+ingstandarddetectionpipelinesfast. [5][38][31][14][17]
+entirelyandisfastbydesign.
+[28] However, only Sadeghi et al. actually produce a de-
+Detectors for single classes like faces or people can be tectionsystemthatrunsinreal-time(30framespersecond
+highly optimized since they have to deal with much less or better) [31]. We compare YOLO to their GPU imple-
+variation [37]. YOLO is a general purpose detector that mentation of DPM which runs either at 30Hz or 100Hz.
+learnstodetectavarietyofobjectssimultaneously. While the other efforts don’t reach the real-time milestone
+DeepMultiBox. UnlikeR-CNN,Szegedyetal. traina we also compare their relative mAP and speed to examine
+convolutional neural network to predict regions of interest the accuracy-performance tradeoffs available in object de-
+[8] instead of using Selective Search. MultiBox can also tectionsystems.
+performsingleobjectdetectionbyreplacingtheconfidence Fast YOLO is the fastest object detection method on
+prediction with a single class prediction. However, Multi- PASCAL; as far as we know, it is the fastest extant object
+Boxcannotperformgeneralobjectdetectionandisstilljust detector.With52.7%mAP,itismorethantwiceasaccurate
+apieceinalargerdetectionpipeline, requiringfurtherim- aspriorworkonreal-timedetection.YOLOpushesmAPto
+age patch classification. Both YOLO and MultiBox use a 63.4%whilestillmaintainingreal-timeperformance.
+convolutionalnetworktopredictboundingboxesinanim- WealsotrainYOLOusingVGG-16. Thismodelismore
+agebutYOLOisacompletedetectionsystem. accuratebutalsosignificantlyslowerthanYOLO.Itisuse-
+OverFeat. Sermanet et al. train a convolutional neural ful for comparison to other detection systems that rely on
+network to perform localization and adapt that localizer to VGG-16butsinceitisslowerthanreal-timetherestofthe
+performdetection[32]. OverFeatefficientlyperformsslid- paperfocusesonourfastermodels.
+ingwindowdetectionbutitisstilladisjointsystem. Over- Fastest DPM effectively speeds up DPM without sacri-
+Featoptimizesforlocalization, notdetectionperformance. ficing much mAP but it still misses real-time performance
+Like DPM, the localizer only sees local information when byafactorof2[38]. ItalsoislimitedbyDPM’srelatively
+makingaprediction. OverFeatcannotreasonaboutglobal lowaccuracyondetectioncomparedtoneuralnetworkap-
+contextandthusrequiressignificantpost-processingtopro- proaches.
+ducecoherentdetections. R-CNN minus R replaces Selective Search with static
+MultiGrasp. Our work is similar in design to work on boundingboxproposals[20]. Whileitismuchfasterthan
+
+Real-TimeDetectors Train mAP FPS Fast R-CNN YOLO
+100HzDPM[31] 2007 16.0 100
+30HzDPM[31] 2007 26.1 30 Background: 13.6% Background: 4.75%
+Other: 4.0%
+FastYOLO 2007+2012 52.7 155
+Other: 1.9% Sim: 6.75%
+YOLO 2007+2012 63.4 45
+Sim: 4.3%
+LessThanReal-Time
+FastestDPM[38] 2007 30.4 15 Loc: 8.6% Loc: 19.0%
+R-CNNMinusR[20] 2007 53.5 6
+FastR-CNN[14] 2007+2012 70.0 0.5 Correct: 71.6% Correct: 65.5%
+FasterR-CNNVGG-16[28] 2007+2012 73.2 7
+FasterR-CNNZF[28] 2007+2012 62.1 18
+YOLOVGG-16 2007+2012 66.4 21 Figure 4: Error Analysis: Fast R-CNN vs. YOLO These
+chartsshowthepercentageoflocalizationandbackgrounderrors
+inthetopNdetectionsforvariouscategories(N=#objectsinthat
+Table1: Real-TimeSystemsonPASCALVOC2007. Compar- category).
+ing the performance and speed of fast detectors. Fast YOLO is
+the fastest detector on record for PASCAL VOC detection and is
+still twice as accurate as any other real-time detector. YOLO is • Other: classiswrong,IOU>.1
+10mAPmoreaccuratethanthefastversionwhilestillwellabove • Background: IOU<.1foranyobject
+real-timeinspeed.
+Figure 4 shows the breakdown of each error type aver-
+agedacrossall20classes.
+R-CNN,itstillfallsshortofreal-timeandtakesasignificant YOLOstrugglestolocalizeobjectscorrectly. Localiza-
+accuracyhitfromnothavinggoodproposals. tionerrorsaccountformoreofYOLO’serrorsthanallother
+FastR-CNNspeedsuptheclassificationstageofR-CNN sources combined. Fast R-CNN makes much fewer local-
+butitstillreliesonselectivesearchwhichcantakearound ization errors but far more background errors. 13.6% of
+2 seconds per image to generate bounding box proposals. it’stopdetectionsarefalsepositivesthatdon’tcontainany
+ThusithashighmAPbutat0.5fpsitisstillfarfromreal- objects. Fast R-CNN is almost 3x more likely to predict
+time. backgrounddetectionsthanYOLO.
+TherecentFasterR-CNNreplacesselectivesearchwith
+4.3.CombiningFastR-CNNandYOLO
+a neural network to propose bounding boxes, similar to
+Szegedy et al. [8] In our tests, their most accurate model YOLO makes far fewer background mistakes than Fast
+achieves 7 fps while a smaller, less accurate one runs at R-CNN. By using YOLO to eliminate background detec-
+18fps. TheVGG-16 versionof FasterR-CNN is10 mAP tionsfromFastR-CNNwegetasignificantboostinperfor-
+higher but is also 6 times slower than YOLO. The Zeiler- mance. For every bounding box that R-CNN predicts we
+FergusFasterR-CNNisonly2.5timesslowerthanYOLO checktoseeifYOLOpredictsasimilarbox. Ifitdoes,we
+butisalsolessaccurate. give that prediction a boost based on the probability pre-
+dictedbyYOLOandtheoverlapbetweenthetwoboxes.
+4.2.VOC2007ErrorAnalysis
+The best Fast R-CNN model achieves a mAP of 71.8%
+To further examine the differences between YOLO and ontheVOC2007testset. WhencombinedwithYOLO,its
+state-of-the-art detectors, we look at a detailed breakdown
+of results on VOC 2007. We compare YOLO to Fast R- mAP Combined Gain
+CNN since Fast R-CNN is one of the highest performing FastR-CNN 71.8 - -
+detectorson PASCAL andit’sdetectionsarepubliclyavail- FastR-CNN(2007data) 66.9 72.4 .6
+able. FastR-CNN(VGG-M) 59.2 72.4 .6
+WeusethemethodologyandtoolsofHoiemetal. [19] FastR-CNN(CaffeNet) 57.1 72.1 .3
+ForeachcategoryattesttimewelookatthetopNpredic- YOLO 63.4 75.0 3.2
+tions for that category. Each prediction is either correct or
+itisclassifiedbasedonthetypeoferror:
+Table2: ModelcombinationexperimentsonVOC2007. We
+• Correct: correctclassandIOU>.5 examinetheeffectofcombiningvariousmodelswiththebestver-
+sionofFastR-CNN.OtherversionsofFastR-CNNprovideonly
+• Localization: correctclass,.1<IOU<.5
+a small benefit while YOLO provides a significant performance
+• Similar: classissimilar,IOU>.1 boost.
+
+VOC2012test mAP aero bike bird boat bottle bus car cat chair cow table dog horse mbikepersonplant sheep sofa train tv
+MRCNNMOREDATA[11] 73.9 85.5 82.9 76.6 57.8 62.7 79.4 77.2 86.6 55.0 79.1 62.2 87.0 83.4 84.7 78.9 45.3 73.4 65.8 80.3 74.0
+HyperNetVGG 71.4 84.2 78.5 73.6 55.6 53.7 78.7 79.8 87.7 49.6 74.9 52.1 86.0 81.7 83.3 81.8 48.6 73.5 59.4 79.9 65.7
+HyperNetSP 71.3 84.1 78.3 73.3 55.5 53.6 78.6 79.6 87.5 49.5 74.9 52.1 85.6 81.6 83.2 81.6 48.4 73.2 59.3 79.7 65.6
+FastR-CNN+YOLO 70.7 83.4 78.5 73.5 55.8 43.4 79.1 73.1 89.4 49.4 75.5 57.0 87.5 80.9 81.0 74.7 41.8 71.5 68.5 82.1 67.2
+MRCNNSCNN[11] 70.7 85.0 79.6 71.5 55.3 57.7 76.0 73.9 84.6 50.5 74.3 61.7 85.5 79.9 81.7 76.4 41.0 69.0 61.2 77.7 72.1
+FasterR-CNN[28] 70.4 84.9 79.8 74.3 53.9 49.8 77.5 75.9 88.5 45.6 77.1 55.3 86.9 81.7 80.9 79.6 40.1 72.6 60.9 81.2 61.5
+DEEPENSCOCO 70.1 84.0 79.4 71.6 51.9 51.1 74.1 72.1 88.6 48.3 73.4 57.8 86.1 80.0 80.7 70.4 46.6 69.6 68.8 75.9 71.4
+NoC[29] 68.8 82.8 79.0 71.6 52.3 53.7 74.1 69.0 84.9 46.9 74.3 53.1 85.0 81.3 79.5 72.2 38.9 72.4 59.5 76.7 68.1
+FastR-CNN[14] 68.4 82.3 78.4 70.8 52.3 38.7 77.8 71.6 89.3 44.2 73.0 55.0 87.5 80.5 80.8 72.0 35.1 68.3 65.7 80.4 64.2
+UMICHFGSSTRUCT 66.4 82.9 76.1 64.1 44.6 49.4 70.3 71.2 84.6 42.7 68.6 55.8 82.7 77.1 79.9 68.7 41.4 69.0 60.0 72.0 66.2
+NUSNINC2000[7] 63.8 80.2 73.8 61.9 43.7 43.0 70.3 67.6 80.7 41.9 69.7 51.7 78.2 75.2 76.9 65.1 38.6 68.3 58.0 68.7 63.3
+BabyLearning[7] 63.2 78.0 74.2 61.3 45.7 42.7 68.2 66.8 80.2 40.6 70.0 49.8 79.0 74.5 77.9 64.0 35.3 67.9 55.7 68.7 62.6
+NUSNIN 62.4 77.9 73.1 62.6 39.5 43.3 69.1 66.4 78.9 39.1 68.1 50.0 77.2 71.3 76.1 64.7 38.4 66.9 56.2 66.9 62.7
+R-CNNVGGBB[13] 62.4 79.6 72.7 61.9 41.2 41.9 65.9 66.4 84.6 38.5 67.2 46.7 82.0 74.8 76.0 65.2 35.6 65.4 54.2 67.4 60.3
+R-CNNVGG[13] 59.2 76.8 70.9 56.6 37.5 36.9 62.9 63.6 81.1 35.7 64.3 43.9 80.4 71.6 74.0 60.0 30.8 63.4 52.0 63.5 58.7
+YOLO 57.9 77.0 67.2 57.7 38.3 22.7 68.3 55.9 81.4 36.2 60.8 48.5 77.2 72.3 71.3 63.5 28.9 52.2 54.8 73.9 50.8
+FeatureEdit[33] 56.3 74.6 69.1 54.4 39.1 33.1 65.2 62.7 69.7 30.8 56.0 44.6 70.0 64.4 71.1 60.2 33.3 61.3 46.4 61.7 57.8
+R-CNNBB[13] 53.3 71.8 65.8 52.0 34.1 32.6 59.6 60.0 69.8 27.6 52.0 41.7 69.6 61.3 68.3 57.8 29.6 57.8 40.9 59.3 54.1
+SDS[16] 50.7 69.7 58.4 48.5 28.3 28.8 61.3 57.5 70.8 24.1 50.7 35.9 64.9 59.1 65.8 57.1 26.0 58.8 38.6 58.9 50.7
+R-CNN[13] 49.6 68.1 63.8 46.1 29.4 27.9 56.6 57.0 65.9 26.5 48.7 39.5 66.2 57.3 65.4 53.2 26.2 54.5 38.1 50.6 51.6
+Table 3: PASCAL VOC 2012 Leaderboard. YOLO compared with the full comp4 (outside data allowed) public leaderboard as of
+November6th,2015. Meanaverageprecisionandper-classaverageprecisionareshownforavarietyofdetectionmethods. YOLOisthe
+onlyreal-timedetector.FastR-CNN+YOLOistheforthhighestscoringmethod,witha2.3%boostoverFastR-CNN.
+mAPincreasesby3.2%to75.0%. Wealsotriedcombining thetestdatacandivergefromwhatthesystemhasseenbe-
+the top Fast R-CNN model with several other versions of fore[3]. WecompareYOLOtootherdetectionsystemson
+FastR-CNN.Thoseensemblesproducedsmallincreasesin thePicassoDataset[12]andthePeople-ArtDataset[3],two
+mAPbetween.3and.6%,seeTable2fordetails. datasetsfortestingpersondetectiononartwork.
+The boost from YOLO is not simply a byproduct of Figure 5 shows comparative performance between
+modelensemblingsincethereislittlebenefitfromcombin- YOLOandotherdetectionmethods. Forreference,wegive
+ingdifferentversionsofFastR-CNN.Rather,itisprecisely VOC2007detectionAPonpersonwhereallmodelsare
+because YOLO makes different kinds of mistakes at test trained only on VOC 2007 data. On Picasso models are
+time that it is so effective at boosting Fast R-CNN’s per- trainedonVOC2012whileonPeople-Arttheyaretrained
+formance. onVOC2010.
+Unfortunately,thiscombinationdoesn’tbenefitfromthe R-CNN has high AP on VOC 2007. However, R-CNN
+speed of YOLO since we run each model seperately and drops off considerably when applied to artwork. R-CNN
+thencombinetheresults. However, sinceYOLOissofast usesSelectiveSearchforboundingboxproposalswhichis
+itdoesn’taddanysignificantcomputationaltimecompared tunedfornaturalimages.TheclassifierstepinR-CNNonly
+toFastR-CNN. seessmallregionsandneedsgoodproposals.
+DPM maintains its AP well when applied to artwork.
+4.4.VOC2012Results
+PriorworktheorizesthatDPMperformswellbecauseithas
+On the VOC 2012 test set, YOLO scores 57.9% mAP. strong spatial models of the shape and layout of objects.
+This is lower than the current state of the art, closer to ThoughDPMdoesn’tdegradeasmuchasR-CNN,itstarts
+the original R-CNN using VGG-16, see Table 3. Our sys- fromalowerAP.
+tem struggles with small objects compared to its closest YOLOhasgoodperformanceonVOC2007anditsAP
+competitors. On categories like bottle, sheep, and degradeslessthanothermethodswhenappliedtoartwork.
+tv/monitorYOLOscores8-10%lowerthanR-CNNor
+Like DPM, YOLO models the size and shape of objects,
+Feature Edit. However, on other categories like cat and aswellasrelationshipsbetweenobjectsandwhereobjects
+trainYOLOachieveshigherperformance.
+commonly appear. Artwork and natural images are very
+OurcombinedFastR-CNN+YOLOmodelisoneofthe different on a pixel level but they are similar in terms of
+highest performing detection methods. Fast R-CNN gets the size and shape of objects, thus YOLO can still predict
+a 2.3% improvement from the combination with YOLO, goodboundingboxesanddetections.
+boostingit5spotsuponthepublicleaderboard.
+4.5.Generalizability: PersonDetectioninArtwork 5.Real-TimeDetectionInTheWild
+Academicdatasetsforobjectdetectiondrawthetraining YOLOisafast,accurateobjectdetector,makingitideal
+and testing data from the same distribution. In real-world for computer vision applications. We connect YOLO to a
+applications it is hard to predict all possible use cases and webcamandverifythatitmaintainsreal-timeperformance,
+
+Humans
+YOLO
+VOC2007 Picasso People-Art
+DPM
+AP AP BestF AP
+1
+Poselets
+RCNN YOLO 59.2 53.3 0.590 45
+R-CNN 54.2 10.4 0.226 26
+DPM 43.2 37.8 0.458 32
+D&T Poselets[2] 36.5 17.8 0.271
+D&T[4] - 1.9 0.051
+(b)QuantitativeresultsontheVOC2007,Picasso,andPeople-ArtDatasets.
+(a)PicassoDatasetprecision-recallcurves. ThePicassoDatasetevaluatesonbothAPandbestF score.
+1
+Figure5: GeneralizationresultsonPicassoandPeople-Artdatasets.
+Figure6: QualitativeResults.YOLOrunningonsampleartworkandnaturalimagesfromtheinternet.Itismostlyaccuratealthoughit
+doesthinkonepersonisanairplane.
+includingthetimetofetchimagesfromthecameraanddis- directlyonfullimages. Unlikeclassifier-basedapproaches,
+playthedetections. YOLOistrainedonalossfunctionthatdirectlycorresponds
+Theresultingsystemisinteractiveandengaging. While to detection performance and the entire model is trained
+YOLO processes images individually, when attached to a jointly.
+webcam it functions like a tracking system, detecting ob-
+Fast YOLO is the fastest general-purpose object detec-
+jects as they move around and change in appearance. A
+torintheliteratureandYOLOpushesthestate-of-the-artin
+demo of the system and the source code can be found on
+real-time object detection. YOLO also generalizes well to
+ourprojectwebsite: http://pjreddie.com/yolo/.
+new domains making it ideal for applications that rely on
+fast,robustobjectdetection.
+6.Conclusion
+Acknowledgements: This work is partially supported by
+We introduce YOLO, a unified model for object detec- ONRN00014-13-1-0720,NSFIIS-1338054,andTheAllen
+tion. Our model is simple to construct and can be trained DistinguishedInvestigatorAward.
+
+References [16] B.Hariharan,P.Arbela´ez,R.Girshick,andJ.Malik. Simul-
+taneous detection and segmentation. In Computer Vision–
+[1] M.B.BlaschkoandC.H.Lampert. Learningtolocalizeob- ECCV2014,pages297–312.Springer,2014. 7
+jectswithstructuredoutputregression. InComputerVision–
+[17] K.He,X.Zhang,S.Ren,andJ.Sun.Spatialpyramidpooling
+ECCV2008,pages2–15.Springer,2008. 4
+indeepconvolutionalnetworksforvisualrecognition. arXiv
+[2] L. Bourdev and J. Malik. Poselets: Body part detectors preprintarXiv:1406.4729,2014. 5
+trained using 3d human pose annotations. In International
+[18] G.E.Hinton,N.Srivastava,A.Krizhevsky,I.Sutskever,and
+ConferenceonComputerVision(ICCV),2009. 8
+R. R. Salakhutdinov. Improving neural networks by pre-
+[3] H. Cai, Q. Wu, T. Corradi, and P. Hall. The cross- venting co-adaptation of feature detectors. arXiv preprint
+depiction problem: Computer vision algorithms for recog- arXiv:1207.0580,2012. 4
+nisingobjectsinartworkandinphotographs. arXivpreprint
+[19] D.Hoiem,Y.Chodpathumwan,andQ.Dai.Diagnosingerror
+arXiv:1505.00110,2015. 7
+inobjectdetectors. InComputerVision–ECCV2012,pages
+[4] N.DalalandB.Triggs. Histogramsoforientedgradientsfor 340–353.Springer,2012. 6
+humandetection. InComputerVisionandPatternRecogni-
+[20] K. Lenc and A. Vedaldi. R-cnn minus r. arXiv preprint
+tion,2005.CVPR2005.IEEEComputerSocietyConference
+arXiv:1506.06981,2015. 5,6
+on,volume1,pages886–893.IEEE,2005. 4,8
+[21] R.LienhartandJ.Maydt. Anextendedsetofhaar-likefea-
+[5] T. Dean, M. Ruzon, M. Segal, J. Shlens, S. Vijaya- turesforrapidobjectdetection. InImageProcessing.2002.
+narasimhan, J. Yagnik, et al. Fast, accurate detection of Proceedings. 2002 International Conference on, volume 1,
+100,000 object classes on a single machine. In Computer pagesI–900.IEEE,2002. 4
+VisionandPatternRecognition(CVPR),2013IEEEConfer-
+[22] M.Lin,Q.Chen,andS.Yan. Networkinnetwork. CoRR,
+enceon,pages1814–1821.IEEE,2013. 5
+abs/1312.4400,2013. 2
+[6] J. Donahue, Y. Jia, O. Vinyals, J. Hoffman, N. Zhang,
+[23] D. G. Lowe. Object recognition from local scale-invariant
+E.Tzeng,andT.Darrell. Decaf: Adeepconvolutionalacti-
+features. InComputervision,1999.Theproceedingsofthe
+vationfeatureforgenericvisualrecognition. arXivpreprint
+seventhIEEEinternationalconferenceon,volume2,pages
+arXiv:1310.1531,2013. 4
+1150–1157.Ieee,1999. 4
+[7] J. Dong, Q. Chen, S. Yan, and A. Yuille. Towards unified
+[24] D. Mishkin. Models accuracy on imagenet 2012
+object detection and semantic segmentation. In Computer val. https://github.com/BVLC/caffe/wiki/
+Vision–ECCV2014,pages299–314.Springer,2014. 7 Models-accuracy-on-ImageNet-2012-val. Ac-
+[8] D.Erhan,C.Szegedy,A.Toshev,andD.Anguelov.Scalable cessed:2015-10-2. 3
+object detection using deep neural networks. In Computer
+[25] C. P. Papageorgiou, M. Oren, and T. Poggio. A general
+VisionandPatternRecognition(CVPR),2014IEEEConfer-
+frameworkforobjectdetection. InComputervision, 1998.
+enceon,pages2155–2162.IEEE,2014. 5,6 sixth international conference on, pages 555–562. IEEE,
+[9] M. Everingham, S. M. A. Eslami, L. Van Gool, C. K. I. 1998. 4
+Williams,J.Winn,andA.Zisserman. Thepascalvisualob- [26] J. Redmon. Darknet: Open source neural networks in c.
+jectclasseschallenge:Aretrospective.InternationalJournal http://pjreddie.com/darknet/,2013–2016. 3
+ofComputerVision,111(1):98–136,Jan.2015. 2
+[27] J.RedmonandA.Angelova.Real-timegraspdetectionusing
+[10] P.F.Felzenszwalb,R.B.Girshick,D.McAllester,andD.Ra- convolutionalneuralnetworks.CoRR,abs/1412.3128,2014.
+manan. Object detection with discriminatively trained part 5
+basedmodels. IEEETransactionsonPatternAnalysisand
+[28] S. Ren, K. He, R. Girshick, and J. Sun. Faster r-cnn: To-
+MachineIntelligence,32(9):1627–1645,2010. 1,4
+wards real-time object detection with region proposal net-
+[11] S.GidarisandN.Komodakis. Objectdetectionviaamulti- works. arXivpreprintarXiv:1506.01497,2015. 5,6,7
+region&semanticsegmentation-awareCNNmodel. CoRR,
+[29] S.Ren,K.He,R.B.Girshick,X.Zhang,andJ.Sun. Object
+abs/1505.01749,2015. 7
+detection networks on convolutional feature maps. CoRR,
+[12] S.Ginosar,D.Haas,T.Brown,andJ.Malik. Detectingpeo- abs/1504.06066,2015. 3,7
+pleincubistart.InComputerVision-ECCV2014Workshops,
+[30] O. Russakovsky, J. Deng, H. Su, J. Krause, S. Satheesh,
+pages101–116.Springer,2014. 7 S. Ma, Z. Huang, A. Karpathy, A. Khosla, M. Bernstein,
+[13] R.Girshick,J.Donahue,T.Darrell,andJ.Malik. Richfea- A. C. Berg, and L. Fei-Fei. ImageNet Large Scale Visual
+ture hierarchies for accurate object detection and semantic RecognitionChallenge. InternationalJournalofComputer
+segmentation. InComputerVisionandPatternRecognition Vision(IJCV),2015. 3
+(CVPR),2014IEEEConferenceon, pages580–587.IEEE, [31] M.A.SadeghiandD.Forsyth. 30hzobjectdetectionwith
+2014. 1,4,7 dpm v5. In Computer Vision–ECCV 2014, pages 65–79.
+[14] R.B.Girshick. FastR-CNN. CoRR,abs/1504.08083,2015. Springer,2014. 5,6
+2,5,6,7 [32] P. Sermanet, D. Eigen, X. Zhang, M. Mathieu, R. Fergus,
+[15] S. Gould, T. Gao, and D. Koller. Region-based segmenta- and Y. LeCun. Overfeat: Integrated recognition, localiza-
+tionandobjectdetection. InAdvancesinneuralinformation tion and detection using convolutional networks. CoRR,
+processingsystems,pages655–663,2009. 4 abs/1312.6229,2013. 4,5
+
+[33] Z.ShenandX.Xue.Domoredropoutsinpool5featuremaps
+forbetterobjectdetection. arXivpreprintarXiv:1409.6911,
+2014. 7
+[34] C. Szegedy, W. Liu, Y. Jia, P. Sermanet, S. Reed,
+D.Anguelov, D.Erhan, V.Vanhoucke, andA.Rabinovich.
+Going deeper with convolutions. CoRR, abs/1409.4842,
+2014. 2
+[35] J. R. Uijlings, K. E. van de Sande, T. Gevers, and A. W.
+Smeulders. Selective search for object recognition. Inter-
+nationaljournalofcomputervision,104(2):154–171,2013.
+4
+[36] P. Viola and M. Jones. Robust real-time object detection.
+InternationalJournalofComputerVision,4:34–47,2001. 4
+[37] P. Viola and M. J. Jones. Robust real-time face detection.
+International journal of computer vision, 57(2):137–154,
+2004. 5
+[38] J.Yan,Z.Lei,L.Wen,andS.Z.Li. Thefastestdeformable
+partmodelforobjectdetection.InComputerVisionandPat-
+ternRecognition(CVPR),2014IEEEConferenceon,pages
+2497–2504.IEEE,2014. 5,6
+[39] C.L.ZitnickandP.Dolla´r.Edgeboxes:Locatingobjectpro-
+posalsfromedges. InComputerVision–ECCV2014,pages
+391–405.Springer,2014. 4

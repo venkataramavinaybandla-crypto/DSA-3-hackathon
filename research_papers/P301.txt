@@ -1,0 +1,6 @@
+Title: Theoretical Improvements in Algorithmic Efficiency for Network Flow Problems
+Authors: Edmonds & Karp
+Year: 1972
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'Theoretical Improvements in Algorithmic Efficiency for Network Flow Problems' by Edmonds & Karp (1972). Classic foundational literature published in original journal/conference proceedings.

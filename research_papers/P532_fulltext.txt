@@ -1,0 +1,1521 @@
+High-Resolution Image Synthesis with Latent Diffusion Models
+RobinRombach1 * AndreasBlattmann1 ∗ DominikLorenz1 PatrickEsser Bjo¨rnOmmer1
+1LudwigMaximilianUniversityofMunich&IWR,HeidelbergUniversity,Germany RunwayML
+https://github.com/CompVis/latent-diffusion
+Abstract ours(f=4) DALL-E(f=8) VQGAN(f=16)
+Input PSNR:27.4R-FID:0.58 PSNR:22.8R-FID:32.01 PSNR:19.9R-FID:4.98
+Bydecomposingtheimageformationprocessintoase-
+quential application of denoising autoencoders, diffusion
+models (DMs) achieve state-of-the-art synthesis results on
+imagedataandbeyond. Additionally,theirformulational-
+lows for a guiding mechanism to control the image gen-
+eration process without retraining. However, since these
+models typically operate directly in pixel space, optimiza-
+tion of powerful DMs often consumes hundreds of GPU
+days and inference is expensive due to sequential evalu-
+ations. To enable DM training on limited computational
+Figure 1. Boosting the upper bound on achievable quality with resources while retaining their quality and flexibility, we
+lessagressivedownsampling. Sincediffusionmodelsofferexcel-
+apply them in the latent space of powerful pretrained au-
+lentinductivebiasesforspatialdata,wedonotneedtheheavyspa-
+toencoders. Incontrasttopreviouswork,trainingdiffusion
+tialdownsamplingofrelatedgenerativemodelsinlatentspace,but
+models on such a representation allows for the first time
+canstillgreatlyreducethedimensionalityofthedataviasuitable
+to reach a near-optimal point between complexity reduc-
+autoencodingmodels,seeSec.3.ImagesarefromtheDIV2K[1]
+tionanddetailpreservation,greatlyboostingvisualfidelity. validationset,evaluatedat5122 px. Wedenotethespatialdown-
+Byintroducingcross-attentionlayersintothemodelarchi- sampling factor by f. Reconstruction FIDs [29] and PSNR are
+tecture, we turn diffusion models into powerful and flexi- calculatedonImageNet-val.[12];seealsoTab.8.
+blegeneratorsforgeneralconditioninginputssuchastext
+resultsinimagesynthesis[30,85]andbeyond[7,45,48,57],
+or bounding boxes and high-resolution synthesis becomes
+and define the state-of-the-art in class-conditional image
+possible in a convolutional manner. Our latent diffusion
+synthesis[15,31]andsuper-resolution[72].Moreover,even
+models(LDMs)achievenewstate-of-the-artscoresforim-
+unconditional DMs can readily be applied to tasks such
+age inpainting and class-conditional image synthesis and
+as inpainting and colorization [85] or stroke-based syn-
+highly competitive performance on various tasks, includ-
+thesis [53], in contrast to other types of generative mod-
+ingtext-to-imagesynthesis,unconditionalimagegeneration
+els[19,46,69]. Beinglikelihood-basedmodels,theydonot
+andsuper-resolution,whilesignificantlyreducingcomputa-
+exhibit mode-collapse and training instabilities as GANs
+tionalrequirementscomparedtopixel-basedDMs.
+and, by heavily exploiting parameter sharing, they can
+1.Introduction modelhighlycomplexdistributionsofnaturalimageswith-
+outinvolvingbillionsofparametersasinARmodels[67].
+Imagesynthesisisoneofthecomputervisionfieldswith
+DemocratizingHigh-ResolutionImageSynthesis DMs
+the most spectacular recent development, but also among
+belong to the class of likelihood-based models, whose
+those with the greatest computational demands. Espe-
+mode-covering behavior makes them prone to spend ex-
+ciallyhigh-resolutionsynthesisofcomplex, naturalscenes
+cessive amounts of capacity (and thus compute resources)
+ispresentlydominatedbyscalinguplikelihood-basedmod-
+onmodelingimperceptibledetailsofthedata[16,73]. Al-
+els,potentiallycontainingbillionsofparametersinautore-
+thoughthereweightedvariationalobjective[30]aimstoad-
+gressive(AR)transformers[66,67].Incontrast,thepromis-
+dressthisbyundersamplingtheinitialdenoisingsteps,DMs
+ing results of GANs [3,27,40] have been revealed to be
+are still computationally demanding, since training and
+mostlyconfinedtodatawithcomparablylimitedvariability
+evaluating such a model requires repeated function evalu-
+astheiradversariallearningproceduredoesnoteasilyscale
+ations(andgradientcomputations)inthehigh-dimensional
+tomodelingcomplex,multi-modaldistributions. Recently,
+space of RGB images. As an example, training the most
+diffusion models [82], which are built from a hierarchy of
+powerfulDMsoftentakeshundredsofGPUdays(e.g.150-
+denoisingautoencoders, haveshowntoachieveimpressive
+1000V100daysin[15])andrepeatedevaluationsonanoisy
+*Thefirsttwoauthorscontributedequallytothiswork. versionoftheinputspacerenderalsoinferenceexpensive,
+1
+2202
+rpA
+31
+]VC.sc[
+2v25701.2112:viXra
+
+sothatproducing50ksamplestakesapproximately5days
+[15]onasingleA100GPU.Thishastwoconsequencesfor
+theresearchcommunityandusersingeneral: Firstly,train-
+ingsuchamodelrequiresmassivecomputationalresources
+only available to a small fraction of the field, and leaves a
+hugecarbonfootprint[65,86]. Secondly, evaluatinganal-
+readytrainedmodelisalsoexpensiveintimeandmemory,
+sincethesamemodelarchitecturemustrunsequentiallyfor
+alargenumberofsteps(e.g.25-1000stepsin[15]).
+Toincreasetheaccessibilityofthispowerfulmodelclass
+and at the same time reduce its significant resource con-
+sumption, a method is needed that reduces the computa-
+tionalcomplexityforbothtrainingandsampling. Reducing
+thecomputationaldemandsofDMswithoutimpairingtheir Figure2. Illustratingperceptualandsemanticcompression:Most
+performanceis,therefore,keytoenhancetheiraccessibility. bitsofadigitalimagecorrespondtoimperceptibledetails. While
+DMsallowtosuppressthissemanticallymeaninglessinformation
+Departure to Latent Space Our approach starts with
+byminimizingtheresponsiblelossterm,gradients(duringtrain-
+the analysis of already trained diffusion models in pixel
+ing)andtheneuralnetworkbackbone(trainingandinference)still
+space: Fig.2showstherate-distortiontrade-offofatrained needtobeevaluatedonallpixels,leadingtosuperfluouscompu-
+model. As with any likelihood-based model, learning can tationsandunnecessarilyexpensiveoptimizationandinference.
+be roughly divided into two stages: First is a perceptual Weproposelatentdiffusionmodels(LDMs)asaneffectivegener-
+compression stage which removes high-frequency details ativemodelandaseparatemildcompressionstagethatonlyelim-
+butstilllearnslittlesemanticvariation. Inthesecondstage, inatesimperceptibledetails.Dataandimagesfrom[30].
+theactualgenerativemodellearnsthesemanticandconcep-
+tual composition of the data (semantic compression). We appliedtohigh-resolutionsynthesisofmegapixelimages.
+thusaimtofirstfindaperceptuallyequivalent,butcompu- (ii) We achieve competitive performance on multiple
+tationallymoresuitablespace,inwhichwewilltraindiffu- tasks(unconditionalimagesynthesis,inpainting,stochastic
+sionmodelsforhigh-resolutionimagesynthesis. super-resolution) and datasets while significantly lowering
+computationalcosts.Comparedtopixel-baseddiffusionap-
+Followingcommonpractice[11,23,66,67,96],wesep-
+proaches,wealsosignificantlydecreaseinferencecosts.
+arate training into two distinct phases: First, we train
+an autoencoder which provides a lower-dimensional (and (iii) We show that, in contrast to previous work [93]
+therebyefficient)representationalspacewhichisperceptu- which learns both an encoder/decoder architecture and a
+ally equivalent to the data space. Importantly, and in con- score-basedpriorsimultaneously,ourapproachdoesnotre-
+trasttopreviouswork[23,66],wedonotneedtorelyonex- quireadelicateweightingofreconstructionandgenerative
+cessivespatialcompression,aswetrainDMsinthelearned abilities. This ensures extremely faithful reconstructions
+latent space, which exhibits better scaling properties with andrequiresverylittleregularizationofthelatentspace.
+respecttothespatialdimensionality. Thereducedcomplex- (iv) We find that for densely conditioned tasks such
+ityalsoprovidesefficientimagegenerationfromthelatent as super-resolution, inpainting and semantic synthesis, our
+space with a single network pass. We dub the resulting modelcanbeappliedinaconvolutionalfashionandrender
+modelclassLatentDiffusionModels(LDMs). large,consistentimagesof∼10242px.
+Anotableadvantageofthisapproachisthatweneedto (v)Moreover,wedesignageneral-purposeconditioning
+train the universal autoencoding stage only once and can mechanismbasedoncross-attention,enablingmulti-modal
+therefore reuse it for multiple DM trainings or to explore training. Weuseittotrainclass-conditional,text-to-image
+possiblycompletelydifferenttasks[81]. Thisenableseffi- andlayout-to-imagemodels.
+cientexplorationofalargenumberofdiffusionmodelsfor (vi) Finally, we release pretrained latent diffusion
+variousimage-to-imageandtext-to-imagetasks.Forthelat- and autoencoding models at https://github.
+ter,wedesignanarchitecturethatconnectstransformersto com/CompVis/latent-diffusion which might be
+the DM’s UNet backbone [71] and enables arbitrary types reusableforavarioustasksbesidestrainingofDMs[81].
+oftoken-basedconditioningmechanisms,seeSec.3.3.
+Insum,ourworkmakesthefollowingcontributions: 2.RelatedWork
+(i) In contrast to purely transformer-based approaches Generative Models for Image Synthesis The high di-
+[23,66],ourmethodscalesmoregracefultohigherdimen- mensional nature of images presents distinct challenges
+sional data and can thus (a) work on a compression level to generative modeling. Generative Adversarial Networks
+which provides more faithful and detailed reconstructions (GAN)[27]allowforefficientsamplingofhighresolution
+than previous work (see Fig. 1) and (b) can be efficiently images with good perceptual quality [3,42], but are diffi-
+2
+
+cult to optimize [2,28,54] and struggle to capture the full proaches and less compression comes at the price of high
+data distribution [55]. In contrast, likelihood-based meth- computationalcost[23,66]. Ourworkpreventssuchtrade-
+ods emphasize good density estimation which renders op- offs, as our proposed LDMs scale more gently to higher
+timization more well-behaved. Variational autoencoders dimensional latent spaces due to their convolutional back-
+(VAE)[46]andflow-basedmodels[18,19]enableefficient bone. Thus,wearefreetochoosethelevelofcompression
+synthesis of high resolution images [9,44,92], but sam- whichoptimallymediatesbetweenlearningapowerfulfirst
+plequalityisnotonparwithGANs. Whileautoregressive stage,withoutleavingtoomuchperceptualcompressionup
+models (ARM) [6,10,94,95] achieve strong performance tothegenerativediffusionmodelwhileguaranteeinghigh-
+indensityestimation,computationallydemandingarchitec- fidelityreconstructions(seeFig.1).
+tures [97] and a sequential sampling process limit them to Whileapproachestojointly[93]orseparately[80]learn
+lowresolutionimages. Becausepixelbasedrepresentations an encoding/decoding model together with a score-based
+of images contain barely perceptible, high-frequency de- priorexist,theformerstillrequireadifficultweightingbe-
+tails[16,73],maximum-likelihoodtrainingspendsadispro- tween reconstruction and generative capabilities [11] and
+portionateamountofcapacityonmodelingthem,resulting are outperformed by our approach (Sec. 4), and the latter
+inlongtrainingtimes.Toscaletohigherresolutions,several focusonhighlystructuredimagessuchashumanfaces.
+two-stageapproaches[23,67,101,103]useARMstomodel
+acompressedlatentimagespaceinsteadofrawpixels. 3.Method
+Recently, Diffusion Probabilistic Models (DM) [82], To lower the computational demands of training diffu-
+have achieved state-of-the-art results in density estimation sion models towards high-resolution image synthesis, we
+[45]aswellasinsamplequality[15].Thegenerativepower observe that although diffusion models allow to ignore
+ofthesemodelsstemsfromanaturalfittotheinductivebi- perceptually irrelevant details by undersampling the corre-
+asesofimage-likedatawhentheirunderlyingneuralback- sponding loss terms [30], they still require costly function
+bone is implemented as a UNet [15,30,71,85]. The best evaluations in pixel space, which causes huge demands in
+synthesisqualityisusuallyachievedwhenareweightedob- computationtimeandenergyresources.
+jective[30]isusedfortraining. Inthiscase,theDMcorre- Weproposetocircumventthisdrawbackbyintroducing
+spondstoalossycompressorandallowtotradeimagequal- an explicit separation of the compressive from the genera-
+ityforcompressioncapabilities. Evaluatingandoptimizing tivelearningphase(seeFig.2). Toachievethis,weutilize
+these models in pixel space, however, has the downside of anautoencodingmodelwhichlearnsaspacethatispercep-
+low inference speed and very high training costs. While tuallyequivalenttotheimagespace,butofferssignificantly
+theformercanbepartiallyadressedbyadvancedsampling reducedcomputationalcomplexity.
+strategies[47,75,84]andhierarchicalapproaches[31,93],
+Suchanapproachoffersseveraladvantages: (i)Byleav-
+training on high-resolution image data always requires to
+ing the high-dimensional image space, we obtain DMs
+calculate expensive gradients. We adress both drawbacks
+which are computationally much more efficient because
+withourproposedLDMs,whichworkonacompressedla-
+samplingisperformedonalow-dimensionalspace. (ii)We
+tent space of lower dimensionality. This renders training
+exploittheinductivebiasofDMsinheritedfromtheirUNet
+computationally cheaper and speeds up inference with al-
+architecture [71], which makes them particularly effective
+mostnoreductioninsynthesisquality(seeFig.1).
+for data with spatial structure and therefore alleviates the
+Two-StageImageSynthesisTomitigatetheshortcom- needforaggressive,quality-reducingcompressionlevelsas
+ings of individual generative approaches, a lot of research required by previous approaches [23,66]. (iii) Finally, we
+[11, 23, 67, 70, 101, 103] has gone into combining the obtain general-purpose compression models whose latent
+strengths of different methods into more efficient and per- space can be used to train multiple generative models and
+formant models via a two stage approach. VQ-VAEs [67, which can also be utilized for other downstream applica-
+101]useautoregressivemodelstolearnanexpressiveprior tionssuchassingle-imageCLIP-guidedsynthesis[25].
+overadiscretizedlatentspace.[66]extendthisapproachto
+3.1.PerceptualImageCompression
+text-to-image generation by learning a joint distributation
+overdiscretizedimageandtextrepresentations. Moregen- Ourperceptualcompressionmodelisbasedonprevious
+erally, [70] uses conditionally invertible networks to pro- work [23] and consists of an autoencoder trained by com-
+videagenerictransferbetweenlatentspacesofdiversedo- bination of a perceptual loss [106] and a patch-based [33]
+mains. Different from VQ-VAEs, VQGANs [23,103] em- adversarialobjective[20,23,103]. Thisensuresthatthere-
+ployafirststagewithanadversarialandperceptualobjec- constructionsareconfinedtotheimagemanifoldbyenforc-
+tive to scale autoregressive transformers to larger images. inglocalrealismandavoidsblurinessintroducedbyrelying
+However, the high compression rates required for feasible solelyonpixel-spacelossessuchasL 2 orL 1 objectives.
+ARM training, which introduces billions of trainable pa- More precisely, given an image x ∈ RH×W×3 in RGB
+rameters[23,66],limittheoverallperformanceofsuchap- space, the encoder E encodes x into a latent representa-
+3
+
+tion z = E(x), and the decoder D reconstructs the im- Latent Space Conditioning
+age from the latent, giving x˜ = D(z) = D(E(x)), where Diffusion Process Semantic
+Map
+z ∈ Rh×w×c. Importantly, the encoder downsamples the Denoising U-Net Text
+image by a factor f = H/h = W/w, and we investigate Repres
+entations
+differentdownsamplingfactorsf =2m,withm∈N.
+Images
+Inordertoavoidarbitrarilyhigh-variancelatentspaces,
+we experiment with two different kinds of regularizations.
+Pixel Space
+The first variant, KL-reg., imposes a slight KL-penalty to-
+wards a standard normal on the learned latent, similar to a
+VAE [46,69], whereas VQ-reg. uses a vector quantization denoising step crossattention switch skip connection concat
+layer[96]withinthedecoder.Thismodelcanbeinterpreted
+Figure 3. We condition LDMs either via concatenation or by a
+asaVQGAN[23]butwiththequantizationlayerabsorbed
+moregeneralcross-attentionmechanism.SeeSec.3.3
+by the decoder. Because our subsequent DM is designed
+to work with the two-dimensional structure of our learned includes the ability to build the underlying UNet primar-
+latentspacez =E(x),wecanuserelativelymildcompres- ily from 2D convolutional layers, and further focusing the
+sion rates and achieve very good reconstructions. This is objective on the perceptually most relevant bits using the
+in contrast to previous works [23,66], which relied on an reweightedbound,whichnowreads
+arbitrary 1D ordering of the learned space z to model its
+(cid:104) (cid:105)
+distribution autoregressively and thereby ignored much of L LDM :=E E(x),(cid:15)∼N(0,1),t (cid:107)(cid:15)−(cid:15) θ (z t ,t)(cid:107)2 2 . (2)
+theinherentstructureofz. Hence,ourcompressionmodel
+preservesdetailsofxbetter(seeTab.8). Thefullobjective The neural backbone (cid:15) (◦,t) of our model is realized as a
+θ
+andtrainingdetailscanbefoundinthesupplement. time-conditional UNet [71]. Since the forward process is
+fixed,z canbeefficientlyobtainedfromE duringtraining,
+t
+3.2.LatentDiffusionModels
+andsamplesfromp(z)canbedecodedtoimagespacewith
+asinglepassthroughD.
+DiffusionModels[82]areprobabilisticmodelsdesignedto
+learnadatadistributionp(x)bygraduallydenoisinganor-
+3.3.ConditioningMechanisms
+mally distributed variable, which corresponds to learning
+Similar to other types of generative models [56,83],
+the reverse process of a fixed Markov Chain of length T.
+diffusion models are in principle capable of modeling
+Forimagesynthesis,themostsuccessfulmodels[15,30,72]
+conditional distributions of the form p(z|y). This can
+relyonareweightedvariantofthevariationallowerbound
+be implemented with a conditional denoising autoencoder
+on p(x), which mirrors denoising score-matching [85].
+(cid:15) (z ,t,y) and paves the way to controlling the synthesis
+These models can be interpreted as an equally weighted θ t
+process through inputs y such as text [68], semantic maps
+sequence of denoising autoencoders (cid:15) (x ,t); t = 1...T,
+θ t [33,61]orotherimage-to-imagetranslationtasks[34].
+whicharetrainedtopredictadenoisedvariantoftheirinput
+In the context of image synthesis, however, combining
+x , where x is a noisy version of the input x. The corre-
+t t thegenerativepowerofDMswithothertypesofcondition-
+spondingobjectivecanbesimplifiedto(Sec.B)
+ingsbeyondclass-labels[15]orblurredvariantsoftheinput
+(cid:104) (cid:105) image[72]issofaranunder-exploredareaofresearch.
+L =E (cid:107)(cid:15)−(cid:15) (x ,t)(cid:107)2 , (1)
+DM x,(cid:15)∼N(0,1),t θ t 2 WeturnDMsintomoreflexibleconditionalimagegener-
+atorsbyaugmentingtheirunderlyingUNetbackbonewith
+withtuniformlysampledfrom{1,...,T}. the cross-attention mechanism [97], which is effective for
+Generative Modeling of Latent Representations With learning attention-based models of various input modali-
+ourtrainedperceptualcompressionmodelsconsistingofE ties[35,36].Topre-processyfromvariousmodalities(such
+andD,wenowhaveaccesstoanefficient,low-dimensional as language prompts) we introduce a domain specific en-
+latentspaceinwhichhigh-frequency,imperceptibledetails coder τ that projects y to an intermediate representation
+θ
+are abstracted away. Compared to the high-dimensional τ
+θ
+(y) ∈ RM×dτ,whichisthenmappedtotheintermediate
+pixelspace,thisspaceismoresuitableforlikelihood-based layersoftheUNetviaacross-attentionlayerimplementing
+generativemodels,astheycannow(i)focusontheimpor- Attention(Q,K,V)=softmax (cid:16) Q √ KT (cid:17) ·V,with
+tant, semantic bits of the data and (ii) train in a lower di- d
+mensional,computationallymuchmoreefficientspace.
+Q=W(i)·ϕ (z ), K =W(i)·τ (y), V =W(i)·τ (y).
+Unlike previous work that relied on autoregressive, Q i t K θ V θ
+attention-basedtransformermodelsinahighlycompressed,
+discretelatentspace[23,66,103],wecantakeadvantageof Here, ϕ i (z t ) ∈ RN×di (cid:15) denotes a (flattened) intermediate
+image-specificinductivebiasesthatourmodeloffers. This representation of the UNet implementing (cid:15) and W(i) ∈
+θ V
+4
+
+CelebAHQ FFHQ LSUN-Churches LSUN-Beds ImageNet
+Figure 4. Samples from LDMs trained on CelebAHQ [39], FFHQ [41], LSUN-Churches [102], LSUN-Bedrooms [102] and class-
+conditionalImageNet[12],eachwitharesolutionof256×256. Bestviewedwhenzoomedin. Formoresamplescf.thesupplement.
+Rd×di (cid:15),W
+Q
+(i) ∈Rd×dτ &W
+K
+(i) ∈Rd×dτ arelearnablepro- paredinthissection. Fig.6showssamplequalityasafunc-
+jectionmatrices[36,97]. SeeFig.3foravisualdepiction. tion of training progress for 2M steps of class-conditional
+Based on image-conditioning pairs, we then learn the modelsontheImageNet[12]dataset. Weseethat,i)small
+conditionalLDMvia downsampling factors for LDM-{1,2} result in slow train-
+ingprogress,whereasii)overlylargevaluesoff causestag-
+(cid:104) (cid:105)
+L :=E (cid:107)(cid:15)−(cid:15) (z ,t,τ (y))(cid:107)2 , (3) nating fidelity after comparably few training steps. Revis-
+LDM E(x),y,(cid:15)∼N(0,1),t θ t θ 2
+iting the analysis above (Fig. 1 and 2) we attribute this to
+wherebothτ and(cid:15) arejointlyoptimizedviaEq.3. This i) leaving most of perceptual compression to the diffusion
+θ θ
+conditioningmechanismisflexibleasτ canbeparameter- model and ii) too strong first stage compression resulting
+θ
+ized with domain-specific experts, e.g. (unmasked) trans- in information loss and thus limiting the achievable qual-
+formers[97]whenyaretextprompts(seeSec.4.3.1) ity. LDM-{4-16}strikeagoodbalancebetweenefficiency
+and perceptually faithful results, which manifests in a sig-
+4.Experiments nificant FID [29] gap of 38 between pixel-based diffusion
+(LDM-1)andLDM-8after2Mtrainingsteps.
+LDMs provide means to flexible and computationally
+In Fig. 7, we compare models trained on CelebA-
+tractablediffusionbasedimagesynthesisofvariousimage
+HQ[39]andImageNetintermssamplingspeedfordiffer-
+modalities, which we empirically show in the following.
+entnumbersofdenoisingstepswiththeDDIMsampler[84]
+Firstly, however, weanalyzethegainsofourmodelscom-
+and plot it against FID-scores [29]. LDM-{4-8} outper-
+pared to pixel-based diffusion models in both training and
+form models with unsuitable ratios of perceptual and con-
+inference. Interestingly, wefindthatLDMstrainedinVQ-
+ceptual compression. Especially compared to pixel-based
+regularized latent spaces sometimes achieve better sample
+LDM-1,theyachievemuchlowerFIDscoreswhilesimulta-
+quality, even though the reconstruction capabilities of VQ-
+neously significantly increasing sample throughput. Com-
+regularized first stage models slightly fall behind those of
+plex datasets such as ImageNet require reduced compres-
+theircontinuouscounterparts,cf.Tab.8. Avisualcompari-
+sion rates to avoid reducing quality. In summary, LDM-4
+sonbetweentheeffectsoffirststageregularizationschemes
+and -8 offer the best conditions for achieving high-quality
+onLDMtrainingandtheirgeneralizationabilitiestoresolu-
+tions> 2562 canbefoundinAppendixD.1. InE.2welist synthesisresults.
+detailsonarchitecture,implementation,trainingandevalu-
+ationforallresultspresentedinthissection.
+4.2.ImageGenerationwithLatentDiffusion
+4.1.OnPerceptualCompressionTradeoffs
+We train unconditional models of 2562 images on
+ThissectionanalyzesthebehaviorofourLDMswithdif- CelebA-HQ [39], FFHQ [41], LSUN-Churches and
+ferentdownsamplingfactorsf ∈{1,2,4,8,16,32}(abbre- -Bedrooms[102]andevaluatethei)samplequalityandii)
+viatedasLDM-f,whereLDM-1correspondstopixel-based their coverage of the data manifold using ii) FID [29] and
+DMs). To obtain a comparable test-field, we fix the com- ii) Precision-and-Recall [50]. Tab. 1 summarizes our re-
+putational resources to a single NVIDIA A100 for all ex- sults. OnCelebA-HQ,wereportanewstate-of-the-artFID
+periments in this section and train all models for the same of5.11,outperformingpreviouslikelihood-basedmodelsas
+numberofstepsandwiththesamenumberofparameters. wellasGANs. WealsooutperformLSGM[93]whereala-
+Tab.8showshyperparametersandreconstructionperfor- tentdiffusionmodelistrainedjointlytogetherwiththefirst
+mance of the first stage models used for the LDMs com- stage.Incontrast,wetraindiffusionmodelsinafixedspace
+5
+
+Text-to-ImageSynthesisonLAION.1.45BModel.
+’Astreetsignthatreads ’Azombieinthe ’Animageofananimal ’Anillustrationofaslightly ’Apaintingofa ’Awatercolorpaintingofa ’Ashirtwiththeinscription:
+“LatentDiffusion”’ styleofPicasso’ halfmousehalfoctopus’ consciousneuralnetwork’ squirreleatingaburger’ chairthatlookslikeanoctopus’ “Ilovegenerativemodels!”’
+Figure 5. Samples for user-defined text prompts from our model for text-to-image synthesis, LDM-8 (KL), which was trained on the
+LAION[78]database.Samplesgeneratedwith200DDIMstepsandη=1.0.Weuseunconditionalguidance[32]withs=10.0.
+CelebA-HQ256×256 FFHQ256×256
+Method FID↓ Prec.↑ Recall↑ Method FID↓ Prec.↑ Recall↑
+DC-VAE[63] 15.8 - - ImageBART[21] 9.57 - -
+VQGAN+T.[23](k=400) 10.2 - - U-NetGAN(+aug)[77] 10.9(7.6) - -
+PGGAN[39] 8.0 - - UDM[43] 5.54 - -
+LSGM[93] 7.22 - - StyleGAN[41] 4.16 0.71 0.46
+UDM[43] 7.16 - - ProjectedGAN[76] 3.08 0.65 0.46
+LDM-4(ours,500-s†) 5.11 0.72 0.49 LDM-4(ours,200-s) 4.98 0.73 0.50
+LSUN-Churches256×256 LSUN-Bedrooms256×256
+Method FID↓ Prec.↑ Recall↑ Method FID↓ Prec.↑ Recall↑
+DDPM[30] 7.89 - - ImageBART[21] 5.51 - -
+Figure6. Analyzingthetrainingofclass-conditionalLDMswith ImageBART[21] 7.32 - - DDPM[30] 4.9 - -
+PGGAN[39] 6.42 - - UDM[43] 4.57 - -
+differentdownsamplingfactorsf over2MtrainstepsontheIm- StyleGAN[41] 4.21 - - StyleGAN[41] 2.35 0.59 0.48
+StyleGAN2[42] 3.86 - - ADM[15] 1.90 0.66 0.51
+ageNet dataset. Pixel-based LDM-1 requires substantially larger ProjectedGAN[76] 1.59 0.61 0.44 ProjectedGAN[76] 1.52 0.61 0.34
+traintimescomparedtomodelswithlargerdownsamplingfactors LDM-8∗(ours,200-s) 4.02 0.64 0.52 LDM-4(ours,200-s) 2.95 0.66 0.48
+(LDM-{4-16}). ToomuchperceptualcompressionasinLDM-32 Table 1. Evaluation metrics for unconditional image synthesis.
+limitstheoverallsamplequality. Allmodelsaretrainedonasin- CelebA-HQ results reproduced from [43,63,100], FFHQ from
+gleNVIDIAA100withthesamecomputationalbudget. Results [42,43]. †: N-sreferstoN samplingstepswiththeDDIM[84]
+obtainedwith100DDIMsteps[84]andκ=0. sampler. ∗: trainedinKL-regularizedlatentspace. Additionalre-
+sultscanbefoundinthesupplementary.
+Text-ConditionalImageSynthesis
+Method FID↓ IS↑ Nparams
+CogView†[17] 27.10 18.20 4B self-ranking,rejectionrate0.017
+LAFITE†[109] 26.94 26.02 75M
+GLIDE∗[59] 12.24 - 6B 277DDIMsteps,c.f.g.[32]s=3
+Make-A-Scene∗[26] 11.84 - 4B c.f.gforARmodels[98]s=5
+LDM-KL-8 23.31 20.03±0.33 1.45B 250DDIMsteps
+Figure 7. Comparing LDMs with varying compression on the LDM-KL-8-G∗ 12.63 30.29±0.42 1.45B 250DDIMsteps,c.f.g.[32]s=1.5
+CelebA-HQ(left)andImageNet(right)datasets. Differentmark- Table 2. Evaluation of text-conditional image synthesis on the
+ers indicate {10,20,50,100,200} sampling steps using DDIM, 256×256-sized MS-COCO [51] dataset: with 250 DDIM [84]
+fromrighttoleftalongeachline. ThedashedlineshowstheFID stepsourmodelisonparwiththemostrecentdiffusion[59]and
+scoresfor200steps, indicatingthestrongperformanceofLDM- autoregressive [26] methods despite using significantly less pa-
+{4-8}. FID scores assessed on 5000 samples. All models were rameters.†/∗:Numbersfrom[109]/[26]
+trainedfor500k(CelebA)/2M(ImageNet)stepsonanA100.
+and avoid the difficulty of weighing reconstruction quality
+againstlearningtheprioroverthelatentspace,seeFig.1-2. Moreover, LDMs consistently improve upon GAN-based
+We outperform prior diffusion based approaches on all methods in Precision and Recall, thus confirming the ad-
+but the LSUN-Bedrooms dataset, where our score is close vantages of their mode-covering likelihood-based training
+to ADM [15], despite utilizing half its parameters and re- objective over adversarial approaches. In Fig. 4 we also
+quiring 4-times less train resources (see Appendix E.3.5). showqualitativeresultsoneachdataset.
+6
+
+Method FID↓ IS↑ Precision↑ Recall↑ Nparams
+BigGan-deep[3] 6.95 203.6±2.6 0.87 0.28 340M -
+ADM[15] 10.94 100.98 0.69 0.63 554M 250DDIMsteps
+ADM-G[15] 4.59 186.7 0.82 0.52 608M 250DDIMsteps
+LDM-4(ours) 10.56 103.49±1.24 0.71 0.62 400M 250DDIMsteps
+LDM-4-G(ours) 3.60 247.67±5.59 0.87 0.48 400M 250steps,c.f.g[32],s=1.5
+Table3. Comparisonofaclass-conditionalImageNetLDMwith
+recentstate-of-the-artmethodsforclass-conditionalimagegener-
+ationonImageNet[12]. Amoredetailedcomparisonwithaddi-
+tionalbaselinescanbefoundinD.4,Tab.10andF.c.f.g. denotes
+classifier-freeguidancewithascalesasproposedin [32].
+purpose image-to-image translation models. We use this
+to train models for semantic synthesis, super-resolution
+Figure8. Layout-to-imagesynthesiswithanLDMonCOCO[4],
+(Sec. 4.4) and inpainting (Sec. 4.5). For semantic synthe-
+seeSec.4.3.1.QuantitativeevaluationinthesupplementD.3.
+sis,weuseimagesoflandscapespairedwithsemanticmaps
+4.3.ConditionalLatentDiffusion [23,61] and concatenate downsampled versions of the se-
+manticmapswiththelatentimagerepresentationofaf =4
+4.3.1 TransformerEncodersforLDMs model(VQ-reg.,seeTab.8).Wetrainonaninputresolution
+By introducing cross-attention based conditioning into of2562 (cropsfrom3842)butfindthatourmodelgeneral-
+LDMs we open them up for various conditioning modali- izestolargerresolutionsandcangenerateimagesuptothe
+ties previously unexplored for diffusion models. For text- megapixel regime when evaluated in a convolutional man-
+to-image image modeling, we train a 1.45B parameter ner(seeFig.9). Weexploitthisbehaviortoalsoapplythe
+KL-regularized LDM conditioned on language prompts on super-resolutionmodelsinSec.4.4andtheinpaintingmod-
+LAION-400M [78]. We employ the BERT-tokenizer [14] els in Sec. 4.5 to generate large images between 5122 and
+and implement τ as a transformer [97] to infer a latent 10242. For this application, the signal-to-noise ratio (in-
+θ
+codewhichismappedintotheUNetvia(multi-head)cross- ducedbythescaleofthelatentspace)significantlyaffects
+attention (Sec. 3.3). This combination of domain specific theresults. InSec.D.1weillustratethiswhenlearningan
+experts for learning a language representation and visual LDMon(i)thelatentspaceasprovidedbyaf = 4model
+synthesis results in a powerful model, which generalizes (KL-reg.,seeTab.8),and(ii)arescaledversion,scaledby
+welltocomplex,user-definedtextprompts,cf.Fig.8and5. thecomponent-wisestandarddeviation.
+Forquantitativeanalysis,wefollowpriorworkandevaluate The latter, in combination with classifier-free guid-
+text-to-imagegenerationontheMS-COCO[51]validation ance [32], also enables the direct synthesis of > 2562 im-
+set,whereourmodelimprovesuponpowerfulAR[17,66] agesforthetext-conditionalLDM-KL-8-GasinFig.13.
+andGAN-based[109]methods,cf.Tab.2. Wenotethatap-
+plyingclassifier-freediffusionguidance[32]greatlyboosts
+samplequality,suchthattheguidedLDM-KL-8-Gisonpar
+withtherecentstate-of-the-artAR[26]anddiffusionmod-
+els[59]fortext-to-imagesynthesis, whilesubstantiallyre-
+ducingparametercount.Tofurtheranalyzetheflexibilityof
+the cross-attention based conditioning mechanism we also
+train models to synthesize images based on semantic lay-
+outsonOpenImages [49],andfinetuneonCOCO[4],see
+Fig.8. SeeSec.D.3forthequantitativeevaluationandim-
+plementationdetails.
+Lastly, following prior work [3,15,21,23], we evalu-
+ate our best-performing class-conditional ImageNet mod-
+els with f ∈ {4,8} from Sec. 4.1 in Tab. 3, Fig. 4 and Figure 9. A LDM trained on 2562 resolution can generalize to
+Sec. D.4. Here we outperform the state of the art diffu- largerresolution(here:512×1024)forspatiallyconditionedtasks
+suchassemanticsynthesisoflandscapeimages.SeeSec.4.3.2.
+sionmodelADM[15]whilesignificantlyreducingcompu-
+tationalrequirementsandparametercount,cf.Tab18.
+4.4.Super-ResolutionwithLatentDiffusion
+4.3.2 ConvolutionalSamplingBeyond2562 LDMs can be efficiently trained for super-resolution by
+By concatenating spatially aligned conditioning informa- diretlyconditioningonlow-resolutionimagesviaconcate-
+tiontotheinputof(cid:15) ,LDMscanserveasefficientgeneral- nation (cf. Sec. 3.3). Ina first experiment, wefollow SR3
+θ
+7
+
+Method FID↓ IS↑ PSNR↑ SSIM↑ Nparams [sam
+s
+ples](∗)
+bicubic LDM-SR SR3 ImageRegression[72] 15.2 121.1 27.9 0.801 625M N/A
+SR3[72] 5.2 180.1 26.4 0.762 625M N/A
+LDM-4(ours,100steps) 2.8†/4.8‡ 166.3 24.4±3.8 0.69±0.14 169M 4.62
+emphLDM-4(ours,big,100steps) 2.4†/4.3‡ 174.9 24.7±4.1 0.71±0.15 552M 4.5
+LDM-4(ours,50steps,guiding) 4.4†/6.4‡ 153.7 25.8±3.7 0.74±0.12 184M 0.38
+Table5. ×4upscalingresultsonImageNet-Val. (2562);†: FID
+features computed on validation split, ‡: FID features computed
+ontrainsplit;∗:AssessedonaNVIDIAA100
+trainthroughput samplingthroughput† train+val FID@2k
+Model(reg.-type) samples/sec. @256 @512 hours/epoch epoch6
+LDM-1(nofirststage) 0.11 0.26 0.07 20.66 24.74
+LDM-4(KL,w/attn) 0.32 0.97 0.34 7.66 15.21
+LDM-4(VQ,w/attn) 0.33 0.97 0.34 7.04 14.99
+LDM-4(VQ,w/oattn) 0.35 0.99 0.36 6.66 15.95
+Table6. Assessinginpaintingefficiency.†:DeviationsfromFig.7
+duetovaryingGPUsettings/batchsizescf.thesupplement.
+Figure10. ImageNet64→256super-resolutiononImageNet-Val. 4.5.InpaintingwithLatentDiffusion
+LDM-SR has advantages at rendering realistic textures but SR3
+Inpaintingisthetaskoffillingmaskedregionsofanim-
+can synthesize more coherent fine structures. See appendix for
+agewithnewcontenteitherbecausepartsoftheimageare
+additionalsamplesandcropouts.SR3resultsfrom[72].
+are corrupted or to replace existing but undesired content
+within the image. We evaluate how our general approach
+forconditionalimagegenerationcomparestomorespecial-
+[72] and fix the image degradation to a bicubic interpola-
+ized, state-of-the-art approaches for this task. Our evalua-
+tionwith4×-downsamplingandtrainonImageNetfollow-
+tionfollowstheprotocolofLaMa[88],arecentinpainting
+ingSR3’sdataprocessingpipeline. Weusethef = 4 au-
+modelthatintroducesaspecialized architecture relyingon
+toencodingmodelpretrainedonOpenImages(VQ-reg.,cf.
+FastFourierConvolutions[8]. Theexacttraining&evalua-
+Tab. 8) and concatenate the low-resolution conditioning y
+tionprotocolonPlaces[108]isdescribedinSec.E.2.2.
+andtheinputstotheUNet,i.e.τ istheidentity. Ourquali-
+θ
+tativeandquantitativeresults(seeFig.10andTab.5)show Wefirstanalyzetheeffectofdifferentdesignchoicesfor
+competitive performance and LDM-SR outperforms SR3 thefirststage. Inparticular,wecomparetheinpaintingef-
+in FID while SR3 has a better IS. A simple image regres-
+ficiencyofLDM-1(i.e.apixel-basedconditionalDM)with
+sion model achieves the highest PSNR and SSIM scores;
+LDM-4,forbothKLandVQregularizations,aswellasVQ-
+however these metrics do not align well with human per-
+LDM-4withoutanyattentioninthefirststage(seeTab.8),
+ception[106]andfavorblurrinessoverimperfectlyaligned wherethelatterreducesGPUmemoryfordecodingathigh
+high frequency details [72]. Further, we conduct a user resolutions.Forcomparability,wefixthenumberofparam-
+studycomparingthepixel-baselinewithLDM-SR.Wefol- etersforallmodels.Tab.6reportsthetrainingandsampling
+lowSR3[72]wherehumansubjectswereshownalow-res throughput at resolution 2562 and 5122, the total training
+image in between two high-res images and asked for pref- timeinhoursperepochandtheFIDscoreonthevalidation
+erence. The results in Tab. 4 affirm the good performance splitaftersixepochs. Overall,weobserveaspeed-upofat
+of LDM-SR. PSNR and SSIM can be pushed by using a least2.7×betweenpixel-andlatent-baseddiffusionmodels
+post-hoc guiding mechanism [15] and we implement this whileimprovingFIDscoresbyafactorofatleast1.6×.
+image-based guider via a perceptual loss, see Sec. D.6. The comparison with other inpainting approaches in
+Tab. 7 shows that our model with attention improves the
+overallimagequalityasmeasuredbyFIDoverthatof[88].
+LPIPS between the unmasked images and our samples is
+SRonImageNet InpaintingonPlaces
+UserStudy Pixel-DM(f1) LDM-4 LAMA[88] LDM-4 slightly higher than that of [88]. We attribute this to [88]
+Task1:PreferencevsGT↑ 16.0% 30.4% 13.6% 21.0% onlyproducingasingleresultwhichtendstorecovermore
+Task2:PreferenceScore↑ 29.4% 70.6% 31.9% 68.1% of an average image compared to the diverse results pro-
+Table4. Task1: Subjectswereshowngroundtruthandgenerated ducedbyourLDMcf.Fig.21. Additionallyinauserstudy
+imageandaskedforpreference. Task2: Subjectshadtodecide (Tab.4)humansubjectsfavorourresultsoverthoseof[88].
+betweentwogeneratedimages.MoredetailsinE.3.6
+Basedontheseinitialresults,wealsotrainedalargerdif-
+fusion model (big in Tab. 7) in the latent space of the VQ-
+Since the bicubic degradation process does not generalize regularized first stage without attention. Following [15],
+welltoimageswhichdonotfollowthispre-processing,we the UNet of this diffusion model uses attention layers on
+also train a generic model, LDM-BSR, by using more di- threelevelsofitsfeaturehierarchy,theBigGAN[3]residual
+versedegradation. TheresultsareshowninSec.D.6.1. blockforup-anddownsamplingandhas387Mparameters
+8
+
+40-50%masked Allsamples
+input result
+Method FID↓ LPIPS↓ FID↓ LPIPS↓
+LDM-4(ours,big,w/ft) 9.39 0.246±0.042 1.50 0.137±0.080
+LDM-4(ours,big,w/oft) 12.89 0.257±0.047 2.40 0.142±0.085
+LDM-4(ours,w/attn) 11.87 0.257±0.042 2.15 0.144±0.084
+LDM-4(ours,w/oattn) 12.60 0.259±0.041 2.37 0.145±0.084
+LaMa[88]† 12.31 0.243±0.038 2.23 0.134±0.080
+LaMa[88] 12.0 0.24 2.21 0.14
+CoModGAN[107] 10.4 0.26 1.82 0.15
+RegionWise[52] 21.3 0.27 4.75 0.15
+DeepFillv2[104] 22.1 0.28 5.20 0.16
+EdgeConnect[58] 30.5 0.28 8.37 0.16
+Table7. Comparisonofinpaintingperformanceon30kcropsof
+size512×512fromtestimagesofPlaces[108].Thecolumn40-
+50%reportsmetricscomputedoverhardexampleswhere40-50%
+oftheimageregionhavetobeinpainted.†recomputedonourtest
+set,sincetheoriginaltestsetusedin[88]wasnotavailable.
+enable various creative applications, and in particular ap-
+proaches like ours that reduce the cost of training and in-
+ference have the potential to facilitate access to this tech-
+nologyanddemocratizeitsexploration. Ontheotherhand,
+it also means that it becomes easier to create and dissemi-
+natemanipulateddataorspreadmisinformationandspam.
+Inparticular, thedeliberatemanipulationofimages(“deep
+fakes”)isacommonprobleminthiscontext,andwomenin
+particulararedisproportionatelyaffectedbyit[13,24].
+Generative models can also reveal their training data
+[5,90], which is of great concern when the data contain
+sensitive or personal information and were collected with-
+outexplicitconsent. However,theextenttowhichthisalso
+appliestoDMsofimagesisnotyetfullyunderstood.
+Figure11. Qualitativeresultsonobjectremovalwithourbig,w/ Finally, deeplearningmodulestendtoreproduceorex-
+ftinpaintingmodel.Formoreresults,seeFig.22. acerbate biases that are already present in the data [22,38,
+91]. Whilediffusionmodelsachievebettercoverageofthe
+instead of 215M. After training, we noticed a discrepancy
+data distribution than e.g. GAN-based approaches, the ex-
+inthequalityofsamplesproducedatresolutions2562 and
+tenttowhichourtwo-stageapproachthatcombinesadver-
+5122,whichwehypothesizetobecausedbytheadditional
+sarial training and a likelihood-based objective misrepre-
+attentionmodules. However,fine-tuningthemodelforhalf
+sentsthedataremainsanimportantresearchquestion.
+an epoch at resolution 5122 allows the model to adjust to
+For a more general, detailed discussion of the ethical
+thenewfeaturestatisticsandsetsanewstateoftheartFID
+considerationsofdeepgenerativemodels,seee.g.[13].
+onimageinpainting(big,w/oattn,w/ftinTab.7,Fig.11.).
+6.Conclusion
+5.Limitations&SocietalImpact
+Wehavepresentedlatentdiffusionmodels,asimpleand
+Limitations While LDMs significantly reduce computa- efficientwaytosignificantlyimproveboththetrainingand
+tional requirements compared to pixel-based approaches, sampling efficiency of denoising diffusion models with-
+their sequential sampling process is still slower than that out degrading their quality. Based on this and our cross-
+of GANs. Moreover, the use of LDMs can be question- attention conditioning mechanism, our experiments could
+able when high precision is required: although the loss of demonstrate favorable results compared to state-of-the-art
+imagequalityisverysmallinourf =4autoencodingmod- methodsacrossawiderangeofconditionalimagesynthesis
+els(seeFig.1),theirreconstructioncapabilitycanbecome taskswithouttask-specificarchitectures.
+a bottleneck for tasks that require fine-grained accuracy in
+pixel space. We assume that our superresolution models
+(Sec.4.4)arealreadysomewhatlimitedinthisrespect.
+This work has been supported by the German Federal Ministry for
+EconomicAffairsandEnergywithintheproject’KI-Absicherung-Safe
+Societal Impact Generative models for media like im-
+AIforautomateddriving’andbytheGermanResearchFoundation(DFG)
+agery are a double-edged sword: On the one hand, they project421703927.
+9
+
+References [16] SanderDieleman. Musingsontypicality,2020. 1,3
+[17] Ming Ding, Zhuoyi Yang, Wenyi Hong, Wendi Zheng,
+[1] Eirikur Agustsson and Radu Timofte. NTIRE 2017 chal-
+Chang Zhou, Da Yin, Junyang Lin, Xu Zou, Zhou Shao,
+lengeonsingleimagesuper-resolution: Datasetandstudy.
+HongxiaYang,andJieTang. Cogview: Masteringtext-to-
+In2017IEEEConferenceonComputerVisionandPattern
+imagegenerationviatransformers.CoRR,abs/2105.13290,
+RecognitionWorkshops,CVPRWorkshops2017,Honolulu,
+2021. 6,7
+HI,USA,July21-26,2017,pages1122–1131.IEEECom-
+[18] LaurentDinh, David Krueger, andYoshua Bengio. Nice:
+puterSociety,2017. 1
+Non-linearindependentcomponentsestimation,2015. 3
+[2] Martin Arjovsky, Soumith Chintala, and Le´on Bottou.
+[19] Laurent Dinh, Jascha Sohl-Dickstein, and Samy Ben-
+Wassersteingan,2017. 3
+gio. Density estimation using real NVP. In 5th Inter-
+[3] AndrewBrock,JeffDonahue,andKarenSimonyan. Large
+national Conference on Learning Representations, ICLR
+scaleGANtrainingforhighfidelitynaturalimagesynthe-
+2017,Toulon,France,April24-26,2017,ConferenceTrack
+sis. InInt.Conf.Learn.Represent., 2019. 1, 2, 7, 8, 22,
+Proceedings.OpenReview.net,2017. 1,3
+28
+[20] AlexeyDosovitskiyandThomasBrox. Generatingimages
+[4] HolgerCaesar, JasperR.R.Uijlings, andVittorioFerrari.
+withperceptualsimilaritymetricsbasedondeepnetworks.
+Coco-stuff: Thing and stuff classes in context. In 2018
+InDanielD.Lee,MasashiSugiyama,UlrikevonLuxburg,
+IEEEConferenceonComputerVisionandPatternRecog-
+Isabelle Guyon, and Roman Garnett, editors, Adv. Neural
+nition, CVPR 2018, Salt Lake City, UT, USA, June 18-
+Inform.Process.Syst.,pages658–666,2016. 3
+22,2018,pages1209–1218.ComputerVisionFoundation/
+[21] Patrick Esser, Robin Rombach, Andreas Blattmann, and
+IEEEComputerSociety,2018. 7,20,22
+Bjo¨rnOmmer.Imagebart:Bidirectionalcontextwithmulti-
+[5] Nicholas Carlini, Florian Tramer, Eric Wallace, Matthew
+nomialdiffusionforautoregressiveimagesynthesis.CoRR,
+Jagielski, Ariel Herbert-Voss, Katherine Lee, Adam
+abs/2108.08827,2021. 6,7,22
+Roberts,TomBrown,DawnSong,UlfarErlingsson,etal.
+[22] Patrick Esser, Robin Rombach, and Bjo¨rn Ommer. A
+Extracting training data from large language models. In
+note on data biases in generative models. arXiv preprint
+30thUSENIXSecuritySymposium(USENIXSecurity21),
+arXiv:2012.02516,2020. 9
+pages2633–2650,2021. 9
+[6] MarkChen,AlecRadford,RewonChild,JeffreyWu,Hee- [23] PatrickEsser,RobinRombach,andBjo¨rnOmmer. Taming
+wooJun,DavidLuan,andIlyaSutskever. Generativepre- transformers for high-resolution image synthesis. CoRR,
+trainingfrompixels. InICML,volume119ofProceedings abs/2012.09841,2020. 2,3,4,6,7,21,22,29,34,36
+ofMachineLearningResearch,pages1691–1703.PMLR, [24] MaryAnneFranksandAriEzraWaldman. Sex,lies,and
+2020. 3 videotape: Deep fakes and free speech delusions. Md. L.
+[7] Nanxin Chen, Yu Zhang, Heiga Zen, Ron J. Weiss, Mo- Rev.,78:892,2018. 9
+hammadNorouzi,andWilliamChan. Wavegrad: Estimat- [25] KevinFrans,LisaB.Soros,andOlafWitkowski.Clipdraw:
+inggradientsforwaveformgeneration. InICLR.OpenRe- Exploring text-to-drawing synthesis through language-
+view.net,2021. 1 imageencoders. ArXiv,abs/2106.14843,2021. 3
+[8] LuChi,BoruiJiang,andYadongMu.Fastfourierconvolu- [26] Oran Gafni, Adam Polyak, Oron Ashual, Shelly Sheynin,
+tion. InNeurIPS,2020. 8 Devi Parikh, and Yaniv Taigman. Make-a-scene: Scene-
+[9] Rewon Child. Very deep vaes generalize autoregressive basedtext-to-imagegenerationwithhumanpriors. CoRR,
+models and can outperform them on images. CoRR, abs/2203.13131,2022. 6,7,16
+abs/2011.10650,2020. 3 [27] IanJ.Goodfellow,JeanPouget-Abadie,MehdiMirza,Bing
+[10] RewonChild,ScottGray,AlecRadford,andIlyaSutskever. Xu,DavidWarde-Farley,SherjilOzair,AaronC.Courville,
+Generating long sequences with sparse transformers. and Yoshua Bengio. Generative adversarial networks.
+CoRR,abs/1904.10509,2019. 3 CoRR,2014. 1,2
+[11] BinDaiandDavidP.Wipf.DiagnosingandenhancingVAE [28] IshaanGulrajani,FarukAhmed,MartinArjovsky,Vincent
+models. InICLR(Poster).OpenReview.net,2019. 2,3 Dumoulin, and Aaron Courville. Improved training of
+[12] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, wassersteingans,2017. 3
+and Fei-Fei Li. Imagenet: A large-scale hierarchical im- [29] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner,
+age database. In CVPR, pages 248–255. IEEE Computer Bernhard Nessler, and Sepp Hochreiter. Gans trained by
+Society,2009. 1,5,7,22 atwotime-scaleupdateruleconvergetoalocalnashequi-
+[13] EmilyDenton. Ethicalconsiderationsofgenerativeai. AI librium.InAdv.NeuralInform.Process.Syst.,pages6626–
+forContentCreationWorkshop,CVPR,2021. 9 6637,2017. 1,5,26
+[14] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and [30] JonathanHo,AjayJain,andPieterAbbeel. Denoisingdif-
+Kristina Toutanova. BERT: pre-training of deep bidirec- fusionprobabilisticmodels. InNeurIPS,2020. 1,2,3,4,
+tional transformers for language understanding. CoRR, 6,17
+abs/1810.04805,2018. 7 [31] Jonathan Ho, Chitwan Saharia, William Chan, David J.
+[15] PrafullaDhariwalandAlexNichol. Diffusionmodelsbeat Fleet,MohammadNorouzi,andTimSalimans. Cascaded
+gansonimagesynthesis. CoRR,abs/2105.05233,2021. 1, diffusionmodelsforhighfidelityimagegeneration. CoRR,
+2,3,4,6,7,8,18,22,25,26,28 abs/2106.15282,2021. 1,3,22
+10
+
+[32] Jonathan Ho and Tim Salimans. Classifier-free diffusion [45] Diederik P. Kingma, Tim Salimans, Ben Poole, and
+guidance. InNeurIPS2021WorkshoponDeepGenerative Jonathan Ho. Variational diffusion models. CoRR,
+ModelsandDownstreamApplications,2021. 6,7,16,22, abs/2107.00630,2021. 1,3,16
+28,37,38 [46] DiederikP.KingmaandMaxWelling.Auto-EncodingVari-
+[33] Phillip Isola, Jun-Yan Zhu, Tinghui Zhou, and Alexei A. ationalBayes. In2ndInternationalConferenceonLearn-
+Efros. Image-to-imagetranslationwithconditionaladver- ingRepresentations,ICLR,2014. 1,3,4,29
+sarialnetworks. InCVPR,pages5967–5976.IEEECom- [47] ZhifengKongandWeiPing. Onfastsamplingofdiffusion
+puterSociety,2017. 3,4 probabilisticmodels. CoRR,abs/2106.00132,2021. 3
+[34] Phillip Isola, Jun-Yan Zhu, Tinghui Zhou, and Alexei A. [48] Zhifeng Kong, Wei Ping, Jiaji Huang, Kexin Zhao, and
+Efros. Image-to-imagetranslationwithconditionaladver- Bryan Catanzaro. Diffwave: A versatile diffusion model
+sarial networks. 2017 IEEE Conference on Computer Vi- foraudiosynthesis. InICLR.OpenReview.net,2021. 1
+sion and Pattern Recognition (CVPR), pages 5967–5976,
+[49] AlinaKuznetsova,HassanRom,NeilAlldrin,JasperR.R.
+2017. 4
+Uijlings, Ivan Krasin, Jordi Pont-Tuset, Shahab Kamali,
+[35] Andrew Jaegle, Sebastian Borgeaud, Jean-Baptiste Stefan Popov, Matteo Malloci, Tom Duerig, and Vittorio
+Alayrac, Carl Doersch, Catalin Ionescu, David Ding, Ferrari. TheopenimagesdatasetV4:unifiedimageclassi-
+Skanda Koppula, Daniel Zoran, Andrew Brock, Evan fication,objectdetection,andvisualrelationshipdetection
+Shelhamer, Olivier J. He´naff, Matthew M. Botvinick, atscale. CoRR,abs/1811.00982,2018. 7,20,22
+Andrew Zisserman, Oriol Vinyals, and Joa˜o Carreira.
+[50] TuomasKynka¨a¨nniemi,TeroKarras,SamuliLaine,Jaakko
+Perceiver IO: A general architecture for structured inputs
+Lehtinen, and Timo Aila. Improved precision and re-
+&outputs. CoRR,abs/2107.14795,2021. 4
+call metric for assessing generative models. CoRR,
+[36] AndrewJaegle,FelixGimeno,AndyBrock,OriolVinyals,
+abs/1904.06991,2019. 5,26
+AndrewZisserman,andJoa˜oCarreira. Perceiver: General
+[51] Tsung-Yi Lin, Michael Maire, Serge J. Belongie,
+perception with iterative attention. In Marina Meila and
+LubomirD.Bourdev,RossB.Girshick,JamesHays,Pietro
+TongZhang,editors,Proceedingsofthe38thInternational
+Perona,DevaRamanan,PiotrDolla´r,andC.LawrenceZit-
+ConferenceonMachineLearning,ICML2021,18-24July
+nick.MicrosoftCOCO:commonobjectsincontext.CoRR,
+2021,VirtualEvent,volume139ofProceedingsofMachine
+abs/1405.0312,2014. 6,7,27
+LearningResearch,pages4651–4664.PMLR,2021. 4,5
+[52] YuqingMa,XianglongLiu,ShihaoBai,Le-YiWang,Ais-
+[37] ManuelJahn, RobinRombach, andBjo¨rnOmmer. High-
+hanLiu,DachengTao,andEdwinHancock. Region-wise
+resolution complex scene synthesis with transformers.
+generativeadversarialimageinpaintingforlargemissingar-
+CoRR,abs/2105.06458,2021. 20,22,27
+eas. ArXiv,abs/1909.12507,2019. 9
+[38] Niharika Jain, Alberto Olmo, Sailik Sengupta, Lydia
+[53] ChenlinMeng,YangSong,JiamingSong,JiajunWu,Jun-
+Manikonda, andSubbaraoKambhampati. Imperfectima-
+Yan Zhu, and Stefano Ermon. Sdedit: Image synthesis
+ganation: Implications of gans exacerbating biases on fa-
+and editing with stochastic differential equations. CoRR,
+cial data augmentation and snapchat selfie lenses. arXiv
+abs/2108.01073,2021. 1
+preprintarXiv:2001.09528,2020. 9
+[54] LarsM.Mescheder.OntheconvergencepropertiesofGAN
+[39] Tero Karras, Timo Aila, Samuli Laine, and Jaakko Lehti-
+training. CoRR,abs/1801.04406,2018. 3
+nen.Progressivegrowingofgansforimprovedquality,sta-
+[55] Luke Metz, Ben Poole, David Pfau, and Jascha Sohl-
+bility,andvariation. CoRR,abs/1710.10196,2017. 5,6
+Dickstein. Unrolled generative adversarial networks. In
+[40] TeroKarras,SamuliLaine,andTimoAila. Astyle-based
+5thInternationalConferenceonLearningRepresentations,
+generatorarchitectureforgenerativeadversarialnetworks.
+ICLR2017,Toulon,France,April24-26,2017,Conference
+In IEEE Conf. Comput. Vis. Pattern Recog., pages 4401–
+TrackProceedings.OpenReview.net,2017. 3
+4410,2019. 1
+[41] T. Karras, S. Laine, and T. Aila. A style-based gener- [56] MehdiMirzaandSimonOsindero. Conditionalgenerative
+ator architecture for generative adversarial networks. In adversarialnets. CoRR,abs/1411.1784,2014. 4
+2019IEEE/CVFConferenceonComputerVisionandPat- [57] GautamMittal,JesseH.Engel,CurtisHawthorne,andIan
+ternRecognition(CVPR),2019. 5,6 Simon. Symbolicmusicgenerationwithdiffusionmodels.
+[42] TeroKarras, SamuliLaine, MiikaAittala, JanneHellsten, CoRR,abs/2103.16091,2021. 1
+Jaakko Lehtinen, and Timo Aila. Analyzing and improv- [58] KamyarNazeri, EricNg, TonyJoseph, FaisalZ.Qureshi,
+ingtheimagequalityofstylegan. CoRR,abs/1912.04958, and Mehran Ebrahimi. Edgeconnect: Generative im-
+2019. 2,6,28 age inpainting with adversarial edge learning. ArXiv,
+[43] Dongjun Kim, Seungjae Shin, Kyungwoo Song, Wanmo abs/1901.00212,2019. 9
+Kang, and Il-Chul Moon. Score matching model for un- [59] Alex Nichol, Prafulla Dhariwal, Aditya Ramesh, Pranav
+boundeddatascore. CoRR,abs/2106.05527,2021. 6 Shyam,PamelaMishkin,BobMcGrew,IlyaSutskever,and
+[44] DurkPKingmaandPrafullaDhariwal. Glow: Generative MarkChen. GLIDE:towardsphotorealisticimagegenera-
+flowwithinvertible1x1convolutions.InS.Bengio,H.Wal- tionandeditingwithtext-guideddiffusionmodels. CoRR,
+lach,H.Larochelle,K.Grauman,N.Cesa-Bianchi,andR. abs/2112.10741,2021. 6,7,16
+Garnett,editors,AdvancesinNeuralInformationProcess- [60] Anton Obukhov, Maximilian Seitzer, Po-Wei Wu, Se-
+ingSystems,2018. 3 men Zhydenko, Jonathan Kyl, and Elvis Yu-Jing Lin.
+11
+
+High-fidelity performance metrics for generative models immediate-speedups-with-a100-tf32, 2020.
+in pytorch, 2020. Version: 0.3.0, DOI: 10.5281/zen- 28
+odo.4957738. 26,27 [75] Robin San-Roman, Eliya Nachmani, and Lior Wolf.
+[61] Taesung Park, Ming-Yu Liu, Ting-Chun Wang, and Jun- Noise estimation for generative diffusion models. CoRR,
+YanZhu.Semanticimagesynthesiswithspatially-adaptive abs/2104.02600,2021. 3
+normalization. InProceedingsoftheIEEEConferenceon
+[76] Axel Sauer, Kashyap Chitta, Jens Mu¨ller, and An-
+ComputerVisionandPatternRecognition,2019. 4,7
+dreas Geiger. Projected gans converge faster. CoRR,
+[62] Taesung Park, Ming-Yu Liu, Ting-Chun Wang, and Jun- abs/2111.01007,2021. 6
+YanZhu.Semanticimagesynthesiswithspatially-adaptive
+[77] EdgarScho¨nfeld,BerntSchiele,andAnnaKhoreva. Au-
+normalization. In Proceedings of the IEEE/CVF Confer-
+netbaseddiscriminatorforgenerativeadversarialnetworks.
+enceonComputerVisionandPatternRecognition(CVPR),
+In 2020 IEEE/CVF Conference on Computer Vision and
+June2019. 22
+PatternRecognition, CVPR2020, Seattle, WA,USA,June
+[63] GauravParmar,DachengLi,KwonjoonLee,andZhuowen
+13-19,2020,pages8204–8213.ComputerVisionFounda-
+Tu.Dualcontradistinctivegenerativeautoencoder.InIEEE
+tion/IEEE,2020. 6
+Conference on Computer Vision and Pattern Recognition,
+[78] ChristophSchuhmann,RichardVencu,RomainBeaumont,
+CVPR 2021, virtual, June 19-25, 2021, pages 823–832.
+RobertKaczmarczyk,ClaytonMullis,AarushKatta,Theo
+ComputerVisionFoundation/IEEE,2021. 6
+Coombes, Jenia Jitsev, and Aran Komatsuzaki. Laion-
+[64] Gaurav Parmar, Richard Zhang, and Jun-Yan Zhu. On
+400m: Opendatasetofclip-filtered400millionimage-text
+buggyresizinglibrariesandsurprisingsubtletiesinfidcal-
+pairs,2021. 6,7
+culation. arXivpreprintarXiv:2104.11222,2021. 26
+[79] KarenSimonyanandAndrewZisserman. Verydeepcon-
+[65] David A. Patterson, Joseph Gonzalez, Quoc V. Le, Chen
+volutional networks for large-scale image recognition. In
+Liang,Lluis-MiquelMunguia,DanielRothchild,DavidR.
+YoshuaBengioandYannLeCun,editors,Int.Conf.Learn.
+So, Maud Texier, and Jeff Dean. Carbon emissions and
+Represent.,2015. 29,43,44,45
+large neural network training. CoRR, abs/2104.10350,
+[80] AbhishekSinha,JiamingSong,ChenlinMeng,andStefano
+2021. 2
+Ermon.D2C:diffusion-denoisingmodelsforfew-shotcon-
+[66] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott
+ditionalgeneration. CoRR,abs/2106.06819,2021. 3
+Gray, Chelsea Voss, Alec Radford, Mark Chen, and Ilya
+Sutskever. Zero-shot text-to-image generation. CoRR, [81] Charlie Snell. Alien Dreams: An Emerging Art Scene.
+abs/2102.12092,2021. 1,2,3,4,7,21,27 https://ml.berkeley.edu/blog/posts/
+clip-art/, 2021. [Online; accessedNovember-2021].
+[67] AliRazavi,Aa¨ronvandenOord,andOriolVinyals. Gen-
+2
+erating diverse high-fidelity images with VQ-VAE-2. In
+NeurIPS,pages14837–14847,2019. 1,2,3,22 [82] Jascha Sohl-Dickstein, Eric A. Weiss, Niru Mah-
+[68] ScottE.Reed,ZeynepAkata,XinchenYan,LajanugenLo- eswaranathan, and Surya Ganguli. Deep unsupervised
+geswaran,BerntSchiele,andHonglakLee. Generativead- learning using nonequilibrium thermodynamics. CoRR,
+versarialtexttoimagesynthesis. InICML,2016. 4 abs/1503.03585,2015. 1,3,4,18
+[69] Danilo Jimenez Rezende, Shakir Mohamed, and Daan [83] Kihyuk Sohn, Honglak Lee, and Xinchen Yan. Learn-
+Wierstra. Stochasticbackpropagationandapproximatein- ingstructuredoutputrepresentationusingdeepconditional
+ferenceindeepgenerativemodels. InProceedingsofthe generative models. In C. Cortes, N. Lawrence, D. Lee,
+31stInternationalConferenceonInternationalConference M.Sugiyama,andR.Garnett,editors,AdvancesinNeural
+onMachineLearning,ICML,2014. 1,4,29 InformationProcessingSystems,volume28.CurranAsso-
+[70] Robin Rombach, Patrick Esser, and Bjo¨rn Ommer. ciates,Inc.,2015. 4
+Network-to-networktranslationwithconditionalinvertible [84] JiamingSong,ChenlinMeng,andStefanoErmon. Denois-
+neuralnetworks. InNeurIPS,2020. 3 ing diffusion implicit models. In ICLR. OpenReview.net,
+[71] OlafRonneberger,PhilippFischer,andThomasBrox. U- 2021. 3,5,6,22
+net:Convolutionalnetworksforbiomedicalimagesegmen- [85] Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma,
+tation. In MICCAI (3), volume 9351 of Lecture Notes in AbhishekKumar, StefanoErmon, andBenPoole. Score-
+ComputerScience,pages234–241.Springer,2015. 2,3,4 based generative modeling through stochastic differential
+[72] Chitwan Saharia, Jonathan Ho, William Chan, Tim Sal- equations. CoRR,abs/2011.13456,2020. 1,3,4,18
+imans, David J. Fleet, and Mohammad Norouzi. Im- [86] Emma Strubell, Ananya Ganesh, and Andrew McCallum.
+age super-resolution via iterative refinement. CoRR, Energy and policy considerations for modern deep learn-
+abs/2104.07636,2021. 1,4,8,16,22,23,27 ing research. In The Thirty-Fourth AAAI Conference on
+[73] TimSalimans,AndrejKarpathy,XiChen,andDiederikP. Artificial Intelligence, AAAI 2020, The Thirty-Second In-
+Kingma. Pixelcnn++: Improving the pixelcnn with dis- novativeApplicationsofArtificialIntelligenceConference,
+cretizedlogisticmixturelikelihoodandothermodifications. IAAI 2020, The Tenth AAAI Symposium on Educational
+CoRR,abs/1701.05517,2017. 1,3 AdvancesinArtificialIntelligence, EAAI2020, NewYork,
+[74] Dave Salvator. NVIDIA Developer Blog. https: NY,USA,February7-12,2020,pages13693–13696.AAAI
+//developer.nvidia.com/blog/getting- Press,2020. 2
+12
+
+[87] Wei Sun and Tianfu Wu. Learning layout and style re- ference on Learning Representations, ICLR 2021, Virtual
+configurablegansforcontrollableimagesynthesis. CoRR, Event,Austria,May3-7,2021.OpenReview.net,2021. 6
+abs/2003.11571,2020. 22,27 [101] Wilson Yan, Yunzhi Zhang, Pieter Abbeel, and Aravind
+[88] Roman Suvorov, Elizaveta Logacheva, Anton Mashikhin, Srinivas. Videogpt: VideogenerationusingVQ-VAEand
+AnastasiaRemizova,ArseniiAshukha,AlekseiSilvestrov, transformers. CoRR,abs/2104.10157,2021. 3
+NaejinKong,HarshithGoka,KiwoongPark,andVictorS. [102] FisherYu,YindaZhang,ShuranSong,AriSeff,andJianx-
+Lempitsky. Resolution-robust large mask inpainting with iong Xiao. LSUN: construction of a large-scale image
+fourierconvolutions. ArXiv, abs/2109.07161, 2021. 8, 9, datasetusingdeeplearningwithhumansintheloop.CoRR,
+26,32 abs/1506.03365,2015. 5
+[89] TristanSylvain,PengchuanZhang,YoshuaBengio,R.De- [103] JiahuiYu,XinLi,JingYuKoh,HanZhang,RuomingPang,
+vonHjelm,andShikharSharma.Object-centricimagegen- JamesQin,AlexanderKu,YuanzhongXu,JasonBaldridge,
+erationfromlayouts. InThirty-FifthAAAIConferenceon and Yonghui Wu. Vector-quantized image modeling with
+ArtificialIntelligence,AAAI2021,Thirty-ThirdConference improvedvqgan,2021. 3,4
+on Innovative Applications of Artificial Intelligence, IAAI [104] JiahuiYu,ZheL.Lin,JimeiYang,XiaohuiShen,XinLu,
+2021, The Eleventh Symposium on Educational Advances and Thomas S. Huang. Free-form image inpainting with
+inArtificialIntelligence,EAAI2021,VirtualEvent,Febru- gatedconvolution. 2019IEEE/CVFInternationalConfer-
+ary 2-9, 2021, pages 2647–2655. AAAI Press, 2021. 20, enceonComputerVision(ICCV),pages4470–4479,2019.
+22,27 9
+[90] PatrickTinsley,AdamCzajka,andPatrickFlynn.Thisface [105] K.Zhang,JingyunLiang,LucVanGool,andRaduTimo-
+doesnotexist...butitmightbeyours! identityleakagein fte. Designingapracticaldegradationmodelfordeepblind
+generativemodels. InProceedingsoftheIEEE/CVFWin- imagesuper-resolution. ArXiv,abs/2103.14006,2021. 23
+terConferenceonApplicationsofComputerVision,pages [106] RichardZhang,PhillipIsola,AlexeiA.Efros,EliShecht-
+1320–1328,2021. 9 man,andOliverWang. Theunreasonableeffectivenessof
+[91] Antonio Torralba and Alexei A Efros. Unbiased look at deepfeaturesasaperceptualmetric. InProceedingsofthe
+datasetbias.InCVPR2011,pages1521–1528.IEEE,2011. IEEEConferenceonComputerVisionandPatternRecog-
+9 nition(CVPR),June2018. 3,8,19
+[92] ArashVahdatandJanKautz. NVAE:Adeephierarchical [107] ShengyuZhao,JianweiCui,YilunSheng,YueDong,Xiao
+variationalautoencoder. InNeurIPS,2020. 3 Liang,EricI-ChaoChang,andYanXu. Largescaleimage
+[93] Arash Vahdat, Karsten Kreis, and Jan Kautz. Score- completion via co-modulated generative adversarial net-
+based generative modeling in latent space. CoRR, works. ArXiv,abs/2103.10428,2021. 9
+abs/2106.05931,2021. 2,3,5,6 [108] BoleiZhou,A`gataLapedriza,AdityaKhosla,AudeOliva,
+[94] Aaron van den Oord, Nal Kalchbrenner, Lasse Espeholt, andAntonioTorralba.Places:A10millionimagedatabase
+koraykavukcuoglu,OriolVinyals,andAlexGraves. Con- forscenerecognition. IEEETransactionsonPatternAnal-
+ditionalimagegenerationwithpixelcnndecoders. InAd- ysisandMachineIntelligence,40:1452–1464,2018. 8,9,
+vancesinNeuralInformationProcessingSystems,2016. 3 26
+[95] Aa¨ron van den Oord, Nal Kalchbrenner, and Koray [109] YufanZhou,RuiyiZhang,ChangyouChen,ChunyuanLi,
+Kavukcuoglu. Pixel recurrent neural networks. CoRR, Chris Tensmeyer, Tong Yu, Jiuxiang Gu, Jinhui Xu, and
+abs/1601.06759,2016. 3 Tong Sun. LAFITE: towards language-free training for
+[96] Aa¨ron van den Oord, Oriol Vinyals, and Koray text-to-imagegeneration. CoRR,abs/2111.13792,2021. 6,
+Kavukcuoglu. Neuraldiscreterepresentationlearning. In 7,16
+NIPS,pages6306–6315,2017. 2,4,29
+[97] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser,
+andIlliaPolosukhin. Attentionisallyouneed. InNIPS,
+pages5998–6008,2017. 3,4,5,7
+[98] Rivers Have Wings. Tweet on Classifier-free
+guidance for autoregressive models. https:
+//twitter.com/RiversHaveWings/status/
+1478093658716966912,2022. 6
+[99] ThomasWolf,LysandreDebut,VictorSanh,JulienChau-
+mond, Clement Delangue, Anthony Moi, Pierric Cistac,
+Tim Rault, Re´mi Louf, Morgan Funtowicz, and Jamie
+Brew. Huggingface’stransformers: State-of-the-artnatural
+languageprocessing. CoRR,abs/1910.03771,2019. 26
+[100] ZhishengXiao,KarstenKreis,JanKautz,andArashVah-
+dat. VAEBM: A symbiosis between variational autoen-
+codersandenergy-basedmodels.In9thInternationalCon-
+13
+
+Appendix
+Figure12. ConvolutionalsamplesfromthesemanticlandscapesmodelasinSec.4.3.2,finetunedon5122images.
+14
+
+’ApaintingofthelastsupperbyPicasso.’
+’AnepicpaintingofGandalftheBlack
+’Anoilpaintingofalatentspace.’ summoningthunderandlightninginthemountains.’
+’Asunsetoveramountainrange,vectorimage.’
+Figure13. CombiningclassifierfreediffusionguidancewiththeconvolutionalsamplingstrategyfromSec.4.3.2,our1.45Bparameter
+text-to-imagemodelcanbeusedforrenderingimageslargerthanthenative2562resolutionthemodelwastrainedon.
+15
+
+A.Changelog
+Here we list changes between this version (https://arxiv.org/abs/2112.10752v2) of the paper and the
+previousversion,i.e.https://arxiv.org/abs/2112.10752v1.
+• Weupdatedtheresultsontext-to-imagesynthesisinSec.4.3whichwereobtainedbytraininganew,largermodel(1.45B
+parameters). Thisalsoincludesanewcomparisontoveryrecentcompetingmethodsonthistaskthatwerepublishedon
+arXivatthesametimeas([59,109])orafter([26])thepublicationofourwork.
+• We updated results on class-conditional synthesis on ImageNet in Sec. 4.1, Tab. 3 (see also Sec. D.4) obtained by
+retraining the model with a larger batch size. The corresponding qualitative results in Fig. 26 and Fig. 27 were also
+updated. Both the updated text-to-image and the class-conditional model now use classifier-free guidance [32] as a
+measuretoincreasevisualfidelity.
+• Weconductedauserstudy(followingtheschemesuggestedbySahariaetal[72])whichprovidesadditionalevaluation
+forourinpainting(Sec.4.5)andsuperresolutionmodels(Sec.4.4).
+• AddedFig.5tothemainpaper,movedFig.18totheappendix,addedFig.13totheappendix.
+B.DetailedInformationonDenoisingDiffusionModels
+Diffusionmodelscanbespecifiedintermsofasignal-to-noiseratioSNR(t) = α σ2 2 t consistingofsequences(α t )T t=1 and
+t
+(σ )T which,startingfromadatasamplex ,defineaforwarddiffusionprocessqas
+t t=1 0
+q(x |x )=N(x |α x ,σ2I) (4)
+t 0 t t 0 t
+withtheMarkovstructurefors<t:
+q(x |x )=N(x |α x ,σ2 I) (5)
+t s t t|s s t|s
+α
+α = t (6)
+t|s α
+s
+σ2 =σ2−α2 σ2 (7)
+t|s t t|s s
+Denoisingdiffusionmodelsaregenerativemodelsp(x )whichrevertthisprocesswithasimilarMarkovstructurerunning
+0
+backwardintime,i.e.theyarespecifiedas
+(cid:90) T
+(cid:89)
+p(x )= p(x ) p(x |x ) (8)
+0 T t−1 t
+z t=1
+Theevidencelowerbound(ELBO)associatedwiththismodelthendecomposesoverthediscretetimestepsas
+T
+(cid:88)
+−logp(x )≤KL(q(x |x )|p(x ))+ E KL(q(x |x ,x )|p(x |x )) (9)
+0 T 0 T q(xt|x0) t−1 t 0 t−1 t
+t=1
+Thepriorp(x )istypicallychoosenasastandardnormaldistributionandthefirsttermoftheELBOthendependsonlyon
+T
+thefinalsignal-to-noiseratioSNR(T). Tominimizetheremainingterms,acommonchoicetoparameterizep(x |x )isto
+t−1 t
+specifyitintermsofthetrueposteriorq(x |x ,x )butwiththeunknownx replacedbyanestimatex (x ,t)basedon
+t−1 t 0 0 θ t
+thecurrentstepx . Thisgives[45]
+t
+p(x |x ):=q(x |x ,x (x ,t)) (10)
+t−1 t t−1 t θ t
+σ2
+=N(x |µ (x ,t),σ2 t−1I), (11)
+t−1 θ t t|t−1 σ2
+t
+wherethemeancanbeexpressedas
+µ (x ,t)= α t|t−1 σ t 2 −1x + α t−1 σ t 2 |t−1 x (x ,t). (12)
+θ t σ2 t σ2 θ t
+t t
+16
+
+Inthiscase,thesumoftheELBOsimplifyto
+T T
+(cid:88) (cid:88) 1
+E q(xt|x0) KL(q(x t−1 |x t ,x 0 )|p(x t−1 )= E N((cid:15)|0,I)2 (SNR(t−1)−SNR(t))(cid:107)x 0 −x θ (α t x 0 +σ t (cid:15),t)(cid:107)2 (13)
+t=1 t=1
+Following[30],weusethereparameterization
+(cid:15) (x ,t)=(x −α x (x ,t))/σ (14)
+θ t t t θ t t
+toexpressthereconstructiontermasadenoisingobjective,
+σ2
+(cid:107)x −x (α x +σ (cid:15),t)(cid:107)2= t (cid:107)(cid:15)−(cid:15) (α x +σ (cid:15),t)(cid:107)2 (15)
+0 θ t 0 t α2 θ t 0 t
+t
+andthereweighting,whichassignseachofthetermsthesameweightandresultsinEq.(1).
+17
+
+C.ImageGuidingMechanisms
+Samples2562 GuidedConvolutionalSamples5122 ConvolutionalSamples5122
+Figure14. Onlandscapes,convolutionalsamplingwithunconditionalmodelscanleadtohomogeneousandincoherentglobalstructures
+(seecolumn2).L -guidingwithalowresolutionimagecanhelptoreestablishcoherentglobalstructures.
+2
+An intriguing feature of diffusion models is that unconditional models can be conditioned at test-time [15,82,85]. In
+particular,[15]presentedanalgorithmtoguidebothunconditionalandconditionalmodelstrainedontheImageNetdataset
+withaclassifierlogp (y|x ),trainedoneachx ofthediffusionprocess. Wedirectlybuildonthisformulationandintroduce
+Φ t t
+post-hocimage-guiding:
+Foranepsilon-parameterizedmodelwithfixedvariance,theguidingalgorithmasintroducedin[15]reads:
+(cid:113)
+(cid:15)ˆ←(cid:15) (z ,t)+ 1−α2 ∇ logp (y|z ). (16)
+θ t t zt Φ t
+Thiscanbeinterpretedasanupdatecorrectingthe“score”(cid:15) withaconditionaldistributionlogp (y|z ).
+θ Φ t
+Sofar, thisscenariohasonlybeenappliedtosingle-classclassificationmodels. Were-interprettheguidingdistribution
+p (y|T(D(z (z )))) as a general purpose image-to-image translation task given a target image y, where T can be any
+Φ 0 t
+differentiable transformation adopted to the image-to-image translation task at hand, such as the identity, a downsampling
+operationorsimilar.
+18
+
+Asanexample,wecanassumeaGaussianguiderwithfixedvarianceσ2 =1,suchthat
+1
+logp (y|z )=− (cid:107)y−T(D(z (z )))(cid:107)2 (17)
+Φ t 2 0 t 2
+becomesaL regressionobjective.
+2
+Fig.14demonstrateshowthisformulationcanserveasanupsamplingmechanismofanunconditionalmodeltrainedon
+2562 images, where unconditional samples of size 2562 guide the convolutional synthesis of 5122 images and T is a 2×
+bicubicdownsampling. Followingthismotivation,wealsoexperimentwithaperceptualsimilarityguidingandreplacethe
+L objectivewiththeLPIPS[106]metric,seeSec.4.4.
+2
+19
+
+D.AdditionalResults
+D.1.ChoosingtheSignal-to-NoiseRatioforHigh-ResolutionSynthesis
+KL-reg,w/orescaling KL-reg,w/rescaling VQ-reg,w/orescaling
+Figure15. Illustratingtheeffectoflatentspacerescalingonconvolutionalsampling,hereforsemanticimagesynthesisonlandscapes.See
+Sec.4.3.2andSec.D.1.
+AsdiscussedinSec.4.3.2,thesignal-to-noiseratioinducedbythevarianceofthelatentspace(i.e.Var(z)/σ2)significantly
+t
+affects the results for convolutional sampling. For example, when training a LDM directly in the latent space of a KL-
+regularizedmodel(seeTab.8), thisratioisveryhigh, suchthatthemodelallocatesalotofsemanticdetailearlyoninthe
+reverse denoising process. In contrast, when rescaling the latent space by the component-wise standard deviation of the
+latentsasdescribedinSec.G,theSNRisdescreased. Weillustratetheeffectonconvolutionalsamplingforsemanticimage
+synthesisinFig.15. NotethattheVQ-regularizedspacehasavariancecloseto1,suchthatitdoesnothavetoberescaled.
+D.2.FullListofallFirstStageModels
+WeprovideacompletelistofvariousautoencondingmodelstrainedontheOpenImagesdatasetinTab.8.
+D.3.Layout-to-ImageSynthesis
+Hereweprovidethequantitativeevaluationandadditionalsamplesforourlayout-to-imagemodelsfromSec.4.3.1. We
+train a model on the COCO [4] and one on the OpenImages [49] dataset, which we subsequently additionally finetune on
+COCO. Tab 9 shows the result. Our COCO model reaches the performance of recent state-of-the art models in layout-to-
+imagesynthesis,whenfollowingtheirtrainingandevaluationprotocol[89]. WhenfinetuningfromtheOpenImagesmodel,
+wesurpasstheseworks. OurOpenImagesmodelsurpassestheresultsofJahnetal[37]byamarginofnearly11intermsof
+FID.InFig.16weshowadditionalsamplesofthemodelfinetunedonCOCO.
+D.4.Class-ConditionalImageSynthesisonImageNet
+Tab. 10 contains the results for our class-conditional LDM measured in FID and Inception score (IS). LDM-8 requires
+significantly fewer parameters and compute requirements (see Tab. 18) to achieve very competitive performance. Similar
+to previous work, we can further boost the performance by training a classifier on each noise scale and guiding with it,
+20
+
+f |Z| c R-FID↓ R-IS↑ PSNR↑ PSIM↓ SSIM↑
+16VQGAN[23] 16384 256 4.98 – 19.9±3.4 1.83±0.42 0.51±0.18
+16VQGAN[23] 1024 256 7.94 – 19.4±3.3 1.98±0.43 0.50±0.18
+8DALL-E[66] 8192 - 32.01 – 22.8±2.1 1.95±0.51 0.73±0.13
+32 16384 16 31.83 40.40±1.07 17.45±2.90 2.58±0.48 0.41±0.18
+16 16384 8 5.15 144.55±3.74 20.83±3.61 1.73±0.43 0.54±0.18
+8 16384 4 1.14 201.92±3.97 23.07±3.99 1.17±0.36 0.65±0.16
+8 256 4 1.49 194.20±3.87 22.35±3.81 1.26±0.37 0.62±0.16
+4 8192 3 0.58 224.78±5.35 27.43±4.26 0.53±0.21 0.82±0.10
+4† 8192 3 1.06 221.94±4.58 25.21±4.17 0.72±0.26 0.76±0.12
+4 256 3 0.47 223.81±4.58 26.43±4.22 0.62±0.24 0.80±0.11
+2 2048 2 0.16 232.75±5.09 30.85±4.12 0.27±0.12 0.91±0.05
+2 64 2 0.40 226.62±4.83 29.13±3.46 0.38±0.13 0.90±0.05
+32 KL 64 2.04 189.53±3.68 22.27±3.93 1.41±0.40 0.61±0.17
+32 KL 16 7.3 132.75±2.71 20.38±3.56 1.88±0.45 0.53±0.18
+16 KL 16 0.87 210.31±3.97 24.08±4.22 1.07±0.36 0.68±0.15
+16 KL 8 2.63 178.68±4.08 21.94±3.92 1.49±0.42 0.59±0.17
+8 KL 4 0.90 209.90±4.92 24.19±4.19 1.02±0.35 0.69±0.15
+4 KL 3 0.27 227.57±4.89 27.53±4.54 0.55±0.24 0.82±0.11
+2 KL 2 0.086 232.66±5.16 32.47±4.19 0.20±0.09 0.93±0.04
+Table8. CompleteautoencoderzootrainedonOpenImages,evaluatedonImageNet-Val.†denotesanattention-freeautoencoder.
+layout-to-imagesynthesisontheCOCOdataset
+Figure16. Moresamplesfromourbestmodelforlayout-to-imagesynthesis,LDM-4,whichwastrainedontheOpenImagesdatasetand
+finetunedontheCOCOdataset.Samplesgeneratedwith100DDIMstepsandη=0.LayoutsarefromtheCOCOvalidationset.
+seeSec.C.Unlikethepixel-basedmethods,thisclassifieristrainedverycheaplyinlatentspace. Foradditionalqualitative
+results,seeFig.26andFig.27.
+21
+
+COCO256×256 OpenImages256×256 OpenImages512×512
+Method FID↓ FID↓ FID↓
+LostGAN-V2[87] 42.55 - -
+OC-GAN[89] 41.65 - -
+SPADE[62] 41.11 - -
+VQGAN+T[37] 56.58 45.33 48.11
+LDM-8(100steps,ours) 42.06† - -
+LDM-4(200steps,ours) 40.91∗ 32.02 35.80
+Table9. Quantitativecomparisonofourlayout-to-imagemodelsontheCOCO[4]andOpenImages[49]datasets.†:Trainingfromscratch
+onCOCO;∗:FinetuningfromOpenImages.
+Method FID↓ IS↑ Precision↑ Recall↑ Nparams
+SR3[72] 11.30 - - - 625M -
+ImageBART[21] 21.19 - - - 3.5B -
+ImageBART[21] 7.44 - - - 3.5B 0.05acc.rate∗
+VQGAN+T[23] 17.04 70.6±1.8 - - 1.3B -
+VQGAN+T[23] 5.88 304.8±3.6 - - 1.3B 0.05acc.rate∗
+BigGan-deep[3] 6.95 203.6±2.6 0.87 0.28 340M -
+ADM[15] 10.94 100.98 0.69 0.63 554M 250DDIMsteps
+ADM-G[15] 4.59 186.7 0.82 0.52 608M 250DDIMsteps
+ADM-G,ADM-U[15] 3.85 221.72 0.84 0.53 n/a 2×250DDIMsteps
+CDM[31] 4.88 158.71±2.26 - - n/a 2×100DDIMsteps
+LDM-8(ours) 17.41 72.92±2.6 0.65 0.62 395M 200DDIMsteps,2.9Mtrainsteps,batchsize64
+LDM-8-G(ours) 8.11 190.43±2.60 0.83 0.36 506M 200DDIMsteps,classifierscale10,2.9Mtrainsteps,batchsize64
+LDM-8(ours) 15.51 79.03±1.03 0.65 0.63 395M 200DDIMsteps,4.8Mtrainsteps,batchsize64
+LDM-8-G(ours) 7.76 209.52±4.24 0.84 0.35 506M 200DDIMsteps,classifierscale10,4.8Mtrainsteps,batchsize64
+LDM-4(ours) 10.56 103.49±1.24 0.71 0.62 400M 250DDIMsteps,178Ktrainsteps,batchsize1200
+LDM-4-G(ours) 3.95 178.22±2.43 0.81 0.55 400M 250DDIMsteps,unconditionalguidance[32]scale1.25,178Ktrainsteps,batchsize1200
+LDM-4-G(ours) 3.60 247.67±5.59 0.87 0.48 400M 250DDIMsteps,unconditionalguidance[32]scale1.5,178Ktrainsteps,batchsize1200
+Table10. Comparisonofaclass-conditionalImageNetLDMwithrecentstate-of-the-artmethodsforclass-conditionalimagegeneration
+ontheImageNet[12]dataset.∗:Classifierrejectionsamplingwiththegivenrejectionrateasproposedin[67].
+D.5.SampleQualityvs. V100Days(ContinuedfromSec.4.1)
+Figure17. Forcompletenesswealsoreportthetrainingprogressofclass-conditionalLDMsontheImageNetdatasetforafixednumber
+of35V100days.Resultsobtainedwith100DDIMsteps[84]andκ=0.FIDscomputedon5000samplesforefficiencyreasons.
+FortheassessmentofsamplequalityoverthetrainingprogressinSec.4.1,wereportedFIDandISscoresasafunction
+of train steps. Another possibility is to report these metrics over the used resources in V100 days. Such an analysis is
+additionallyprovidedinFig.17,showingqualitativelysimilarresults.
+22
+
+Method FID↓ IS↑ PSNR↑ SSIM↑
+ImageRegression[72] 15.2 121.1 27.9 0.801
+SR3[72] 5.2 180.1 26.4 0.762
+LDM-4(ours,100steps) 2.8†/4.8‡ 166.3 24.4±3.8 0.69±0.14
+LDM-4(ours,50steps,guiding) 4.4†/6.4‡ 153.7 25.8±3.7 0.74±0.12
+LDM-4(ours,100steps,guiding) 4.4†/6.4‡ 154.1 25.7±3.7 0.73±0.12
+LDM-4(ours,100steps,+15ep.) 2.6†/4.6‡ 169.76±5.03 24.4±3.8 0.69±0.14
+Pixel-DM(100steps,+15ep.) 5.1†/7.1‡ 163.06±4.67 24.1±3.3 0.59±0.12
+Table11. ×4upscalingresultsonImageNet-Val.(2562);†:FIDfeaturescomputedonvalidationsplit,‡:FIDfeaturescomputedontrain
+split. Wealsoincludeapixel-spacebaselinethatreceivesthesameamountofcomputeasLDM-4. Thelasttworowsreceived15epochs
+ofadditionaltrainingcomparedtotheformerresults.
+D.6.Super-Resolution
+For better comparability between LDMs and diffusion models in pixel space, we extend our analysis from Tab. 5 by
+comparing a diffusion model trained for the same number of steps and with a comparable number 1 of parameters to our
+LDM.TheresultsofthiscomparisonareshowninthelasttworowsofTab.11anddemonstratethatLDMachievesbetter
+performance while allowing for significantly faster sampling. A qualitative comparison is given in Fig. 20 which shows
+randomsamplesfrombothLDMandthediffusionmodelinpixelspace.
+D.6.1 LDM-BSR:GeneralPurposeSRModelviaDiverseImageDegradation
+bicubic LDM-SR LDM-BSR
+Figure18. LDM-BSRgeneralizestoarbitraryinputsandcanbeusedasageneral-purposeupsampler, upscalingsamplesfromaclass-
+conditionalLDM(imagecf.Fig.4)to10242resolution.Incontrast,usingafixeddegradationprocess(seeSec.4.4)hindersgeneralization.
+ToevaluategeneralizationofourLDM-SR,weapplyitbothonsyntheticLDMsamplesfromaclass-conditionalImageNet
+model(Sec.4.1)andimagescrawledfromtheinternet. Interestingly,weobservethatLDM-SR,trainedonlywithabicubicly
+downsampledconditioningasin[72],doesnotgeneralizewelltoimageswhichdonotfollowthispre-processing. Hence,to
+obtainasuperresolutionmodelforawiderangeofrealworldimages,whichcancontaincomplexsuperpositionsofcamera
+noise,compressionartifacts,blurrandinterpolations,wereplacethebicubicdownsamplingoperationinLDM-SRwiththe
+degration pipeline from [105]. The BSR-degradation process is a degradation pipline which applies JPEG compressions
+noise,camerasensornoise,differentimageinterpolationsfordownsampling,GaussianblurkernelsandGaussiannoiseina
+randomordertoanimage. Wefoundthatusingthebsr-degredationprocesswiththeoriginalparametersasin[105]leadsto
+averystrongdegradationprocess. Sinceamoremoderatedegradationprocessseemedapppropiateforourapplication,we
+adaptedtheparametersofthebsr-degradation(ouradapteddegradationprocesscanbefoundinourcodebaseathttps:
+//github.com/CompVis/latent-diffusion). Fig. 18 illustrates the effectiveness of this approach by directly
+comparing LDM-SR with LDM-BSR. The latter produces images much sharper than the models confined to a fixed pre-
+processing,makingitsuitableforreal-worldapplications. FurtherresultsofLDM-BSRareshownonLSUN-cowsinFig.19.
+1Itisnotpossibletoexactlymatchbotharchitecturessincethediffusionmodeloperatesinthepixelspace
+23
+
+E.ImplementationDetailsandHyperparameters
+E.1.Hyperparameters
+WeprovideanoverviewofthehyperparametersofalltrainedLDMmodelsinTab.12,Tab.13,Tab.14andTab.15.
+CelebA-HQ256×256 FFHQ256×256 LSUN-Churches256×256 LSUN-Bedrooms256×256
+f 4 4 8 4
+z-shape 64×64×3 64×64×3 - 64×64×3
+|Z| 8192 8192 - 8192
+Diffusionsteps 1000 1000 1000 1000
+NoiseSchedule linear linear linear linear
+Nparams 274M 274M 294M 274M
+Channels 224 224 192 224
+Depth 2 2 2 2
+ChannelMultiplier 1,2,3,4 1,2,3,4 1,2,2,4,4 1,2,3,4
+Attentionresolutions 32,16,8 32,16,8 32,16,8,4 32,16,8
+HeadChannels 32 32 24 32
+BatchSize 48 42 96 48
+Iterations∗ 410k 635k 500k 1.9M
+LearningRate 9.6e-5 8.4e-5 5.e-5 9.6e-5
+Table12. HyperparametersfortheunconditionalLDMsproducingthenumbersshowninTab.1. AllmodelstrainedonasingleNVIDIA
+A100.
+LDM-1 LDM-2 LDM-4 LDM-8 LDM-16 LDM-32
+z-shape 256×256×3 128×128×2 64×64×3 32×32×4 16×16×8 88×8×32
+|Z| - 2048 8192 16384 16384 16384
+Diffusionsteps 1000 1000 1000 1000 1000 1000
+NoiseSchedule linear linear linear linear linear linear
+ModelSize 396M 391M 391M 395M 395M 395M
+Channels 192 192 192 256 256 256
+Depth 2 2 2 2 2 2
+ChannelMultiplier 1,1,2,2,4,4 1,2,2,4,4 1,2,3,5 1,2,4 1,2,4 1,2,4
+NumberofHeads 1 1 1 1 1 1
+BatchSize 7 9 40 64 112 112
+Iterations 2M 2M 2M 2M 2M 2M
+LearningRate 4.9e-5 6.3e-5 8e-5 6.4e-5 4.5e-5 4.5e-5
+Conditioning CA CA CA CA CA CA
+CA-resolutions 32,16,8 32,16,8 32,16,8 32,16,8 16,8,4 8,4,2
+EmbeddingDimension 512 512 512 512 512 512
+TransformersDepth 1 1 1 1 1 1
+Table13. HyperparametersfortheconditionalLDMstrainedontheImageNetdatasetfortheanalysisinSec.4.1.Allmodelstrainedona
+singleNVIDIAA100.
+E.2.ImplementationDetails
+E.2.1 Implementationsofτ forconditionalLDMs
+θ
+For the experiments on text-to-image and layout-to-image (Sec. 4.3.1) synthesis, we implement the conditioner τ as an
+θ
+unmasked transformer which processes a tokenized version of the input y and produces an output ζ := τ (y), where ζ ∈
+θ
+RM×dτ. More specifically, the transformer is implemented from N transformer blocks consisting of global self-attention
+layers,layer-normalizationandposition-wiseMLPsasfollows2:
+2adaptedfromhttps://github.com/lucidrains/x-transformers
+24
+
+LDM-1 LDM-2 LDM-4 LDM-8 LDM-16 LDM-32
+z-shape 256×256×3 128×128×2 64×64×3 32×32×4 16×16×8 88×8×32
+|Z| - 2048 8192 16384 16384 16384
+Diffusionsteps 1000 1000 1000 1000 1000 1000
+NoiseSchedule linear linear linear linear linear linear
+ModelSize 270M 265M 274M 258M 260M 258M
+Channels 192 192 224 256 256 256
+Depth 2 2 2 2 2 2
+ChannelMultiplier 1,1,2,2,4,4 1,2,2,4,4 1,2,3,4 1,2,4 1,2,4 1,2,4
+Attentionresolutions 32,16,8 32,16,8 32,16,8 32,16,8 16,8,4 8,4,2
+HeadChannels 32 32 32 32 32 32
+BatchSize 9 11 48 96 128 128
+Iterations∗ 500k 500k 500k 500k 500k 500k
+LearningRate 9e-5 1.1e-4 9.6e-5 9.6e-5 1.3e-4 1.3e-4
+Table14. HyperparametersfortheunconditionalLDMstrainedontheCelebAdatasetfortheanalysisinFig.7. Allmodelstrainedona
+singleNVIDIAA100. ∗: Allmodelsaretrainedfor500kiterations. Ifconvergingearlier,weusedthebestcheckpointforassessingthe
+providedFIDscores.
+Task Text-to-Image Layout-to-Image Class-Label-to-Image SuperResolution Inpainting Semantic-Map-to-Image
+Dataset LAION OpenImages COCO ImageNet ImageNet Places Landscapes
+f 8 4 8 4 4 4 8
+z-shape 32×32×4 64×64×3 32×32×4 64×64×3 64×64×3 64×64×3 32×32×4
+|Z| - 8192 16384 8192 8192 8192 16384
+Diffusionsteps 1000 1000 1000 1000 1000 1000 1000
+NoiseSchedule linear linear linear linear linear linear linear
+ModelSize 1.45B 306M 345M 395M 169M 215M 215M
+Channels 320 128 192 192 160 128 128
+Depth 2 2 2 2 2 2 2
+ChannelMultiplier 1,2,4,4 1,2,3,4 1,2,4 1,2,3,5 1,2,2,4 1,4,8 1,4,8
+NumberofHeads 8 1 1 1 1 1 1
+Dropout - - 0.1 - - - -
+BatchSize 680 24 48 1200 64 128 48
+Iterations 390K 4.4M 170K 178K 860K 360K 360K
+LearningRate 1.0e-4 4.8e-5 4.8e-5 1.0e-4 6.4e-5 1.0e-6 4.8e-5
+Conditioning CA CA CA CA concat concat concat
+(C)A-resolutions 32,16,8 32,16,8 32,16,8 32,16,8 - - -
+EmbeddingDimension 1280 512 512 512 - - -
+TransformerDepth 1 3 2 1 - - -
+Table15. HyperparametersfortheconditionalLDMsfromSec.4.AllmodelstrainedonasingleNVIDIAA100exceptfortheinpainting
+modelwhichwastrainedoneightV100.
+ζ ←TokEmb(y)+PosEmb(y) (18)
+fori=1,...,N :
+ζ ←LayerNorm(ζ) (19)
+1
+ζ ←MultiHeadSelfAttention(ζ )+ζ (20)
+2 1
+ζ ←LayerNorm(ζ ) (21)
+3 2
+ζ ←MLP(ζ )+ζ (22)
+3 2
+ζ ←LayerNorm(ζ) (23)
+(24)
+Withζ available,theconditioningismappedintotheUNetviathecross-attentionmechanismasdepictedinFig.3. We
+modify the “ablated UNet” [15] architecture and replace the self-attention layer with a shallow (unmasked) transformer
+consistingofT blockswithalternatinglayersof(i)self-attention,(ii)aposition-wiseMLPand(iii)across-attentionlayer;
+25
+
+seeTab.16. Notethatwithout(ii)and(iii),thisarchitectureisequivalenttothe“ablatedUNet”.
+Whileitwouldbepossibletoincreasetherepresentationalpowerofτ byadditionallyconditioningonthetimestept,we
+θ
+donotpursuethischoiceasitreducesthespeedofinference. Weleaveamoredetailedanalysisofthismodificationtofuture
+work.
+Forthetext-to-imagemodel, werelyonapubliclyavailable3 tokenizer[99]. Thelayout-to-imagemodeldiscretizesthe
+spatiallocationsoftheboundingboxesandencodeseachboxasa(l,b,c)-tuple,whereldenotesthe(discrete)top-leftandb
+thebottom-rightposition. Classinformationiscontainedinc.
+SeeTab.17forthehyperparametersofτ andTab.13forthoseoftheUNetforbothoftheabovetasks.
+θ
+Notethattheclass-conditionalmodelasdescribedinSec.4.1isalsoimplementedviacross-attention,whereτ isasingle
+θ
+learnableembeddinglayerwithadimensionalityof512,mappingclassesytoζ ∈R1×512.
+input Rh×w×c
+LayerNorm Rh×w×c
+Conv1x1 Rh×w×d·nh
+Reshape Rh·w×d·nh
+ SelfAttention Rh·w×d·nh
+×T
+
+MLP
+Rh·w×d·nh
+CrossAttention Rh·w×d·nh
+Reshape Rh×w×d·nh
+Conv1x1 Rh×w×c
+Table16. ArchitectureofatransformerblockasdescribedinSec.E.2.1,replacingtheself-attentionlayerofthestandard“ablatedUNet”
+architecture[15].Here,n denotesthenumberofattentionheadsanddthedimensionalityperhead.
+h
+Text-to-Image Layout-to-Image
+seq-length 77 92
+depthN 32 16
+dim 1280 512
+Table17. HyperparametersfortheexperimentswithtransformerencodersinSec.4.3.
+E.2.2 Inpainting
+Forourexperimentsonimage-inpaintinginSec.4.5,weusedthecodeof[88]togeneratesyntheticmasks. Weuseafixed
+set of 2k validation and 30k testing samples from Places [108]. During training, we use random crops of size 256×256
+andevaluateoncropsofsize512×512. Thisfollowsthetrainingandtestingprotocolin[88]andreproducestheirreported
+metrics(see† inTab.7). WeincludeadditionalqualitativeresultsofLDM-4,w/attninFig.21andofLDM-4,w/oattn,big,
+w/ftinFig.22.
+E.3.EvaluationDetails
+ThissectionprovidesadditionaldetailsonevaluationfortheexperimentsshowninSec.4.
+E.3.1 QuantitativeResultsinUnconditionalandClass-ConditionalImageSynthesis
+WefollowcommonpracticeandestimatethestatisticsforcalculatingtheFID-,Precision-andRecall-scores[29,50]shownin
+Tab.1and10basedon50ksamplesfromourmodelsandtheentiretrainingsetofeachoftheshowndatasets.Forcalculating
+FIDscoresweusethetorch-fidelitypackage[60]. However,sincedifferentdataprocessingpipelinesmightleadto
+differentresults[64],wealsoevaluateourmodelswiththescriptprovidedbyDhariwalandNichol[15]. Wefindthatresults
+3https://huggingface.co/transformers/model_doc/bert.html#berttokenizerfast
+26
+
+mainly coincide, except for the ImageNet and LSUN-Bedrooms datasets, where we notice slightly varying scores of 7.76
+(torch-fidelity) vs. 7.77 (Nichol and Dhariwal) and 2.95 vs 3.0. For the future we emphasize the importance of a
+unified procedure for sample quality assessment. Precision and Recall are also computed by using the script provided by
+NicholandDhariwal.
+E.3.2 Text-to-ImageSynthesis
+Followingtheevaluationprotocolof[66]wecomputeFIDandInceptionScorefortheText-to-ImagemodelsfromTab.2by
+comparinggeneratedsampleswith30000samplesfromthevalidationsetoftheMS-COCOdataset[51]. FIDandInception
+Scoresarecomputedwithtorch-fidelity.
+E.3.3 Layout-to-ImageSynthesis
+For assessing the sample quality of our Layout-to-Image models from Tab. 9 on the COCO dataset, we follow common
+practice[37,87,89]andcomputeFIDscoresthe2048unaugmentedexamplesoftheCOCOSegmentationChallengesplit.
+Toobtainbettercomparability, weusetheexactsamesamplesasin[37]. FortheOpenImagesdatasetwesimilarlyfollow
+theirprotocolanduse2048center-croppedtestimagesfromthevalidationset.
+E.3.4 SuperResolution
+We evaluate the super-resolution models on ImageNet following the pipeline suggested in [72], i.e. images with a shorter
+sizelessthan256pxareremoved(bothfortrainingandevaluation). OnImageNet,thelow-resolutionimagesareproduced
+usingbicubicinterpolationwithanti-aliasing. FIDsareevaluatedusingtorch-fidelity[60],andweproducesamples
+onthevalidationsplit. ForFIDscores,weadditionallycomparetoreferencefeaturescomputedonthetrainsplit,seeTab.5
+andTab.11.
+E.3.5 EfficiencyAnalysis
+For efficiency reasons we compute the sample quality metrics plotted in Fig. 6, 17 and 7 based on 5k samples. Therefore,
+theresultsmightvaryfromthoseshowninTab.1and10. Allmodelshaveacomparablenumberofparametersasprovided
+inTab.13and14. Wemaximizethelearningratesoftheindividualmodelssuchthattheystilltrainstably. Therefore, the
+learningratesslightlyvarybetweendifferentrunscf.Tab.13and14.
+E.3.6 UserStudy
+FortheresultsoftheuserstudypresentedinTab.4wefollowedtheprotocollof[72]andandusethe2-alternativeforce-choice
+paradigmtoassesshumanpreferencescoresfortwodistincttasks. InTask-1subjectswereshownalowresolution/masked
+imagebetweenthecorrespondinggroundtruthhighresolution/unmaskedversionandasynthesizedimage,whichwasgen-
+eratedbyusingthemiddleimageasconditioning. ForSuperResolutionsubjectswereasked: ’Whichofthetwoimagesisa
+betterhighqualityversionofthelowresolutionimageinthemiddle?’. ForInpaintingweasked’Whichofthetwoimages
+contains more realistic inpainted regions of the image in the middle?’. In Task-2, humans were similarly shown the low-
+res/maskedversionandaskedforpreferencebetweentwocorrespondingimagesgeneratedbythetwocompetingmethods.
+Asin[72]humansviewedtheimagesfor3secondsbeforeresponding.
+27
+
+F.ComputationalRequirements
+Method Generator Classifier Overall Inference Nparams FID↓ IS↑ Precision↑ Recall↑
+Compute Compute Compute Throughput∗
+LSUNChurches2562
+StyleGAN2[42]† 64 - 64 - 59M 3.86 - - -
+LDM-8(ours,100steps,410K) 18 - 18 6.80 256M 4.02 - 0.64 0.52
+LSUNBedrooms2562
+ADM[15]†(1000steps) 232 - 232 0.03 552M 1.9 - 0.66 0.51
+LDM-4(ours,200steps,1.9M) 60 - 55 1.07 274M 2.95 - 0.66 0.48
+CelebA-HQ2562
+LDM-4(ours,500steps,410K) 14.4 - 14.4 0.43 274M 5.11 - 0.72 0.49
+FFHQ2562
+StyleGAN2[42] 32.13‡ - 32.13† - 59M 3.8 - - -
+LDM-4(ours,200steps,635K) 26 - 26 1.07 274M 4.98 - 0.73 0.50
+ImageNet2562
+VQGAN-f-4(ours,firststage) 29 - 29 - 55M 0.58†† - - -
+VQGAN-f-8(ours,firststage) 66 - 66 - 68M 1.14†† - - -
+BigGAN-deep[3]† 128-256 128-256 - 340M 6.95 203.6±2.6 0.87 0.28
+ADM[15](250steps)† 916 - 916 0.12 554M 10.94 100.98 0.69 0.63
+ADM-G[15](25steps)† 916 46 962 0.7 608M 5.58 - 0.81 0.49
+ADM-G[15](250steps)† 916 46 962 0.07 608M 4.59 186.7 0.82 0.52
+ADM-G,ADM-U[15](250steps)† 329 30 349 n/a n/a 3.85 221.72 0.84 0.53
+LDM-8-G(ours,100,2.9M) 79 12 91 1.93 506M 8.11 190.4±2.6 0.83 0.36
+LDM-8(ours,200ddimsteps2.9M,batchsize64) 79 - 79 1.9 395M 17.41 72.92 0.65 0.62
+LDM-4(ours,250ddimsteps178K,batchsize1200) 271 - 271 0.7 400M 10.56 103.49±1.24 0.71 0.62
+LDM-4-G(ours,250ddimsteps178K,batchsize1200,classifier-freeguidance[32]scale1.25) 271 - 271 0.4 400M 3.95 178.22±2.43 0.81 0.55
+LDM-4-G(ours,250ddimsteps178K,batchsize1200,classifier-freeguidance[32]scale1.5) 271 - 271 0.4 400M 3.60 247.67±5.59 0.87 0.48
+Table18. Comparingcomputerequirementsduringtrainingandinferencethroughputwithstate-of-the-artgenerativemodels. Compute
+duringtraininginV100-days,numbersofcompetingmethodstakenfrom[15]unlessstateddifferently;∗: Throughputmeasuredinsam-
+ples/seconasingleNVIDIAA100;†:Numberstakenfrom[15];‡:Assumedtobetrainedon25Mtrainexamples;††:R-FIDvs.ImageNet
+validationset
+InTab18weprovideamoredetailedanalysisonourusedcomputeressourcesandcompareourbestperformingmodels
+on the CelebA-HQ, FFHQ, LSUN and ImageNet datasets with the recent state of the art models by using their provided
+numbers,cf.[15]. AstheyreporttheirusedcomputeinV100daysandwetrainallourmodelsonasingleNVIDIAA100
+GPU,weconverttheA100daystoV100daysbyassuminga×2.2speedupofA100vsV100[74]4.Toassesssamplequality,
+weadditionallyreportFIDscoresonthereporteddatasets. Wecloselyreachtheperformanceofstateoftheartmethodsas
+StyleGAN2[42]andADM[15]whilesignificantlyreducingtherequiredcomputeresources.
+4ThisfactorcorrespondstothespeedupoftheA100overtheV100foraU-Net,asdefinedinFig.1in [74]
+28
+
+G.DetailsonAutoencoderModels
+Wetrainallourautoencodermodelsinanadversarialmannerfollowing[23], suchthatapatch-baseddiscriminatorD
+ψ
+is optimized to differentiate original images from reconstructions D(E(x)). To avoid arbitrarily scaled latent spaces, we
+regularizethelatentztobezerocenteredandobtainsmallvariancebyintroducinganregularizinglosstermL .
+reg
+We investigate two different regularization methods: (i) a low-weighted Kullback-Leibler-term between q (z|x) =
+E
+N(z;E ,E )andastandardnormaldistributionN(z;0,1)asinastandardvariationalautoencoder[46,69],and,(ii)regu-
+µ σ2
+larizingthelatentspacewithavectorquantizationlayerbylearningacodebookof|Z|differentexemplars[96].
+Toobtainhigh-fidelityreconstructionsweonlyuseaverysmallregularizationforbothscenarios, i.e.weeitherweightthe
+KLtermbyafactor∼10−6orchooseahighcodebookdimensionality|Z|.
+Thefullobjectivetotraintheautoencodingmodel(E,D)reads:
+(cid:16) (cid:17)
+L =minmax L (x,D(E(x)))−L (D(E(x)))+logD (x)+L (x;E,D) (25)
+Autoencoder rec adv ψ reg
+E,D ψ
+DMTraininginLatentSpace Notethatfortrainingdiffusionmodelsonthelearnedlatentspace,weagaindistinguishtwo
+caseswhenlearningp(z)orp(z|y)(Sec.4.3):(i)ForaKL-regularizedlatentspace,wesamplez =E (x)+E (x)·ε=:E(x),
+µ σ
+whereε∼N(0,1). Whenrescalingthelatent,weestimatethecomponent-wisevariance
+1 (cid:88)
+σˆ2 = (zb,c,h,w−µˆ)2
+bchw
+b,c,h,w
+fromthefirstbatchinthedata,whereµˆ = 1 (cid:80) zb,c,h,w. TheoutputofE isscaledsuchthattherescaledlatenthas
+bchw b,c,h,w
+unitstandarddeviation,i.e.z ← z = E(x). (ii)ForaVQ-regularizedlatentspace,weextractzbeforethequantizationlayer
+σˆ σˆ
+andabsorbthequantizationoperationintothedecoder,i.e.itcanbeinterpretedasthefirstlayerofD.
+H.AdditionalQualitativeResults
+Finally,weprovideadditionalqualitativeresultsforourlandscapesmodel(Fig.12,23,24and25),ourclass-conditional
+ImageNetmodel(Fig.26-27)andourunconditionalmodelsfortheCelebA-HQ,FFHQandLSUNdatasets(Fig.28-31).
+SimilarasfortheinpaintingmodelinSec.4.5wealsofine-tunedthesemanticlandscapesmodelfromSec.4.3.2directlyon
+5122imagesanddepictqualitativeresultsinFig.12andFig.23. Forourthosemodelstrainedoncomparablysmalldatasets,
+weadditionallyshownearestneighborsinVGG[79]featurespaceforsamplesfromourmodelsinFig.32-34.
+29
+
+bicubic LDM-BSR
+Figure19. LDM-BSRgeneralizestoarbitraryinputsandcanbeusedasageneral-purposeupsampler,upscalingsamplesfromtheLSUN-
+Cowsdatasetto10242resolution.
+30
+
+input GT PixelBaseline#1 PixelBaseline#2 LDM#1 LDM#2
+Figure20. QualitativesuperresolutioncomparisonoftworandomsamplesbetweenLDM-SRandbaseline-diffusionmodelinPixelspace.
+Evaluatedonimagenetvalidation-setaftersameamountoftrainingsteps.
+31
+
+input GT LaMa[88] LDM#1 LDM#2 LDM#3
+Figure21. Qualitativeresultsonimageinpainting. Incontrastto[88], ourgenerativeapproachenablesgenerationofmultiplediverse
+samplesforagiveninput.
+32
+
+input result input result
+Figure22. MorequalitativeresultsonobjectremovalasinFig.11.
+33
+
+SemanticSynthesisonFlickr-Landscapes[23](5122finetuning)
+Figure23. ConvolutionalsamplesfromthesemanticlandscapesmodelasinSec.4.3.2,finetunedon5122images.
+34
+
+Figure24. ALDMtrainedon2562resolutioncangeneralizetolargerresolutionforspatiallyconditionedtaskssuchassemanticsynthesis
+oflandscapeimages.SeeSec.4.3.2.
+35
+
+SemanticSynthesisonFlickr-Landscapes[23]
+Figure25. Whenprovidedasemanticmapasconditioning,ourLDMsgeneralizetosubstantiallylargerresolutionsthanthoseseenduring
+training. Althoughthismodelwastrainedoninputsofsize2562itcanbeusedtocreatehigh-resolutionsamplesastheonesshownhere,
+whichareofresolution1024×384. 36
+
+RandomclassconditionalsamplesontheImageNetdataset
+Figure26. RandomsamplesfromLDM-4trainedontheImageNetdataset. Sampledwithclassifier-freeguidance[32]scales=5.0and
+200DDIMstepswithη=1.0.
+37
+
+RandomclassconditionalsamplesontheImageNetdataset
+Figure27. RandomsamplesfromLDM-4trainedontheImageNetdataset. Sampledwithclassifier-freeguidance[32]scales=3.0and
+200DDIMstepswithη=1.0.
+38
+
+RandomsamplesontheCelebA-HQdataset
+Figure28. RandomsamplesofourbestperformingmodelLDM-4ontheCelebA-HQdataset. Sampledwith500DDIMstepsandη =0
+(FID=5.15).
+39
+
+RandomsamplesontheFFHQdataset
+Figure29. RandomsamplesofourbestperformingmodelLDM-4ontheFFHQdataset. Sampledwith200DDIMstepsandη =1(FID
+=4.98).
+40
+
+RandomsamplesontheLSUN-Churchesdataset
+Figure30. RandomsamplesofourbestperformingmodelLDM-8ontheLSUN-Churchesdataset. Sampledwith200DDIMstepsand
+η=0(FID=4.48).
+41
+
+RandomsamplesontheLSUN-Bedroomsdataset
+Figure31. RandomsamplesofourbestperformingmodelLDM-4ontheLSUN-Bedroomsdataset. Sampledwith200DDIMstepsand
+η=1(FID=2.95).
+42
+
+NearestNeighborsontheCelebA-HQdataset
+Figure32. NearestneighborsofourbestCelebA-HQmodel,computedinthefeaturespaceofaVGG-16[79]. Theleftmostsampleis
+fromourmodel.Theremainingsamplesineachrowareits10nearestneighbors.
+43
+
+NearestNeighborsontheFFHQdataset
+Figure33. NearestneighborsofourbestFFHQmodel,computedinthefeaturespaceofaVGG-16[79].Theleftmostsampleisfromour
+model.Theremainingsamplesineachrowareits10nearestneighbors.
+44
+
+NearestNeighborsontheLSUN-Churchesdataset
+Figure34. NearestneighborsofourbestLSUN-Churchesmodel,computedinthefeaturespaceofaVGG-16[79]. Theleftmostsample
+isfromourmodel.Theremainingsamplesineachrowareits10nearestneighbors.
+45

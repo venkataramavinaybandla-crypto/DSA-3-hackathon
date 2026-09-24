@@ -1,0 +1,6 @@
+Title: A New Approach to the Maximum-Flow Problem
+Authors: Goldberg & Tarjan
+Year: 1988
+
+Abstract:
+Seminal publication in Computer Science / Graph Theory: 'A New Approach to the Maximum-Flow Problem' by Goldberg & Tarjan (1988). Classic foundational literature published in original journal/conference proceedings.

@@ -1,0 +1,622 @@
+MobileNets: Efficient Convolutional Neural Networks for Mobile Vision
+Applications
+AndrewG.Howard MenglongZhu BoChen DmitryKalenichenko
+WeijunWang TobiasWeyand MarcoAndreetto HartwigAdam
+GoogleInc.
+{howarda,menglong,bochen,dkalenichenko,weijunw,weyand,anm,hadam}@google.com
+Abstract models.Section3describestheMobileNetarchitectureand
+twohyper-parameterswidthmultiplierandresolutionmul-
+WepresentaclassofefficientmodelscalledMobileNets tipliertodefinesmallerandmoreefficientMobileNets.Sec-
+for mobile and embedded vision applications. MobileNets tion4describesexperimentsonImageNetaswellavariety
+are based on a streamlined architecture that uses depth- of different applications and use cases. Section 5 closes
+wise separable convolutions to build light weight deep withasummaryandconclusion.
+neural networks. We introduce two simple global hyper-
+parameters that efficiently trade off between latency and 2.PriorWork
+accuracy. Thesehyper-parametersallowthemodelbuilder
+Therehasbeenrisinginterestinbuildingsmallandeffi-
+tochoosetherightsizedmodelfortheirapplicationbased
+cient neural networks in the recent literature, e.g. [16, 34,
+on the constraints of the problem. We present extensive
+12, 36, 22]. Many different approaches can be generally experiments on resource and accuracy tradeoffs and show
+categorizedintoeithercompressingpretrainednetworksor
+strong performance compared to other popular models on
+training small networks directly. This paper proposes a
+ImageNetclassification. Wethendemonstratetheeffective-
+class of network architectures that allows a model devel-
+nessofMobileNetsacrossawiderangeofapplicationsand
+oper to specifically choose a small network that matches
+use cases including object detection, finegrain classifica-
+theresourcerestrictions(latency,size)fortheirapplication.
+tion,faceattributesandlargescalegeo-localization.
+MobileNets primarily focus on optimizing for latency but
+alsoyieldsmallnetworks. Manypapersonsmallnetworks
+focusonlyonsizebutdonotconsiderspeed.
+1.Introduction
+MobileNetsarebuiltprimarilyfromdepthwiseseparable
+Convolutional neural networks have become ubiquitous convolutions initially introduced in [26] and subsequently
+in computer vision ever since AlexNet [19] popularized usedinInceptionmodels[13]toreducethecomputationin
+deep convolutional neural networks by winning the Ima- thefirstfewlayers.Flattenednetworks[16]buildanetwork
+geNet Challenge: ILSVRC 2012 [24]. The general trend outoffullyfactorizedconvolutionsandshowedthepoten-
+has been to make deeper and more complicated networks tial of extremely factorized networks. Independent of this
+in order to achieve higher accuracy [27, 31, 29, 8]. How- currentpaper,FactorizedNetworks[34]introducesasimilar
+ever,theseadvancestoimproveaccuracyarenotnecessar- factorizedconvolutionaswellastheuseoftopologicalcon-
+ilymakingnetworksmoreefficientwithrespecttosizeand nections. Subsequently, the Xception network [3] demon-
+speed. In many real world applications such as robotics, strated how to scale up depthwise separable filters to out
+self-drivingcarandaugmentedreality,therecognitiontasks performInceptionV3networks. Anothersmallnetworkis
+needtobecarriedoutinatimelyfashiononacomputation- Squeezenet[12]whichusesabottleneckapproachtodesign
+allylimitedplatform. averysmallnetwork. Otherreducedcomputationnetworks
+This paper describes an efficient network architecture include structured transform networks [28] and deep fried
+and a set of two hyper-parameters in order to build very convnets[37].
+small,lowlatencymodelsthatcanbeeasilymatchedtothe A different approach for obtaining small networks is
+design requirements for mobile and embedded vision ap- shrinking, factorizingorcompressingpretrainednetworks.
+plications. Section 2 reviews prior work in building small Compression based on product quantization [36], hashing
+1
+7102
+rpA
+71
+]VC.sc[
+1v16840.4071:viXra
+
+Proprietary + Confidential
+Object Detection Finegrain Classification
+Photo by Juanedc (CC BY 2.0) Photo by HarshLight (CC BY 2.0)
+Face Attributes Landmark Recognition
+MobileNets
+Google Doodle by Sarah Harrison Photo by Sharon VanderKaay (CC BY 2.0)
+Figure1.MobileNetmodelscanbeappliedtovariousrecognitiontasksforefficientondeviceintelligence.
+[2], and pruning, vector quantization and Huffman coding D ×M feature map F and produces a D ×D ×N
+F F F
+[5] have been proposed in the literature. Additionally var- feature map G where D is the spatial width and height
+F
+ious factorizations have been proposed to speed up pre- of a square input feature map1, M is the number of input
+trained networks [14, 20]. Another method for training channels(inputdepth),D isthespatialwidthandheightof
+G
+small networks is distillation [9] which uses a larger net- asquareoutputfeaturemapandN isthenumberofoutput
+work to teach a smaller network. It is complementary to channel(outputdepth).
+our approach and is covered in some of our use cases in The standard convolutional layer is parameterized by
+section 4. Another emergingapproach is lowbit networks convolutionkernelKofsizeD ×D ×M×N whereD
+K K K
+[4,22,11]. isthespatialdimensionofthekernelassumedtobesquare
+andM isnumberofinputchannelsandN isthenumberof
+3.MobileNetArchitecture
+outputchannelsasdefinedpreviously.
+Theoutputfeaturemapforstandardconvolutionassum-
+InthissectionwefirstdescribethecorelayersthatMo-
+ingstrideoneandpaddingiscomputedas:
+bileNet is built on which are depthwise separable filters.
+WethendescribetheMobileNetnetworkstructureandcon- (cid:88)
+G = K ·F (1)
+clude with descriptions of the two model shrinking hyper- k,l,n i,j,m,n k+i−1,l+j−1,m
+parameterswidthmultiplierandresolutionmultiplier. i,j,m
+Standardconvolutionshavethecomputationalcostof:
+3.1.DepthwiseSeparableConvolution
+The MobileNet model is based on depthwise separable D ·D ·M ·N ·D ·D (2)
+K K F F
+convolutions which is a form of factorized convolutions
+which factorize a standard convolution into a depthwise where the computational cost depends multiplicatively on
+convolutionanda1×1convolutioncalledapointwisecon- the number of input channels M, the number of output
+volution. For MobileNets the depthwise convolution ap- channels N the kernel size D k ×D k and the feature map
+plies a single filter to each input channel. The pointwise size D F ×D F . MobileNet models address each of these
+convolutionthenappliesa1×1convolutiontocombinethe termsandtheirinteractions. Firstitusesdepthwisesepara-
+outputsthedepthwiseconvolution. Astandardconvolution bleconvolutionstobreaktheinteractionbetweenthenum-
+both filters and combines inputs into a new set of outputs berofoutputchannelsandthesizeofthekernel.
+inonestep. Thedepthwiseseparableconvolutionsplitsthis Thestandardconvolutionoperationhastheeffectoffil-
+intotwolayers,aseparatelayerforfilteringandaseparate teringfeaturesbasedontheconvolutionalkernelsandcom-
+layer for combining. This factorization has the effect of bining features in order to produce a new representation.
+drasticallyreducingcomputationandmodelsize. Figure2 The filtering and combination steps can be split into two
+shows how a standard convolution 2(a) is factorized into a stepsviatheuseoffactorizedconvolutionscalleddepthwise
+depthwiseconvolution2(b)anda1×1pointwiseconvolu-
+1Weassumethattheoutputfeaturemaphasthesamespatialdimen-
+tion2(c).
+sionsastheinputandbothfeaturemapsaresquare. Ourmodelshrinking
+A standard convolutional layer takes as input a D F × resultsgeneralizetofeaturemapswitharbitrarysizesandaspectratios.
+
+separableconvolutionsforsubstantialreductionincompu-
+tationalcost.
+M
+Depthwise separable convolution are made up of two
+M ...
+layers:depthwiseconvolutionsandpointwiseconvolutions.
+...
+M
+We use depthwise convolutions to apply a single filter per
+D
+K ...
+eachinputchannel(inputdepth). Pointwiseconvolution,a
+D
+K D N
+simple1×1convolution,isthenusedtocreatealinearcom- K
+D D N
+bination of the output of the depthwise layer. MobileNets K K
+(a) StandardConvolutionFilters
+use both batchnorm and ReLU nonlinearities for both lay- D K N
+ers. 1
+...
+Depthwiseconvolutionwithonefilterperinputchannel 1
+D ...
+(inputdepth)canbewrittenas: K 1
+D
+K ...
+Gˆ k,l,m = (cid:88) Kˆ i,j,m ·F k+i−1,l+j−1,m (3) D K D D K M M
+K
+i,j
+D M
+K
+where Kˆ is the depthwise convolutional kernel of size
+(b) DepthwiseConvolutionalFilters
+D K × D K × M where the m th filter in Kˆ is applied to M ...
+the m th channel in F to produce the m th channel of the M ...
+filteredoutputfeaturemapGˆ.
+M ...
+Depthwiseconvolutionhasacomputationalcostof: 1
+1 1 N
+D K ·D K ·M ·D F ·D F (4) 1 1 N
+Depthwise convolution is extremely efficient relative to 1 N
+standard convolution. However it only filters input chan-
+(c) 1×1ConvolutionalFilterscalledPointwiseConvolutioninthecon-
+nels, it does not combine them to create new features. So
+textofDepthwiseSeparableConvolution
+an additional layer that computes a linear combination of
+Figure2.Thestandardconvolutionalfiltersin(a)arereplacedby
+theoutputofdepthwiseconvolutionvia1×1convolution
+twolayers: depthwiseconvolutionin(b)andpointwiseconvolu-
+isneededinordertogeneratethesenewfeatures.
+tionin(c)tobuildadepthwiseseparablefilter.
+The combination of depthwise convolution and 1 × 1
+(pointwise)convolutioniscalleddepthwiseseparablecon-
+volutionwhichwasoriginallyintroducedin[26]. 3.2.NetworkStructureandTraining
+Depthwiseseparableconvolutionscost:
+TheMobileNetstructureisbuiltondepthwiseseparable
+convolutionsasmentionedintheprevioussectionexceptfor
+D ·D ·M ·D ·D +M ·N ·D ·D (5) the first layer which is a full convolution. By defining the
+K K F F F F
+networkinsuchsimpletermsweareabletoeasilyexplore
+whichisthesumofthedepthwiseand1×1pointwisecon- networktopologiestofindagoodnetwork. TheMobileNet
+volutions. architectureisdefinedinTable1.Alllayersarefollowedby
+Byexpressingconvolutionasatwostepprocessoffilter- abatchnorm[13]andReLUnonlinearitywiththeexception
+ingandcombiningwegetareductionincomputationof: ofthefinalfullyconnectedlayerwhichhasnononlinearity
+and feeds into a softmax layer for classification. Figure 3
+D ·D ·M ·D ·D +M ·N ·D ·D contrastsalayerwithregularconvolutions,batchnormand
+K K F F F F
+ReLU nonlinearity to the factorized layer with depthwise
+D ·D ·M ·N ·D ·D
+K K F F
+convolution,1×1pointwiseconvolutionaswellasbatch-
+1 1
+= + normandReLUaftereachconvolutionallayer. Downsam-
+N D2
+K pling is handled with strided convolution in the depthwise
+MobileNetuses3×3depthwiseseparableconvolutions convolutions as well as in the first layer. A final average
+whichusesbetween8to9timeslesscomputationthanstan- pooling reduces the spatial resolution to 1 before the fully
+dard convolutions at only a small reduction in accuracy as connectedlayer. Countingdepthwiseandpointwiseconvo-
+seeninSection4. lutionsasseparatelayers,MobileNethas28layers.
+Additional factorization in spatial dimension such as in Itisnotenoughtosimplydefinenetworksintermsofa
+[16,31]doesnotsavemuchadditionalcomputationasvery small number of Mult-Adds. It is also important to make
+littlecomputationisspentindepthwiseconvolutions. suretheseoperationscanbeefficientlyimplementable. For
+
+Table1.MobileNetBodyArchitecture
+3x3 Conv 3x3 Depthwise Conv
+Type/Stride FilterShape InputSize
+BN BN Conv/s2 3×3×3×32 224×224×3
+Convdw/s1 3×3×32dw 112×112×32
+ReLU ReLU Conv/s1 1×1×32×64 112×112×32
+Convdw/s2 3×3×64dw 112×112×64
+1x1 Conv
+Conv/s1 1×1×64×128 56×56×64
+BN Convdw/s1 3×3×128dw 56×56×128
+Conv/s1 1×1×128×128 56×56×128
+ReLU Convdw/s2 3×3×128dw 56×56×128
+Conv/s1 1×1×128×256 28×28×128
+Figure3.Left: Standardconvolutionallayerwithbatchnormand
+Convdw/s1 3×3×256dw 28×28×256
+ReLU.Right: DepthwiseSeparableconvolutionswithDepthwise
+Conv/s1 1×1×256×256 28×28×256
+andPointwiselayersfollowedbybatchnormandReLU.
+Convdw/s2 3×3×256dw 28×28×256
+Conv/s1 1×1×256×512 14×14×256
+instanceunstructuredsparsematrixoperationsarenottyp- 5× Convdw/s1 3×3×512dw 14×14×512
+Conv/s1 1×1×512×512 14×14×512
+icallyfasterthandensematrixoperationsuntilaveryhigh
+Convdw/s2 3×3×512dw 14×14×512
+levelofsparsity. Ourmodelstructureputsnearlyallofthe
+Conv/s1 1×1×512×1024 7×7×512
+computationintodense1×1convolutions. Thiscanbeim-
+Convdw/s2 3×3×1024dw 7×7×1024
+plemented with highly optimized general matrix multiply
+Conv/s1 1×1×1024×1024 7×7×1024
+(GEMM) functions. Often convolutions are implemented
+AvgPool/s1 Pool7×7 7×7×1024
+by a GEMM but require an initial reordering in memory
+FC/s1 1024×1000 1×1×1024
+calledim2colinordertomapittoaGEMM.Forinstance,
+Softmax/s1 Classifier 1×1×1000
+this approach is used in the popular Caffe package [15].
+1×1convolutionsdonotrequirethisreorderinginmemory Table2.ResourcePerLayerType
+andcanbeimplementeddirectlywithGEMMwhichisone Type Mult-Adds Parameters
+ofthemostoptimizednumericallinearalgebraalgorithms.
+Conv1×1 94.86% 74.59%
+MobileNet spends 95% of it’s computation time in 1×1
+ConvDW3×3 3.06% 1.06%
+convolutions which also has 75% of the parameters as can
+Conv3×3 1.19% 0.02%
+beseeninTable2. Nearlyalloftheadditionalparameters
+FullyConnected 0.18% 24.33%
+areinthefullyconnectedlayer.
+MobileNet models were trained in TensorFlow [1] us-
+ingRMSprop[33]withasynchronousgradientdescentsim-
+andwidthmultiplierα,thenumberofinputchannelsM be-
+ilar to Inception V3 [31]. However, contrary to training
+comesαM andthenumberofoutputchannelsN becomes
+large models we use less regularization and data augmen-
+αN.
+tation techniques because small models have less trouble
+Thecomputationalcostofadepthwiseseparableconvo-
+withoverfitting. WhentrainingMobileNetswedonotuse
+lutionwithwidthmultiplierαis:
+side heads or label smoothing and additionally reduce the
+amount image of distortions by limiting the size of small
+D ·D ·αM ·D ·D +αM ·αN ·D ·D (6)
+K K F F F F
+crops that are used in large Inception training [31]. Addi-
+tionally,wefoundthatitwasimportanttoputverylittleor where α ∈ (0,1] with typical settings of 1, 0.75, 0.5 and
+noweightdecay(l2regularization)onthedepthwisefilters 0.25. α = 1 is the baseline MobileNet and α < 1 are
+sincetheiraresofewparametersinthem.FortheImageNet reducedMobileNets. Widthmultiplierhastheeffectofre-
+benchmarksinthenextsectionallmodelsweretrainedwith ducing computational cost and the number of parameters
+sametrainingparametersregardlessofthesizeofthemodel. quadratically by roughly α2. Width multiplier can be ap-
+pliedtoanymodelstructuretodefineanewsmallermodel
+3.3.WidthMultiplier: ThinnerModels
+with a reasonable accuracy, latency and size trade off. It
+Although the base MobileNet architecture is already is used to define a new reduced structure that needs to be
+small and low latency, many times a specific use case or trainedfromscratch.
+applicationmayrequirethemodeltobesmallerandfaster.
+3.4. Resolution Multiplier: Reduced Representa-
+Inordertoconstructthesesmallerandlesscomputationally
+tion
+expensive models we introduce a very simple parameter α
+calledwidthmultiplier.Theroleofthewidthmultiplierαis Thesecondhyper-parametertoreducethecomputational
+tothinanetworkuniformlyateachlayer. Foragivenlayer costofaneuralnetworkisaresolutionmultiplierρ. Weap-
+
+Table3.Resourceusageformodificationstostandardconvolution. Table4.DepthwiseSeparablevsFullConvolutionMobileNet
+Note that each row is a cumulative effect adding on top of the Model ImageNet Million Million
+previous row. This example is for an internal MobileNet layer
+Accuracy Mult-Adds Parameters
+withD =3,M =512,N =512,D =14.
+K F ConvMobileNet 71.7% 4866 29.3
+Layer/Modification Million Million
+MobileNet 70.6% 569 4.2
+Mult-Adds Parameters
+Convolution 462 2.36
+Table5.NarrowvsShallowMobileNet
+DepthwiseSeparableConv 52.3 0.27
+Model ImageNet Million Million
+α=0.75 29.6 0.15
+Accuracy Mult-Adds Parameters
+ρ=0.714 15.1 0.15
+0.75MobileNet 68.4% 325 2.6
+ShallowMobileNet 65.3% 307 2.9
+plythistotheinputimageandtheinternalrepresentationof
+Table6.MobileNetWidthMultiplier
+everylayerissubsequentlyreducedbythesamemultiplier.
+WidthMultiplier ImageNet Million Million
+In practice we implicitly set ρ by setting the input resolu-
+Accuracy Mult-Adds Parameters
+tion.
+1.0MobileNet-224 70.6% 569 4.2
+Wecannowexpressthecomputationalcostforthecore
+0.75MobileNet-224 68.4% 325 2.6
+layers of our network as depthwise separable convolutions
+0.5MobileNet-224 63.7% 149 1.3
+withwidthmultiplierαandresolutionmultiplierρ:
+0.25MobileNet-224 50.6% 41 0.5
+D ·D ·αM·ρD ·ρD +αM·αN·ρD ·ρD (7)
+K K F F F F
+Table7.MobileNetResolution
+where ρ ∈ (0,1] which is typically set implicitly so that Resolution ImageNet Million Million
+theinputresolutionofthenetworkis224,192,160or128.
+Accuracy Mult-Adds Parameters
+ρ = 1 is the baseline MobileNet and ρ < 1 are reduced
+1.0MobileNet-224 70.6% 569 4.2
+computationMobileNets. Resolutionmultiplierhastheef- 1.0MobileNet-192 69.1% 418 4.2
+fectofreducingcomputationalcostbyρ2.
+1.0MobileNet-160 67.2% 290 4.2
+As an example we can look at a typical layer in Mo- 1.0MobileNet-128 64.4% 186 4.2
+bileNet and see how depthwise separable convolutions,
+width multiplier and resolution multiplier reduce the cost
+andparameters.Table3showsthecomputationandnumber accuracyby1%onImageNetwassavingtremendouslyon
+ofparametersforalayerasarchitectureshrinkingmethods mult-addsandparameters.
+are sequentially applied to the layer. The first row shows
+We next show results comparing thinner models with
+theMult-Addsandparametersforafullconvolutionallayer
+width multiplier to shallower models using less layers. To
+withaninputfeaturemapofsize14×14×512withaker-
+makeMobileNetshallower,the5layersofseparablefilters
+nel K of size 3×3×512×512. We will look in detail
+with feature size 14 × 14 × 512 in Table 1 are removed.
+in the next section at the trade offs between resources and
+Table 5 shows that at similar computation and number of
+accuracy.
+parameters, that making MobileNets thinner is 3% better
+thanmakingthemshallower.
+4.Experiments
+4.2.ModelShrinkingHyperparameters
+In this section we first investigate the effects of depth-
+wiseconvolutionsaswellasthechoiceofshrinkingbyre- Table6showstheaccuracy, computationandsizetrade
+ducingthewidthofthenetworkratherthanthenumberof offsofshrinkingtheMobileNetarchitecturewiththewidth
+layers. We then show the trade offs of reducing the net- multiplier α. Accuracy drops off smoothly until the archi-
+workbasedonthetwohyper-parameters: widthmultiplier tectureismadetoosmallatα=0.25.
+and resolution multiplier and compare results to a number Table7showstheaccuracy, computationandsizetrade
+ofpopularmodels. WetheninvestigateMobileNetsapplied offs for different resolution multipliers by training Mo-
+toanumberofdifferentapplications. bileNets with reduced input resolutions. Accuracy drops
+offsmoothlyacrossresolution.
+4.1.ModelChoices
+Figure 4 shows the trade off between ImageNet Accu-
+FirstweshowresultsforMobileNetwithdepthwisesep- racy and computation for the 16 models made from the
+arableconvolutionscomparedtoamodelbuiltwithfullcon- cross product of width multiplier α ∈ {1,0.75,0.5,0.25}
+volutions. In Table 4 we see that using depthwise separa- andresolutions{224,192,160,128}. Resultsareloglinear
+bleconvolutionscomparedtofullconvolutionsonlyreduces withajumpwhenmodelsgetverysmallatα=0.25.
+
+Table8.MobileNetComparisontoPopularModels
+Model ImageNet Million Million
+Accuracy Mult-Adds Parameters
+1.0MobileNet-224 70.6% 569 4.2
+GoogleNet 69.8% 1550 6.8
+VGG16 71.5% 15300 138
+Table9.SmallerMobileNetComparisontoPopularModels
+Model ImageNet Million Million
+Accuracy Mult-Adds Parameters
+0.50MobileNet-160 60.2% 76 1.32
+Squeezenet 57.5% 1700 1.25
+AlexNet 57.2% 720 60
+Figure 4. This figure shows the trade off between computation
+(Mult-Adds)andaccuracyontheImageNetbenchmark. Notethe
+loglineardependencebetweenaccuracyandcomputation. Table10.MobileNetforStanfordDogs
+Model Top-1 Million Million
+Accuracy Mult-Adds Parameters
+InceptionV3[18] 84% 5000 23.2
+1.0MobileNet-224 83.3% 569 3.3
+0.75MobileNet-224 81.9% 325 1.9
+1.0MobileNet-192 81.9% 418 3.3
+0.75MobileNet-192 80.5% 239 1.9
+Table 11. Performance of PlaNet using the MobileNet architec-
+ture. PercentagesarethefractionoftheIm2GPStestdatasetthat
+werelocalizedwithinacertaindistancefromthegroundtruth.The
+numbers for the original PlaNet model are based on an updated
+versionthathasanimprovedarchitectureandtrainingdataset.
+Scale Im2GPS[7] PlaNet[35] PlaNet
+MobileNet
+Figure5.Thisfigureshowsthetradeoffbetweenthenumberof Continent(2500km) 51.9% 77.6% 79.3%
+parametersandaccuracyontheImageNetbenchmark.Thecolors Country(750km) 35.4% 64.0% 60.3%
+encodeinputresolutions. Thenumberofparametersdonotvary Region(200km) 32.1% 51.1% 45.2%
+basedontheinputresolution. City(25km) 21.9% 31.7% 31.7%
+Street(1km) 2.5% 11.0% 11.4%
+Figure 5 shows the trade off between ImageNet Ac-
+4.3.FineGrainedRecognition
+curacy and number of parameters for the 16 models
+made from the cross product of width multiplier α ∈ We train MobileNet for fine grained recognition on the
+{1,0.75,0.5,0.25}andresolutions{224,192,160,128}. StanfordDogsdataset[17]. Weextendtheapproachof[18]
+and collect an even larger but noisy training set than [18]
+Table 8 compares full MobileNet to the original
+fromtheweb. Weusethenoisywebdatatopretrainafine
+GoogleNet [30] and VGG16 [27]. MobileNet is nearly
+graineddogrecognitionmodelandthenfinetunethemodel
+as accurate as VGG16 while being 32 times smaller and
+ontheStanfordDogstrainingset.ResultsonStanfordDogs
+27 times less compute intensive. It is more accurate than
+testsetareinTable10. MobileNetcanalmostachievethe
+GoogleNetwhilebeingsmallerandmorethan2.5timesless
+stateoftheartresultsfrom[18]atgreatlyreducedcompu-
+computation.
+tationandsize.
+Table9comparesareducedMobileNetwithwidthmul-
+4.4.LargeScaleGeolocalizaton
+tiplierα=0.5andreducedresolution160×160. Reduced
+MobileNetis4%betterthanAlexNet[19]whilebeing45× PlaNet[35]caststhetaskofdeterminingwhereonearth
+smallerand9.4×lesscomputethanAlexNet. Itisalso4% aphotowastakenasaclassificationproblem.Theapproach
+betterthanSqueezenet[12]ataboutthesamesizeand22× dividestheearthintoagridofgeographiccellsthatserveas
+lesscomputation. thetargetclassesandtrainsaconvolutionalneuralnetwork
+
+Table12.FaceattributeclassificationusingtheMobileNetarchi-
+on millions of geo-tagged photos. PlaNet has been shown
+tecture. Eachrowcorrespondstoadifferenthyper-parameterset-
+tosuccessfullylocalizealargevarietyofphotosandtoout-
+ting(widthmultiplierαandimageresolution).
+performIm2GPS[6,7]thataddressesthesametask.
+WidthMultiplier/ Mean Million Million
+Were-trainPlaNetusingtheMobileNetarchitectureon
+Resolution AP Mult-Adds Parameters
+thesamedata. WhilethefullPlaNetmodelbasedontheIn-
+ceptionV3architecture[31]has52millionparametersand 1.0MobileNet-224 88.7% 568 3.2
+5.74 billion mult-adds. The MobileNet model has only 13 0.5MobileNet-224 88.1% 149 0.8
+millionparameterswiththeusual3millionforthebodyand 0.25MobileNet-224 87.2% 45 0.2
+10 million for the final layer and 0.58 Million mult-adds. 1.0MobileNet-128 88.1% 185 3.2
+As shown in Tab. 11, the MobileNet version delivers only 0.5MobileNet-128 87.7% 48 0.8
+slightlydecreasedperformancecomparedtoPlaNetdespite 0.25MobileNet-128 86.4% 15 0.2
+being much more compact. Moreover, it still outperforms
+Baseline 86.9% 1600 7.5
+Im2GPSbyalargemargin.
+Table13.COCOobjectdetectionresultscomparisonusingdiffer-
+4.5.FaceAttributes
+entframeworksandnetworkarchitectures. mAPisreportedwith
+Another use-case for MobileNet is compressing large COCOprimarychallengemetric(APatIoU=0.50:0.05:0.95)
+systems with unknown or esoteric training procedures. In Framework Model mAP Billion Million
+afaceattributeclassificationtask,wedemonstrateasyner- Resolution Mult-Adds Parameters
+gistic relationship between MobileNet and distillation [9], deeplab-VGG 21.1% 34.9 33.1
+a knowledge transfer technique for deep networks. We SSD300 InceptionV2 22.0% 3.8 13.7
+MobileNet 19.3% 1.2 6.8
+seek to reduce a large face attribute classifier with 75
+Faster-RCNN VGG 22.9% 64.3 138.5
+million parameters and 1600 million Mult-Adds. The
+300 InceptionV2 15.4% 118.2 13.3
+classifier is trained on a multi-attribute dataset similar to
+MobileNet 16.4% 25.2 6.1
+YFCC100M[32].
+Faster-RCNN VGG 25.7% 149.6 138.5
+WedistillafaceattributeclassifierusingtheMobileNet
+600 InceptionV2 21.9% 129.6 13.3
+architecture. Distillation [9] works by training the classi-
+Mobilenet 19.8% 30.5 6.1
+fiertoemulatetheoutputsofalargermodel2 insteadofthe
+ground-truthlabels,henceenablingtrainingfromlarge(and
+potentially infinite) unlabeled datasets. Marrying the scal-
+abilityofdistillationtrainingandtheparsimoniousparam-
+eterizationofMobileNet, theendsystemnotonlyrequires
+no regularization (e.g. weight-decay and early-stopping),
+but also demonstrates enhanced performances. It is evi-
+dentfromTab.12thattheMobileNet-basedclassifierisre-
+silient to aggressive model shrinking: it achieves a similar
+mean average precision across attributes (mean AP) as the
+in-housewhileconsumingonly1%theMulti-Adds.
+4.6.ObjectDetection
+MobileNetcanalsobedeployedasaneffectivebasenet-
+workinmodernobjectdetectionsystems. Wereportresults
+Figure 6. Example objection detection results using MobileNet
+for MobileNet trained for object detection on COCO data
+SSD.
+based on the recent work that won the 2016 COCO chal-
+lenge [10]. In table 13, MobileNet is compared to VGG
+and Inception V2 [13] under both Faster-RCNN [23] and andevaluatedonminival. Forbothframeworks,MobileNet
+SSD[21]framework. Inourexperiments,SSDisevaluated achieves comparable results to other networks with only a
+with 300 input resolution (SSD 300) and Faster-RCNN is fractionofcomputationalcomplexityandmodelsize.
+compared with both 300 and 600 input resolution (Faster-
+4.7.FaceEmbeddings
+RCNN 300, Faster-RCNN 600). The Faster-RCNN model
+evaluates300RPNproposalboxesperimage. Themodels
+TheFaceNetmodelisastateoftheartfacerecognition
+aretrainedonCOCOtrain+valexcluding8kminivalimages
+model [25]. It builds face embeddings based on the triplet
+2The emulation quality is measured by averaging the per-attribute loss. To build a mobile FaceNet model we use distillation
+cross-entropyoverallattributes. totrainbyminimizingthesquareddifferencesoftheoutput
+
+Table14.MobileNetDistilledfromFaceNet
+[8] K.He,X.Zhang,S.Ren,andJ.Sun. Deepresiduallearn-
+Model 1e-4 Million Million
+ingforimagerecognition.arXivpreprintarXiv:1512.03385,
+Accuracy Mult-Adds Parameters 2015. 1
+FaceNet[25] 83% 1600 7.5 [9] G.Hinton,O.Vinyals,andJ.Dean.Distillingtheknowledge
+1.0MobileNet-160 79.4% 286 4.9 inaneuralnetwork.arXivpreprintarXiv:1503.02531,2015.
+1.0MobileNet-128 78.3% 185 5.5 2,7
+0.75MobileNet-128 75.2% 166 3.4 [10] J. Huang, V. Rathod, C. Sun, M. Zhu, A. Korattikara,
+0.75MobileNet-128 72.5% 108 3.8 A.Fathi,I.Fischer,Z.Wojna,Y.Song,S.Guadarrama,etal.
+Speed/accuracy trade-offs for modern convolutional object
+detectors. arXivpreprintarXiv:1611.10012,2016. 7
+ofFaceNetandMobileNetonthetrainingdata. Resultsfor [11] I. Hubara, M. Courbariaux, D. Soudry, R. El-Yaniv, and
+Y.Bengio. Quantizedneuralnetworks: Trainingneuralnet-
+verysmallMobileNetmodelscanbefoundintable14.
+works with low precision weights and activations. arXiv
+preprintarXiv:1609.07061,2016. 2
+5.Conclusion
+[12] F.N.Iandola, M.W.Moskewicz, K.Ashraf, S.Han, W.J.
+Dally,andK.Keutzer. Squeezenet: Alexnet-levelaccuracy
+We proposed a new model architecture called Mo-
+with 50x fewer parameters and¡ 1mb model size. arXiv
+bileNets based on depthwise separable convolutions. We
+preprintarXiv:1602.07360,2016. 1,6
+investigatedsomeoftheimportantdesigndecisionsleading
+[13] S.IoffeandC.Szegedy. Batchnormalization: Accelerating
+to an efficient model. We then demonstrated how to build
+deep network training by reducing internal covariate shift.
+smaller and faster MobileNets using width multiplier and arXivpreprintarXiv:1502.03167,2015. 1,3,7
+resolutionmultiplierbytradingoffareasonableamountof [14] M. Jaderberg, A. Vedaldi, and A. Zisserman. Speeding up
+accuracytoreducesizeandlatency. Wethencompareddif- convolutional neural networks with low rank expansions.
+ferent MobileNets to popular models demonstrating supe- arXivpreprintarXiv:1405.3866,2014. 2
+riorsize,speedandaccuracycharacteristics. Weconcluded [15] Y.Jia,E.Shelhamer,J.Donahue,S.Karayev,J.Long,R.Gir-
+by demonstrating MobileNet’s effectiveness when applied shick, S. Guadarrama, and T. Darrell. Caffe: Convolu-
+to a wide variety of tasks. As a next step to help adoption tionalarchitectureforfastfeatureembedding.arXivpreprint
+arXiv:1408.5093,2014. 4
+andexplorationofMobileNets,weplanonreleasingmod-
+[16] J.Jin,A.Dundar,andE.Culurciello.Flattenedconvolutional
+elsinTensorFlow.
+neuralnetworksforfeedforwardacceleration.arXivpreprint
+arXiv:1412.5474,2014. 1,3
+References
+[17] A. Khosla, N. Jayadevaprakash, B. Yao, and L. Fei-Fei.
+Noveldatasetforfine-grainedimagecategorization. InFirst
+[1] M. Abadi, A. Agarwal, P. Barham, E. Brevdo, Z. Chen,
+Workshop on Fine-Grained Visual Categorization, IEEE
+C.Citro,G.S.Corrado,A.Davis,J.Dean,M.Devin,etal.
+Conference on Computer Vision and Pattern Recognition,
+Tensorflow:Large-scalemachinelearningonheterogeneous
+ColoradoSprings,CO,June2011. 6
+systems, 2015. Software available from tensorflow. org, 1,
+[18] J. Krause, B. Sapp, A. Howard, H. Zhou, A. Toshev,
+2015. 4
+T.Duerig, J.Philbin,andL.Fei-Fei. Theunreasonableef-
+[2] W. Chen, J. T. Wilson, S. Tyree, K. Q. Weinberger, and
+fectivenessofnoisydataforfine-grainedrecognition. arXiv
+Y. Chen. Compressing neural networks with the hashing
+preprintarXiv:1511.06789,2015. 6
+trick. CoRR,abs/1504.04788,2015. 2
+[19] A. Krizhevsky, I. Sutskever, and G. E. Hinton. Imagenet
+[3] F.Chollet. Xception: Deeplearningwithdepthwisesepara-
+classification with deep convolutional neural networks. In
+bleconvolutions. arXivpreprintarXiv:1610.02357v2,2016.
+Advances in neural information processing systems, pages
+1
+1097–1105,2012. 1,6
+[4] M.Courbariaux,J.-P.David,andY.Bengio. Trainingdeep
+[20] V. Lebedev, Y. Ganin, M. Rakhuba, I. Oseledets, and
+neural networks with low precision multiplications. arXiv
+V. Lempitsky. Speeding-up convolutional neural net-
+preprintarXiv:1412.7024,2014. 2
+works using fine-tuned cp-decomposition. arXiv preprint
+[5] S.Han,H.Mao,andW.J.Dally. Deepcompression: Com- arXiv:1412.6553,2014. 2
+pressingdeepneuralnetworkwithpruning,trainedquantiza- [21] W. Liu, D. Anguelov, D. Erhan, C. Szegedy, and S. Reed.
+tionandhuffmancoding. CoRR,abs/1510.00149,2,2015. Ssd: Single shot multibox detector. arXiv preprint
+2 arXiv:1512.02325,2015. 7
+[6] J. Hays and A. Efros. IM2GPS: estimating geographic in- [22] M.Rastegari,V.Ordonez,J.Redmon,andA.Farhadi.Xnor-
+formationfromasingleimage. InProceedingsoftheIEEE net: Imagenetclassificationusingbinaryconvolutionalneu-
+International Conference on Computer Vision and Pattern ralnetworks. arXivpreprintarXiv:1603.05279,2016. 1,2
+Recognition,2008. 7 [23] S.Ren,K.He,R.Girshick,andJ.Sun.Fasterr-cnn:Towards
+[7] J. Hays and A. Efros. Large-Scale Image Geolocalization. real-timeobjectdetectionwithregionproposalnetworks. In
+In J. Choi and G. Friedland, editors, Multimodal Location Advances in neural information processing systems, pages
+EstimationofVideosandImages.Springer,2014. 6,7 91–99,2015. 7
+
+[24] O. Russakovsky, J. Deng, H. Su, J. Krause, S. Satheesh,
+S. Ma, Z. Huang, A. Karpathy, A. Khosla, M. Bernstein,
+et al. Imagenet large scale visual recognition challenge.
+InternationalJournalofComputerVision,115(3):211–252,
+2015. 1
+[25] F.Schroff,D.Kalenichenko,andJ.Philbin. Facenet:Auni-
+fiedembeddingforfacerecognitionandclustering. InPro-
+ceedings of the IEEE Conference on Computer Vision and
+PatternRecognition,pages815–823,2015. 8
+[26] L. Sifre. Rigid-motion scattering for image classification.
+PhDthesis,Ph.D.thesis,2014. 1,3
+[27] K. Simonyan and A. Zisserman. Very deep convolutional
+networksforlarge-scaleimagerecognition. arXivpreprint
+arXiv:1409.1556,2014. 1,6
+[28] V. Sindhwani, T. Sainath, and S. Kumar. Structured trans-
+forms for small-footprint deep learning. In Advances in
+Neural Information Processing Systems, pages 3088–3096,
+2015. 1
+[29] C. Szegedy, S. Ioffe, and V. Vanhoucke. Inception-v4,
+inception-resnet and the impact of residual connections on
+learning. arXivpreprintarXiv:1602.07261,2016. 1
+[30] C. Szegedy, W. Liu, Y. Jia, P. Sermanet, S. Reed,
+D.Anguelov, D.Erhan, V.Vanhoucke, andA.Rabinovich.
+Goingdeeperwithconvolutions.InProceedingsoftheIEEE
+Conference on Computer Vision and Pattern Recognition,
+pages1–9,2015. 6
+[31] C.Szegedy,V.Vanhoucke,S.Ioffe,J.Shlens,andZ.Wojna.
+Rethinking the inception architecture for computer vision.
+arXivpreprintarXiv:1512.00567,2015. 1,3,4,7
+[32] B.Thomee,D.A.Shamma,G.Friedland,B.Elizalde,K.Ni,
+D. Poland, D. Borth, and L.-J. Li. Yfcc100m: The new
+datainmultimediaresearch. CommunicationsoftheACM,
+59(2):64–73,2016. 7
+[33] T. Tieleman and G. Hinton. Lecture 6.5-rmsprop: Divide
+the gradient by a running average of its recent magnitude.
+COURSERA:NeuralNetworksforMachineLearning,4(2),
+2012. 4
+[34] M.Wang,B.Liu,andH.Foroosh. Factorizedconvolutional
+neuralnetworks. arXivpreprintarXiv:1608.04337,2016. 1
+[35] T.Weyand,I.Kostrikov,andJ.Philbin. PlaNet-PhotoGe-
+olocationwithConvolutionalNeuralNetworks.InEuropean
+ConferenceonComputerVision(ECCV),2016. 6,7
+[36] J.Wu,C.Leng,Y.Wang,Q.Hu,andJ.Cheng. Quantized
+convolutional neural networks for mobile devices. arXiv
+preprintarXiv:1512.06473,2015. 1
+[37] Z.Yang,M.Moczulski,M.Denil,N.deFreitas,A.Smola,
+L.Song,andZ.Wang. Deepfriedconvnets. InProceedings
+of the IEEE International Conference on Computer Vision,
+pages1476–1483,2015. 1
