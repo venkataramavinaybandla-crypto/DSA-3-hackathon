@@ -7,8 +7,10 @@ import core.DynamicArray;
 import core.Graph;
 import core.Paper;
 import io.CsvHandler;
+import report.FlowRenderer;
 import report.GraphRenderer;
 import report.ReportGenerator;
+import report.Style;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -90,13 +92,14 @@ public class Main {
             String choice = readLine("Enter your choice (1-12): ");
             if (choice == null) {
                 // End of input stream (e.g. piped input or EOF)
-                System.out.println("\nInput stream closed. Exiting.");
+                System.out.println();
+                System.out.println(Style.muted("Input stream closed. Exiting."));
                 break;
             }
 
             choice = choice.trim();
             if (choice.isEmpty()) {
-                System.out.println("Please enter a selection from 1 to 12.");
+                System.out.println(Style.warn("Please enter a selection from 1 to 12."));
                 continue;
             }
 
@@ -132,7 +135,7 @@ public class Main {
                     try {
                         handleDisplayAllPaths();
                     } catch (Exception e) {
-                        System.out.println("[Error] Failed to display paths: " + e.getMessage());
+                        message("[Error] Failed to display paths: " + e.getMessage());
                     }
                     break;
                 case "11":
@@ -142,52 +145,56 @@ public class Main {
                     running = handleExit();
                     break;
                 default:
-                    System.out.println("[Error] Invalid choice: '" + choice + "'. Please enter a number between 1 and 12.");
+                    message("[Error] Invalid choice: '" + choice + "'. Please enter a number between 1 and 12.");
             }
         }
     }
 
     private void printBanner() {
-        System.out.println("========================================================================");
-        System.out.println("                          CERBERUS SYSTEM (CS)                       ");
-        System.out.println("                 Pure Java Data Structures & Algorithms                 ");
-        System.out.println("========================================================================");
-        System.out.println("Graph loaded with " + graph.vertexCount() + " research papers and " + graph.edgeCount() + " citation edges.");
+        System.out.print(Style.banner("C E R B E R U S   S Y S T E M",
+                Style.muted("Pure Java Data Structures & Algorithms  " + dot() + "  Citation Analysis"),
+                infoPanel()));
+        // Folded to the display width, so the summary never wraps on a narrow terminal.
+        System.out.println(Style.fold("  " + Style.muted("Graph loaded with ")
+                + Style.emphasis(String.valueOf(graph.vertexCount()))
+                + Style.muted(" research papers and ")
+                + Style.emphasis(String.valueOf(graph.edgeCount()))
+                + Style.muted(" citation edges."), Style.width()));
     }
 
     private void printMainMenu() {
-        System.out.println("\n----------------------------- MAIN MENU --------------------------------");
-        System.out.println("  1. Add a paper");
-        System.out.println("  2. Add a citation");
-        System.out.println("  3. Search a paper (Exact / Fuzzy)");
-        System.out.println("  4. Explore citation network reachability (Level-wise / Deep Lineage)");
-        System.out.println("  5. View reports (Top papers, Top authors, Trends)");
-        System.out.println("  6. Save current data to CSV");
-        System.out.println("  7. Load data from CSV");
-        System.out.println("  8. View paper content");
-        System.out.println("  9. Narrate citation chain (Shortest Path)");
-        System.out.println(" 10. Display All Paths (Hamiltonian Check)");
-        System.out.println(" 11. Optimal Citation Path (Bitmask DP)");
-        System.out.println(" 12. Exit");
-        System.out.println("------------------------------------------------------------------------");
+        System.out.println();
+        System.out.print(Style.menuBox("MAIN MENU", new String[]{
+                "  1. Add a paper",
+                "  2. Add a citation",
+                "  3. Search a paper (Exact / Fuzzy)",
+                "  4. Explore citation network reachability (Level-wise / Deep Lineage)",
+                "  5. View reports (Top papers, Top authors, Trends)",
+                "  6. Save current data to CSV",
+                "  7. Load data from CSV",
+                "  8. View paper content",
+                "  9. Narrate citation chain (Shortest Path)",
+                " 10. Display All Paths (Hamiltonian Check)",
+                " 11. Optimal Citation Path (Bitmask DP)",
+                " 12. Exit"}));
     }
 
     // -------------------------------------------------------------------------
     // Option 1: Add a Paper
     // -------------------------------------------------------------------------
     private void handleAddPaper() {
-        System.out.println("\n--- Add a New Paper ---");
+        section("Add a New Paper");
         String id;
         while (true) {
             id = readLine("Enter paper ID (e.g. P106): ");
             if (id == null) return;
             id = id.trim();
             if (id.isEmpty()) {
-                System.out.println("[Error] Paper ID cannot be empty. Please try again.");
+                message("[Error] Paper ID cannot be empty. Please try again.");
                 continue;
             }
             if (graph.findIndexById(id) != -1) {
-                System.out.println("[Error] A paper with ID '" + id + "' already exists. Please choose a unique ID.");
+                message("[Error] A paper with ID '" + id + "' already exists. Please choose a unique ID.");
                 continue;
             }
             break;
@@ -199,7 +206,7 @@ public class Main {
             if (title == null) return;
             title = title.trim();
             if (title.isEmpty()) {
-                System.out.println("[Error] Paper title cannot be empty. Please try again.");
+                message("[Error] Paper title cannot be empty. Please try again.");
                 continue;
             }
             break;
@@ -211,7 +218,7 @@ public class Main {
             if (author == null) return;
             author = author.trim();
             if (author.isEmpty()) {
-                System.out.println("[Error] Author name cannot be empty. Please try again.");
+                message("[Error] Author name cannot be empty. Please try again.");
                 continue;
             }
             break;
@@ -225,29 +232,30 @@ public class Main {
             try {
                 year = Integer.parseInt(yearStr);
                 if (year < 1500 || year > 2100) {
-                    System.out.println("[Error] Please enter a valid publication year between 1500 and 2100.");
+                    message("[Error] Please enter a valid publication year between 1500 and 2100.");
                     continue;
                 }
                 break;
             } catch (NumberFormatException e) {
-                System.out.println("[Error] Malformed year '" + yearStr + "'. Please enter a numeric year.");
+                message("[Error] Malformed year '" + yearStr + "'. Please enter a numeric year.");
             }
         }
 
         Paper paper = new Paper(id, title, author, year);
         int idx = graph.addVertex(paper);
         unsavedChanges = true;
-        System.out.println("[Success] Paper '" + title + "' added successfully at vertex index " + idx + ".");
-        System.out.println("Total papers in graph: " + graph.vertexCount());
+        message("[Success] Paper '" + title + "' added successfully at vertex index " + idx + ".");
+        System.out.println(Style.muted("Total papers in graph: ")
+                + Style.emphasis(String.valueOf(graph.vertexCount())));
     }
 
     // -------------------------------------------------------------------------
     // Option 2: Add a Citation
     // -------------------------------------------------------------------------
     private void handleAddCitation() {
-        System.out.println("\n--- Add a Citation (Directed Edge: Paper A refers to Paper B) ---");
+        section("Add a Citation (Directed Edge: Paper A refers to Paper B)");
         if (graph.vertexCount() < 2) {
-            System.out.println("[Notice] At least 2 papers must exist to create a citation edge.");
+            message("[Notice] At least 2 papers must exist to create a citation edge.");
             return;
         }
 
@@ -259,7 +267,7 @@ public class Main {
             citingId = citingId.trim();
             fromIdx = graph.findIndexById(citingId);
             if (fromIdx == -1) {
-                System.out.println("[Error] Paper ID '" + citingId + "' not found. Available papers:");
+                message("[Error] Paper ID '" + citingId + "' not found. Available papers:");
                 printAvailablePaperIds();
                 continue;
             }
@@ -273,11 +281,11 @@ public class Main {
             if (citedId == null) return;
             citedId = citedId.trim();
             if (citedId.equals(citingId)) {
-                System.out.println("[Warning] Self-citations are permitted but generally unusual. Continuing...");
+                message("[Warning] Self-citations are permitted but generally unusual. Continuing...");
             }
             toIdx = graph.findIndexById(citedId);
             if (toIdx == -1) {
-                System.out.println("[Error] Paper ID '" + citedId + "' not found. Available papers:");
+                message("[Error] Paper ID '" + citedId + "' not found. Available papers:");
                 printAvailablePaperIds();
                 continue;
             }
@@ -286,19 +294,20 @@ public class Main {
 
         // Check if edge already exists
         if (graph.getNeighbors(fromIdx).contains(toIdx)) {
-            System.out.println("[Notice] Citation where Paper [" + citingId + "] refers to Paper [" + citedId + "] already exists.");
+            message("[Notice] Citation where Paper [" + citingId + "] refers to Paper [" + citedId + "] already exists.");
             return;
         }
 
         graph.addCitation(citingId, citedId);
         CsvHandler.syncCitationCounts(graph);
         unsavedChanges = true;
-        System.out.println("[Success] Citation recorded: Paper [" + citingId + "] refers to Paper [" + citedId + "].");
-        System.out.println("Total citations in graph: " + graph.edgeCount());
+        message("[Success] Citation recorded: Paper [" + citingId + "] refers to Paper [" + citedId + "].");
+        System.out.println(Style.muted("Total citations in graph: ")
+                + Style.emphasis(String.valueOf(graph.edgeCount())));
     }
 
     private void printAvailablePaperIds() {
-        StringBuilder sb = new StringBuilder("  ");
+        StringBuilder sb = new StringBuilder();
         int count = graph.vertexCount();
         for (int i = 0; i < count; i++) {
             sb.append(graph.getPaper(i).getId());
@@ -306,16 +315,16 @@ public class Main {
                 sb.append(", ");
             }
         }
-        System.out.println(sb.toString());
+        System.out.println(Style.muted("  ") + Style.note(sb.toString()));
     }
 
     // -------------------------------------------------------------------------
     // Option 3: Search a Paper
     // -------------------------------------------------------------------------
     private void handleSearchPaper() {
-        System.out.println("\n--- Search Papers ---");
+        section("Search Papers");
         if (graph.vertexCount() == 0) {
-            System.out.println("[Notice] Graph is empty. No papers to search.");
+            message("[Notice] Graph is empty. No papers to search.");
             return;
         }
 
@@ -323,7 +332,7 @@ public class Main {
         if (query == null) return;
         query = query.trim();
         if (query.isEmpty()) {
-            System.out.println("[Error] Search query cannot be empty.");
+            message("[Error] Search query cannot be empty.");
             return;
         }
 
@@ -335,7 +344,7 @@ public class Main {
             if (mode.equals("E") || mode.equals("EXACT") || mode.equals("F") || mode.equals("FUZZY")) {
                 break;
             }
-            System.out.println("[Error] Invalid choice. Please enter 'E' for exact or 'F' for fuzzy.");
+            message("[Error] Invalid choice. Please enter 'E' for exact or 'F' for fuzzy.");
         }
 
         boolean isFuzzy = mode.startsWith("F");
@@ -389,11 +398,13 @@ public class Main {
         }
 
         if (matchedIndices.isEmpty()) {
-            System.out.println("[Result] No papers matched your search query '" + query + "'.");
+            message("[Result] No papers matched your search query '" + query + "'.");
         } else {
-            System.out.println("\n[Result] Found " + matchedIndices.size() + " matching paper(s):");
-            System.out.printf("%-10s | %-35s | %-22s | %-6s | %-10s%n", "ID", "Title", "Author", "Year", "Citations");
-            System.out.println("---------------------------------------------------------------------------------------------");
+            System.out.println();
+            message("[Result] Found " + matchedIndices.size() + " matching paper(s):");
+            System.out.println(Style.strong(String.format("%-10s | %-35s | %-22s | %-6s | %-10s",
+                    "ID", "Title", "Author", "Year", "Citations")));
+            System.out.println(Style.muted("-".repeat(95)));
             for (int k = 0; k < matchedIndices.size(); k++) {
                 Paper p = graph.getPaper(matchedIndices.get(k));
                 String title = p.getTitle();
@@ -411,9 +422,9 @@ public class Main {
     // Option 4: Explore Citation Network Reachability
     // -------------------------------------------------------------------------
     private void handleTraverseGraph() {
-        System.out.println("\n--- Explore Citation Network Reachability ---");
+        section("Explore Citation Network Reachability");
         if (graph.vertexCount() == 0) {
-            System.out.println("[Notice] Graph is empty.");
+            message("[Notice] Graph is empty.");
             return;
         }
 
@@ -425,7 +436,7 @@ public class Main {
             startId = startId.trim();
             startIdx = graph.findIndexById(startId);
             if (startIdx == -1) {
-                System.out.println("[Error] Paper ID '" + startId + "' not found. Available IDs:");
+                message("[Error] Paper ID '" + startId + "' not found. Available IDs:");
                 printAvailablePaperIds();
                 continue;
             }
@@ -441,7 +452,7 @@ public class Main {
                     || traversalType.equals("2") || traversalType.equals("D") || traversalType.equals("DEEP") || traversalType.equals("DEEP LINEAGE")) {
                 break;
             }
-            System.out.println("[Error] Invalid choice. Please enter '1' for Level-wise or '2' for Deep Lineage.");
+            message("[Error] Invalid choice. Please enter '1' for Level-wise or '2' for Deep Lineage.");
         }
 
         boolean isLevelWise = traversalType.equals("1") || traversalType.startsWith("L");
@@ -449,15 +460,20 @@ public class Main {
                 ? GraphTraversal.bfs(graph, startIdx)
                 : GraphTraversal.dfs(graph, startIdx);
 
-        System.out.println("\n" + (isLevelWise ? "Level-wise Reachability Exploration" : "Deep Lineage Exploration")
-                + " Order starting from [" + startId + "]:");
-        System.out.println("Total reachable papers in component: " + visitOrder.size());
-        System.out.println("------------------------------------------------------------------------");
+        System.out.println();
+        System.out.println(Style.heading((isLevelWise ? "Level-wise Reachability Exploration" : "Deep Lineage Exploration")
+                + " Order"));
+        System.out.println(Style.muted("Starting from ") + Style.highlight("[" + startId + "]"));
+        System.out.println(Style.muted("Total reachable papers in component: ")
+                + Style.emphasis(String.valueOf(visitOrder.size())));
+        System.out.println(Style.rule());
 
         for (int i = 0; i < visitOrder.size(); i++) {
             Paper p = graph.getPaper(visitOrder.get(i));
-            System.out.printf("%2d. [%s] \"%s\" by %s (%d)%n",
-                    (i + 1), p.getId(), p.getTitle(), p.getAuthor(), p.getYear());
+            System.out.println(Style.muted(String.format("%2d. ", (i + 1)))
+                    + Style.highlight("[" + p.getId() + "]")
+                    + " \"" + p.getTitle() + "\" by " + Style.note(p.getAuthor())
+                    + " (" + p.getYear() + ")");
         }
 
         // Narrate the citation chain from the start paper to the last paper in the traversal
@@ -465,7 +481,8 @@ public class Main {
             String lastPaperId = graph.getPaper(visitOrder.get(visitOrder.size() - 1)).getId();
             GraphTraversal traverser = new GraphTraversal();
             String chain = traverser.narrateChain(graph, startId, lastPaperId);
-            System.out.println("Narrated chain to [" + lastPaperId + "]: " + chain);
+            System.out.println(Style.muted("Narrated chain to ")
+                    + Style.highlight("[" + lastPaperId + "]") + Style.muted(": ") + chain);
         }
     }
 
@@ -475,12 +492,12 @@ public class Main {
     private void handleReportsSubmenu() {
         boolean inSubmenu = true;
         while (inSubmenu) {
-            System.out.println("\n------------------------- REPORTS SUBMENU ------------------------------");
-            System.out.println("  1. Top N Most-Cited Papers (Stable Ranked)");
-            System.out.println("  2. Top Authors by Total Citations");
-            System.out.println("  3. Yearly Citation Trends");
-            System.out.println("  4. Return to Main Menu");
-            System.out.println("------------------------------------------------------------------------");
+            System.out.println();
+            System.out.print(Style.menuBox("REPORTS SUBMENU", new String[]{
+                    "  1. Top N Most-Cited Papers (Stable Ranked)",
+                    "  2. Top Authors by Total Citations",
+                    "  3. Yearly Citation Trends",
+                    "  4. Return to Main Menu"}));
 
             String choice = readLine("Select report (1-4): ");
             if (choice == null) return;
@@ -489,23 +506,26 @@ public class Main {
             switch (choice) {
                 case "1":
                     int nPapers = readInt("Enter number of papers to rank (default 5): ", 5);
-                    System.out.println("\n=== TOP " + nPapers + " MOST-CITED PAPERS ===");
+                    System.out.println();
+                    System.out.println(Style.rule("TOP " + nPapers + " MOST-CITED PAPERS"));
                     System.out.println(ReportGenerator.formatTopPapers(graph, nPapers));
                     break;
                 case "2":
                     int nAuthors = readInt("Enter number of top authors to rank (default 5): ", 5);
-                    System.out.println("\n=== TOP " + nAuthors + " AUTHORS BY CITATIONS ===");
+                    System.out.println();
+                    System.out.println(Style.rule("TOP " + nAuthors + " AUTHORS BY CITATIONS"));
                     System.out.println(ReportGenerator.formatTopAuthors(graph, nAuthors));
                     break;
                 case "3":
-                    System.out.println("\n=== YEARLY CITATION TRENDS ===");
+                    System.out.println();
+                    System.out.println(Style.rule("YEARLY CITATION TRENDS"));
                     System.out.println(ReportGenerator.formatCitationTrends(graph));
                     break;
                 case "4":
                     inSubmenu = false;
                     break;
                 default:
-                    System.out.println("[Error] Invalid choice. Please enter a number between 1 and 4.");
+                    message("[Error] Invalid choice. Please enter a number between 1 and 4.");
             }
         }
     }
@@ -514,7 +534,7 @@ public class Main {
     // Option 6: Save Current Data to CSV
     // -------------------------------------------------------------------------
     private void handleSaveCsv() {
-        System.out.println("\n--- Save Citation Data to CSV ---");
+        section("Save Citation Data to CSV");
         String filename = readLine("Enter filename to save [default: " + DEFAULT_CSV_FILE + "]: ");
         if (filename == null) return;
         filename = filename.trim();
@@ -525,10 +545,12 @@ public class Main {
         try {
             CsvHandler.save(graph, filename);
             unsavedChanges = false;
-            System.out.println("[Success] Graph state saved successfully to '" + filename + "'.");
-            System.out.println("Saved " + graph.vertexCount() + " papers and " + graph.edgeCount() + " citations.");
+            message("[Success] Graph state saved successfully to '" + filename + "'.");
+            System.out.println(Style.muted("Saved ") + Style.emphasis(String.valueOf(graph.vertexCount()))
+                    + Style.muted(" papers and ") + Style.emphasis(String.valueOf(graph.edgeCount()))
+                    + Style.muted(" citations."));
         } catch (IOException e) {
-            System.out.println("[Error] Failed to save CSV file: " + e.getMessage());
+            message("[Error] Failed to save CSV file: " + e.getMessage());
         }
     }
 
@@ -536,7 +558,7 @@ public class Main {
     // Option 7: Load Data from CSV
     // -------------------------------------------------------------------------
     private void handleLoadCsv() {
-        System.out.println("\n--- Load Citation Data from CSV ---");
+        section("Load Citation Data from CSV");
         String filename = readLine("Enter filename to load [default: " + DEFAULT_CSV_FILE + "]: ");
         if (filename == null) return;
         filename = filename.trim();
@@ -546,7 +568,7 @@ public class Main {
 
         File file = new File(filename);
         if (!file.exists()) {
-            System.out.println("[Error] File '" + filename + "' does not exist.");
+            message("[Error] File '" + filename + "' does not exist.");
             return;
         }
 
@@ -559,7 +581,7 @@ public class Main {
                 // To replace: create a new graph and load into it
                 Graph newGraph = CsvHandler.load(filename);
                 // Clear and rebuild
-                System.out.println("[Info] Replacing existing data with file contents.");
+                message("[Info] Replacing existing data with file contents.");
                 // Reload by creating new instance or copying into current
                 // Since Graph doesn't have clear(), we load into a fresh graph and point to it
                 // To keep internal graph reference clean:
@@ -569,10 +591,12 @@ public class Main {
                 CsvHandler.loadInto(graph, filename);
             }
             unsavedChanges = false;
-            System.out.println("[Success] Loaded data from '" + filename + "'.");
-            System.out.println("Graph now contains " + graph.vertexCount() + " papers and " + graph.edgeCount() + " citations.");
+            message("[Success] Loaded data from '" + filename + "'.");
+            System.out.println(Style.muted("Graph now contains ") + Style.emphasis(String.valueOf(graph.vertexCount()))
+                    + Style.muted(" papers and ") + Style.emphasis(String.valueOf(graph.edgeCount()))
+                    + Style.muted(" citations."));
         } catch (IOException e) {
-            System.out.println("[Error] Failed to load CSV file: " + e.getMessage());
+            message("[Error] Failed to load CSV file: " + e.getMessage());
         }
     }
 
@@ -580,12 +604,12 @@ public class Main {
     // Option 8: View Paper Content (Real PDF Viewer)
     // -------------------------------------------------------------------------
     private void handleViewPaperContent() {
-        System.out.println("\n--- View Paper Content ---");
+        section("View Paper Content");
         String id = readLine("Enter paper ID to view (e.g. P101, P104, P501): ");
         if (id == null) return;
         id = id.trim();
         if (id.isEmpty()) {
-            System.out.println("[Error] Paper ID cannot be empty.");
+            message("[Error] Paper ID cannot be empty.");
             return;
         }
 
@@ -598,27 +622,27 @@ public class Main {
         }
 
         if (!file.exists() || !file.isFile()) {
-            System.out.println("[Error] PDF file not found: research_papers/" + id + ".pdf");
-            System.out.println("[Notice] Available papers in the dataset have corresponding PDF files in research_papers/<id>.pdf");
+            message("[Error] PDF file not found: research_papers/" + id + ".pdf");
+            message("[Notice] Available papers in the dataset have corresponding PDF files in research_papers/<id>.pdf");
             // No PDF for this paper: fall back to printing its text content in the terminal.
             printPaperAbstractIfAvailable(id);
             offerFullTextView(id);
             return;
         }
 
-        System.out.println("[+] Found research paper PDF: " + file.getAbsolutePath());
+        message("[+] Found research paper PDF: " + file.getAbsolutePath());
         try {
             if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
-                System.out.println("[+] Launching system PDF viewer for: " + file.getName() + "...");
+                message("[+] Launching system PDF viewer for: " + file.getName() + "...");
                 java.awt.Desktop.getDesktop().open(file);
-                System.out.println("[Success] Paper PDF opened in default viewer.");
+                message("[Success] Paper PDF opened in default viewer.");
             } else {
-                System.out.println("[Notice] Desktop integration is not supported in this environment (headless mode).");
-                System.out.println("Please open the PDF manually at: " + file.getAbsolutePath());
+                message("[Notice] Desktop integration is not supported in this environment (headless mode).");
+                System.out.println(Style.muted("Please open the PDF manually at: ") + Style.note(file.getAbsolutePath()));
             }
         } catch (Exception e) {
-            System.out.println("[Notice] Unable to launch default viewer: " + e.getMessage());
-            System.out.println("Please open the PDF manually at: " + file.getAbsolutePath());
+            message("[Notice] Unable to launch default viewer: " + e.getMessage());
+            System.out.println(Style.muted("Please open the PDF manually at: ") + Style.note(file.getAbsolutePath()));
         }
         // A PDF exists and was handled above: the paper is read in the PDF viewer, so no
         // paper content (abstract or full text) is printed to the terminal for this paper.
@@ -645,7 +669,7 @@ public class Main {
         try {
             content = readFileUtf8(abstractFile);
         } catch (IOException e) {
-            System.out.println("[Notice] Abstract file found but could not be read: " + e.getMessage());
+            message("[Notice] Abstract file found but could not be read: " + e.getMessage());
             return;
         }
 
@@ -653,9 +677,9 @@ public class Main {
             return;
         }
 
-        System.out.println("----------------------- PAPER CONTENT (TEXT FALLBACK) -----------------------");
+        System.out.println(Style.rule("PAPER CONTENT (TEXT FALLBACK)"));
         System.out.println(content);
-        System.out.println("------------------------------------------------------------------------");
+        System.out.println(Style.rule());
     }
 
     /**
@@ -696,11 +720,11 @@ public class Main {
         try {
             content = readFileUtf8(fullTextFile);
         } catch (IOException e) {
-            System.out.println("[Notice] Full text file found but could not be read: " + e.getMessage());
+            message("[Notice] Full text file found but could not be read: " + e.getMessage());
             return;
         }
 
-        System.out.println("Full text available (" + content.length() + " characters) \u2014 view? [Y/N]");
+        System.out.println(Style.note("Full text available (" + content.length() + " characters) \u2014 view? [Y/N]"));
         String answer = readLine("> ");
         if (answer == null) {
             return;
@@ -710,9 +734,9 @@ public class Main {
             return;
         }
 
-        System.out.println("============================= FULL TEXT: " + id + " =============================");
+        System.out.println(Style.rule("FULL TEXT: " + id));
         System.out.println(content);
-        System.out.println("========================================================================");
+        System.out.println(Style.rule());
     }
 
     /**
@@ -743,10 +767,10 @@ public class Main {
     // Option 9: Narrate Citation Chain (Shortest Path)
     // -------------------------------------------------------------------------
     private void handleNarrateCitationChain() {
-        System.out.println("\n--- Narrate Citation Chain (Shortest Path) ---");
+        section("Narrate Citation Chain (Shortest Path)");
         try {
             if (graph.vertexCount() < 2) {
-                System.out.println("[Notice] Need at least 2 papers in the graph to find a citation chain.");
+                message("[Notice] Need at least 2 papers in the graph to find a citation chain.");
                 return;
             }
 
@@ -756,11 +780,11 @@ public class Main {
                 if (startId == null) return;
                 startId = startId.trim();
                 if (startId.isEmpty()) {
-                    System.out.println("[Error] Start paper ID cannot be empty.");
+                    message("[Error] Start paper ID cannot be empty.");
                     continue;
                 }
                 if (graph.findIndexById(startId) == -1) {
-                    System.out.println("[Error] Paper ID '" + startId + "' not found. Available IDs:");
+                    message("[Error] Paper ID '" + startId + "' not found. Available IDs:");
                     printAvailablePaperIds();
                     continue;
                 }
@@ -773,11 +797,11 @@ public class Main {
                 if (endId == null) return;
                 endId = endId.trim();
                 if (endId.isEmpty()) {
-                    System.out.println("[Error] End paper ID cannot be empty.");
+                    message("[Error] End paper ID cannot be empty.");
                     continue;
                 }
                 if (graph.findIndexById(endId) == -1) {
-                    System.out.println("[Error] Paper ID '" + endId + "' not found. Available IDs:");
+                    message("[Error] Paper ID '" + endId + "' not found. Available IDs:");
                     printAvailablePaperIds();
                     continue;
                 }
@@ -788,13 +812,15 @@ public class Main {
             String chain = traverser.narrateChain(startId, endId);
             int hops = traverser.getChainLength();
 
-            System.out.println("\n======================= CITATION CHAIN NARRATION =======================");
-            System.out.println("From: [" + startId + "] -> To: [" + endId + "]");
-            System.out.println("Hop Count: " + (hops == -1 ? "Unreachable" : hops));
-            System.out.println("Narration: " + chain);
-            System.out.println("========================================================================");
+            System.out.println();
+            System.out.println(Style.rule("CITATION CHAIN NARRATION"));
+            System.out.println(Style.field("From", "[" + startId + "]")
+                    + "  " + Style.field("To", "[" + endId + "]"));
+            System.out.println(Style.field("Hop Count", hops == -1 ? "Unreachable" : String.valueOf(hops)));
+            System.out.println(Style.field("Narration", chain));
+            System.out.println(Style.rule());
         } catch (Exception e) {
-            System.out.println("[Error] An error occurred while narrating chain: " + e.getMessage());
+            message("[Error] An error occurred while narrating chain: " + e.getMessage());
         }
     }
 
@@ -802,10 +828,10 @@ public class Main {
     // Option 10: Display All Paths (Hamiltonian Check)
     // -------------------------------------------------------------------------
     private void handleDisplayAllPaths() {
-        System.out.println("\n--- Display All Paths (Hamiltonian Check) ---");
+        section("Display All Paths (Hamiltonian Check)");
         try {
             if (graph.vertexCount() < 2) {
-                System.out.println("[Notice] Need at least 2 papers in the graph to find paths.");
+                message("[Notice] Need at least 2 papers in the graph to find paths.");
                 return;
             }
 
@@ -817,7 +843,7 @@ public class Main {
                 sourceId = sourceId.trim();
                 sourceIdx = graph.findIndexById(sourceId);
                 if (sourceIdx == -1) {
-                    System.out.println("[Error] Paper ID '" + sourceId + "' not found. Available IDs:");
+                    message("[Error] Paper ID '" + sourceId + "' not found. Available IDs:");
                     printAvailablePaperIds();
                     continue;
                 }
@@ -832,7 +858,7 @@ public class Main {
                 targetId = targetId.trim();
                 targetIdx = graph.findIndexById(targetId);
                 if (targetIdx == -1) {
-                    System.out.println("[Error] Paper ID '" + targetId + "' not found. Available IDs:");
+                    message("[Error] Paper ID '" + targetId + "' not found. Available IDs:");
                     printAvailablePaperIds();
                     continue;
                 }
@@ -840,7 +866,7 @@ public class Main {
             }
 
             if (sourceIdx == targetIdx) {
-                System.out.println("[Notice] Source and target are the same paper (" + sourceId + "). No paths to enumerate.");
+                message("[Notice] Source and target are the same paper (" + sourceId + "). No paths to enumerate.");
                 return;
             }
 
@@ -848,34 +874,29 @@ public class Main {
             DynamicArray<DynamicArray<String>> allPaths = traverser.findAllPaths(graph, sourceId, targetId);
 
             if (allPaths.isEmpty()) {
-                System.out.println("[Result] No directed paths found from [" + sourceId + "] to [" + targetId + "].");
+                message("[Result] No directed paths found from [" + sourceId + "] to [" + targetId + "].");
                 return;
             }
 
             int totalNodes = graph.vertexCount();
-            System.out.println("\n===================== ALL PATHS: [" + sourceId + "] -> [" + targetId + "] =====================");
-            System.out.println("Total paths found: " + allPaths.size());
-            System.out.println("------------------------------------------------------------------------");
-            System.out.println("Citation path diagram:");
-            System.out.print(GraphRenderer.render(allPaths));
-            System.out.println("------------------------------------------------------------------------");
+            System.out.println();
+            System.out.println(Style.rule("ALL PATHS: [" + sourceId + "] -> [" + targetId + "]"));
+            System.out.println(Style.muted("Total paths found: ") + Style.emphasis(String.valueOf(allPaths.size())));
+            System.out.println();
+            System.out.println(Style.muted("Citation network diagram:"));
+            System.out.print(Style.diagram(GraphRenderer.render(allPaths)));
+            System.out.println();
+            System.out.println(Style.muted("Path flows:"));
+            int boxWidth = FlowRenderer.boxWidth(allPaths);
 
             for (int p = 0; p < allPaths.size(); p++) {
                 DynamicArray<String> path = allPaths.get(p);
-                StringBuilder sb = new StringBuilder();
-                for (int k = 0; k < path.size(); k++) {
-                    if (k > 0) sb.append(" -> ");
-                    sb.append(path.get(k));
-                }
-
                 boolean hamiltonian = GraphTraversal.isHamiltonianPath(path, totalNodes);
-                System.out.printf("  Path %d (hops=%d): %s %s%n",
-                        (p + 1), path.size() - 1, sb.toString(),
-                        hamiltonian ? "[HAMILTONIAN]" : "");
+                System.out.print(FlowRenderer.renderPath(path, p + 1, hamiltonian, boxWidth));
             }
-            System.out.println("========================================================================");
+            System.out.println(Style.rule());
         } catch (Exception e) {
-            System.out.println("[Error] An unexpected error occurred during path enumeration: " + e.getMessage());
+            message("[Error] An unexpected error occurred during path enumeration: " + e.getMessage());
         }
     }
 
@@ -883,10 +904,10 @@ public class Main {
     // Option 11: Optimal Citation Path (Bitmask DP)
     // -------------------------------------------------------------------------
     private void handleOptimalCitationPath() {
-        System.out.println("\n--- Optimal Citation Path (Bitmask DP) ---");
+        section("Optimal Citation Path (Bitmask DP)");
         try {
             if (graph.vertexCount() == 0) {
-                System.out.println("[Notice] Graph is empty. No papers available.");
+                message("[Notice] Graph is empty. No papers available.");
                 return;
             }
 
@@ -894,7 +915,7 @@ public class Main {
             if (input == null) return;
             input = input.trim();
             if (input.isEmpty()) {
-                System.out.println("[Error] No paper IDs entered.");
+                message("[Error] No paper IDs entered.");
                 return;
             }
 
@@ -908,21 +929,40 @@ public class Main {
             }
 
             if (paperIds.isEmpty()) {
-                System.out.println("[Error] No valid paper IDs entered.");
+                message("[Error] No valid paper IDs entered.");
                 return;
             }
 
             GraphTraversal traverser = new GraphTraversal(graph);
             String result = traverser.optimalCitationPath(paperIds);
+            DynamicArray<String> route = FlowRenderer.parseIds(result);
 
-            System.out.println("\n================ OPTIMAL CITATION PATH (BITMASK DP) ================");
-            System.out.println("Requested papers : " + paperIds.size());
-            System.out.println("Result           : " + result);
-            System.out.println("==================================================================");
+            System.out.println();
+            System.out.println(Style.rule("OPTIMAL CITATION PATH (BITMASK DP)"));
+            System.out.println(Style.field("Requested papers", String.valueOf(paperIds.size())));
+
+            if (route.isEmpty()) {
+                // No ordering visits every requested paper: report the engine's own explanation.
+                System.out.println(Style.field("Result", result));
+            } else {
+                System.out.println(Style.field("Total hops", String.valueOf(route.size() - 1)));
+                System.out.println(Style.field("Papers visited", String.valueOf(route.size())));
+
+                DynamicArray<DynamicArray<String>> pathSet = new DynamicArray<>();
+                pathSet.add(route);
+
+                System.out.println();
+                System.out.println(Style.muted("Citation graph of the optimal route:"));
+                System.out.print(Style.diagram(GraphRenderer.render(pathSet)));
+                System.out.println();
+                System.out.println(Style.muted("Optimal route:"));
+                System.out.print(FlowRenderer.renderSequence(route, FlowRenderer.boxWidth(pathSet)));
+            }
+            System.out.println(Style.rule());
         } catch (IllegalArgumentException e) {
-            System.out.println("[Error] " + e.getMessage());
+            message("[Error] " + e.getMessage());
         } catch (Exception e) {
-            System.out.println("[Error] An unexpected error occurred while computing the optimal path: " + e.getMessage());
+            message("[Error] An unexpected error occurred while computing the optimal path: " + e.getMessage());
         }
     }
 
@@ -936,8 +976,64 @@ public class Main {
                 handleSaveCsv();
             }
         }
-        System.out.println("\nThank you for using the Citation Analysis System. Goodbye!");
+        System.out.println();
+        System.out.println(Style.highlight("Thank you for using the Citation Analysis System. Goodbye!"));
         return false; // Stop main loop
+    }
+
+    // -------------------------------------------------------------------------
+    // Output Helpers (cosmetic only - no prompt or control text is altered)
+    // -------------------------------------------------------------------------
+
+    /** @return a middle dot on terminals that can encode one, else a plain ASCII stand-in */
+    private static String dot() {
+        return Style.unicode() ? "\u00B7" : "-";
+    }
+
+    /**
+     * Builds the fetch-style information block shown beside the Cerberus logo. Every value is read
+     * from the running application, so the panel never claims anything the system is not doing.
+     */
+    private String[] infoPanel() {
+        return new String[]{
+                infoRow("OS", System.getProperty("os.name", "?") + " (" + System.getProperty("os.arch", "?") + ")"),
+                infoRow("Java", System.getProperty("java.version", "?")),
+                infoRow("Dataset", DEFAULT_CSV_FILE),
+                infoRow("Papers", String.valueOf(graph.vertexCount())),
+                infoRow("Citations", String.valueOf(graph.edgeCount())),
+                infoRow("Search", "KMP / Rabin-Karp / Fuzzy"),
+                infoRow("Traversal", "BFS / DFS / Bitmask DP"),
+                infoRow("Structures", "Custom HashTable"),
+                infoRow("Reports", "MergeSort (stable)"),
+                infoRow("Theme", themeName())
+        };
+    }
+
+    private static String infoRow(String label, String value) {
+        return Style.note(Style.padRight(label, 11)) + Style.strong(value);
+    }
+
+    private String themeName() {
+        Style.Depth depth = Style.depth();
+        if (depth == Style.Depth.TRUECOLOR) {
+            return "truecolour";
+        }
+        if (depth == Style.Depth.XTERM256) {
+            return "256-colour";
+        }
+        return "plain";
+    }
+
+    /** Prints a blank line, an open section heading, and the hairline rule beneath it. */
+    private void section(String title) {
+        System.out.println();
+        System.out.println(Style.heading(title));
+        System.out.println(Style.rule());
+    }
+
+    /** Prints a status message, colourising a leading {@code [Tag]} where the terminal supports it. */
+    private void message(String text) {
+        System.out.println(Style.status(text));
     }
 
     // -------------------------------------------------------------------------
@@ -962,7 +1058,7 @@ public class Main {
             int val = Integer.parseInt(s);
             return val > 0 ? val : defaultValue;
         } catch (NumberFormatException e) {
-            System.out.println("[Notice] Invalid number. Using default value: " + defaultValue);
+            message("[Notice] Invalid number. Using default value: " + defaultValue);
             return defaultValue;
         }
     }

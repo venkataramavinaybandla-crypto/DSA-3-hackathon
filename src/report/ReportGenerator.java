@@ -18,6 +18,9 @@ import core.Paper;
  */
 public final class ReportGenerator {
 
+    /** Length, in cells, of the proportional bar drawn in the report tables. */
+    private static final int BAR_CELLS = 10;
+
     private ReportGenerator() {
         // static utility class, prevent instantiation
     }
@@ -260,23 +263,27 @@ public final class ReportGenerator {
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("%-5s | %-10s | %-32s | %-20s | %-6s | %-10s%n",
-                "Rank", "ID", "Title", "Author", "Year", "Citations"));
-        sb.append("-------------------------------------------------------------------------------------------------\n");
+        String header = String.format("%-5s | %-10s | %-30s | %-18s | %-6s | %-9s | %-10s",
+                "Rank", "ID", "Title", "Author", "Year", "Citations", "Share");
+        sb.append(Style.rainbowWords(header)).append('\n');
+        sb.append(Style.muted("-".repeat(header.length()))).append('\n');
+
+        int maxCitations = papers.get(0).getCitationCount();
 
         for (int i = 0; i < papers.size(); i++) {
             Paper p = papers.get(i);
             String title = p.getTitle();
-            if (title.length() > 30) {
-                title = title.substring(0, 27) + "...";
+            if (title.length() > 28) {
+                title = title.substring(0, 25) + "...";
             }
             String author = p.getAuthor();
-            if (author.length() > 18) {
-                author = author.substring(0, 15) + "...";
+            if (author.length() > 16) {
+                author = author.substring(0, 13) + "...";
             }
 
-            sb.append(String.format("%-5d | %-10s | %-32s | %-20s | %-6d | %-10d%n",
-                    (i + 1), p.getId(), title, author, p.getYear(), p.getCitationCount()));
+            sb.append(String.format("%-5d | %-10s | %-30s | %-18s | %-6d | %-9d | %s%n",
+                    (i + 1), p.getId(), title, author, p.getYear(), p.getCitationCount(),
+                    Style.bar(p.getCitationCount(), maxCitations, BAR_CELLS)));
         }
         return sb.toString();
     }
@@ -291,9 +298,12 @@ public final class ReportGenerator {
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("%-5s | %-25s | %-15s | %-12s%n",
-                "Rank", "Author", "Total Citations", "Paper Count"));
-        sb.append("--------------------------------------------------------------------\n");
+        String header = String.format("%-5s | %-25s | %-15s | %-12s | %-10s",
+                "Rank", "Author", "Total Citations", "Paper Count", "Share");
+        sb.append(Style.rainbowWords(header)).append('\n');
+        sb.append(Style.muted("-".repeat(header.length()))).append('\n');
+
+        int maxCitations = authors.get(0).getTotalCitations();
 
         for (int i = 0; i < authors.size(); i++) {
             AuthorStats a = authors.get(i);
@@ -301,8 +311,9 @@ public final class ReportGenerator {
             if (name.length() > 23) {
                 name = name.substring(0, 20) + "...";
             }
-            sb.append(String.format("%-5d | %-25s | %-15d | %-12d%n",
-                    (i + 1), name, a.getTotalCitations(), a.getPaperCount()));
+            sb.append(String.format("%-5d | %-25s | %-15d | %-12d | %s%n",
+                    (i + 1), name, a.getTotalCitations(), a.getPaperCount(),
+                    Style.bar(a.getTotalCitations(), maxCitations, BAR_CELLS)));
         }
         return sb.toString();
     }
@@ -317,13 +328,22 @@ public final class ReportGenerator {
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("%-8s | %-15s | %-15s%n", "Year", "Papers Published", "Total Citations"));
-        sb.append("----------------------------------------------------\n");
+        String header = String.format("%-8s | %-16s | %-15s | %-10s",
+                "Year", "Papers Published", "Total Citations", "Share");
+        sb.append(Style.rainbowWords(header)).append('\n');
+        sb.append(Style.muted("-".repeat(header.length()))).append('\n');
+
+        int maxCitations = 0;
+        for (int i = 0; i < trends.size(); i++) {
+            maxCitations = Math.max(maxCitations, trends.get(i).getTotalCitations());
+        }
 
         for (int i = 0; i < trends.size(); i++) {
             YearTrend t = trends.get(i);
             String yearStr = (t.getYear() <= 0) ? "N/A" : String.valueOf(t.getYear());
-            sb.append(String.format("%-8s | %-15d | %-15d%n", yearStr, t.getPaperCount(), t.getTotalCitations()));
+            sb.append(String.format("%-8s | %-16d | %-15d | %s%n",
+                    yearStr, t.getPaperCount(), t.getTotalCitations(),
+                    Style.bar(t.getTotalCitations(), maxCitations, BAR_CELLS)));
         }
         return sb.toString();
     }

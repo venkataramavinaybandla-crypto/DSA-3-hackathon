@@ -198,10 +198,10 @@ git clone https://github.com/<your-username>/DSA-3_Projects.git
 cd DSA-3_Projects
 
 # Build the project
-javac -d out src/**/*.java
+javac -encoding UTF-8 -d out $(find src -name "*.java")
 
 # Run
-java -cp out Main
+java -cp out main.Main
 ```
 
 ### Quick Usage
@@ -212,6 +212,28 @@ java -cp out Main
 3. Search a paper       →  By exact title/author, or fuzzy match
 4. Traverse            →  Explore reachable citation network from any paper
 5. Generate report       →  View top authors, popular papers, trends
+```
+
+### 🎨 Console Styling
+
+The terminal UI carries a **rainbow theme**: system titles, section headings, menu numbering, rule
+captions and report table headers are all painted with a spectrum sweep, and every node in a graph
+diagram gets its own hue. The layout is deliberately **open** — sections are separated by a coloured
+hairline rule and a line of air instead of drawn boxes — so nothing is spent on borders and the
+console reads cleanly at any width. None of it changes a prompt, a menu number or a line of data, and
+it is detected at startup then degrades cleanly:
+
+| Situation | What you see |
+|:---|:---|
+| Modern terminal (UTF-8, ANSI) | Rainbow banner and headings, gradient hairline rules, colour-coded status tags, report bars, graph diagrams whose nodes are hue-tinted chips |
+| 24-bit colour (`COLORTERM`) | The spectrum in full 24-bit; otherwise it is quantised to the 256-colour cube |
+| Legacy console / piped output | Plain ASCII (`▌` becomes `|`, `─` becomes `-`, `-->` arrows, `[P102]` nodes), no escape codes at all |
+| Narrow window | Every open section fits the terminal width: long rows fold or truncate, the splash switches to a single column |
+| Status tags | Always semantic - red for errors, green for success, cyan for notices - so the rainbow never hides a problem |
+
+```bash
+NO_COLOR=1 java -cp out main.Main              # force plain output
+CERBERUS_COLOR=always java -cp out main.Main   # force colour (accepts always | never | auto)
 ```
 
 <br>
