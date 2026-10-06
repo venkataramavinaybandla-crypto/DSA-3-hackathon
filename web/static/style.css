@@ -752,3 +752,131 @@ body {
   font-family: var(--font-mono);
   font-size: 12px;
 }
+
+/* ---- console: traversal mode select + fuzzy checkbox ---- */
+.query-console .console__select {
+  background: var(--obsidian-deep);
+  border: var(--hairline) solid var(--tech-dim);
+  color: var(--ghost);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: var(--panel-radius);
+  cursor: pointer;
+}
+
+.query-console .console__select:focus {
+  outline: none;
+  border-color: var(--laser);
+}
+
+.query-console .console__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ghost-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.query-console .console__check input {
+  min-width: auto;
+  accent-color: var(--laser);
+}
+
+/* ---- reports tab: two side-by-side report tables ---- */
+.reports-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.report__sub {
+  margin: 0 0 0.5rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--laser-bright);
+}
+
+/* ---- mutate tab: add-paper / add-citation forms + session log ---- */
+.mutate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.mutate-form {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.mutate-form__title {
+  margin: 0;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--laser-bright);
+}
+
+.mutate-form input {
+  background: var(--obsidian-deep);
+  border: var(--hairline) solid var(--tech-dim);
+  color: var(--ghost);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: var(--panel-radius);
+}
+
+.mutate-form input:focus {
+  outline: none;
+  border-color: var(--laser);
+}
+
+.mutate-form .console__btn {
+  justify-self: start;
+  background: var(--laser-dim);
+  color: var(--ghost);
+  border: var(--hairline) solid var(--laser);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: var(--panel-radius);
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mutate-form .console__btn:hover {
+  background: var(--laser);
+}
+
+.mutate-log {
+  margin-top: 14px;
+  display: grid;
+  gap: 4px;
+  max-height: 140px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ghost-muted);
+}
+
+.mutate-log__line.is-error {
+  color: var(--laser-bright);
+}
+
+@media (max-width: 780px) {
+  .reports-grid,
+  .mutate-grid {
+    grid-template-columns: 1fr;
+  }
+}

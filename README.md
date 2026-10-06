@@ -1,304 +1,301 @@
-<div align="center">
+<p align="center">
+  <img src="assets/banner.svg" alt="Cerberus Citation Analysis System" width="100%">
+</p>
 
-```
- ██████╗███████╗██████╗ ██████╗ ███████╗██████╗ ██╗   ██╗███████╗
-██╔════╝██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗██║   ██║██╔════╝
-██║     █████╗  ██████╔╝██████╔╝█████╗  ██████╔╝██║   ██║███████╗
-██║     ██╔══╝  ██╔══██╗██╔══██╗██╔══╝  ██╔══██╗██║   ██║╚════██║
-╚██████╗███████╗██║  ██║██████╔╝███████╗██║  ██║╚██████╔╝███████║
- ╚═════╝╚══════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
-     S Y S T E M
-```
+<p align="center">
+  <img src="https://img.shields.io/badge/Java-17%2B-%235B0FFF?style=flat-square&labelColor=%230B0813" alt="Java 17+">
+  <img src="https://img.shields.io/badge/java.util-banned-%23FF007F?style=flat-square&labelColor=%230B0813" alt="java.util banned">
+  <img src="https://img.shields.io/badge/algorithms-from%20scratch-%23A32EFF?style=flat-square&labelColor=%230B0813" alt="Algorithms built from scratch">
+  <img src="https://img.shields.io/badge/tests-782%20green-%235B0FFF?style=flat-square&labelColor=%230B0813" alt="782 checks green">
+  <img src="https://img.shields.io/badge/license-MIT-%23F5F3F7?style=flat-square&labelColor=%230B0813" alt="MIT license">
+</p>
 
-### 🕸️ A Data Structures–Driven Approach to Tracking Academic Citations
-
-*Every paper is a vertex. Every citation is a directed edge. Every algorithm here was hand-built, not imported.*
-
-<br>
-
-[![Java](https://img.shields.io/badge/Java-JDK%2026-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://www.oracle.com/java/)
-[![Zero java.util](https://img.shields.io/badge/java.util-BANNED-red?style=for-the-badge&logo=coffeescript&logoColor=white)](.)
-[![Algorithms](https://img.shields.io/badge/Built-From%20Scratch-purple?style=for-the-badge)](.)
-[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen?style=for-the-badge)](.)
-
-<br>
-
-**[Overview](#-overview) · [The Problem](#-the-problem) · [How It Works](#️-how-it-works) · [Architecture](#-architecture) · [Features](#-features) · [Tech Stack](#️-tech-stack) · [Complexity](#-complexity-cheat-sheet) · [Getting Started](#-getting-started) · [Roadmap](#️-roadmap) · [Team](#-team)**
-
-</div>
+<p align="center">
+  <a href="#overview">Overview</a> &nbsp;|&nbsp;
+  <a href="#capabilities">Capabilities</a> &nbsp;|&nbsp;
+  <a href="#interfaces">Interfaces</a> &nbsp;|&nbsp;
+  <a href="#architecture">Architecture</a> &nbsp;|&nbsp;
+  <a href="#complexity">Complexity</a> &nbsp;|&nbsp;
+  <a href="#getting-started">Getting Started</a> &nbsp;|&nbsp;
+  <a href="#testing">Testing</a> &nbsp;|&nbsp;
+  <a href="#roadmap">Roadmap</a> &nbsp;|&nbsp;
+  <a href="#team">Team</a>
+</p>
 
 <br>
 
----
+<h3 align="center">Every paper is a vertex. Every citation is a directed edge.</h3>
 
-## 🧠 Overview
+<p align="center">
+Cerberus models scholarly literature as a directed citation graph, then answers the questions researchers actually ask:<br>
+who cites whom, which work carries influence, and how an idea travels from one paper to the next.<br>
+One engine, four surfaces: a Python REST backend, a Rich terminal UI, a web dashboard and the original Java console.<br>
+Every graph, hash table and search routine is written by hand. No <code>java.util</code> collections. No frameworks in the core.
+</p>
 
-Research literature grows through an ever-expanding web of citations — yet tracking **who cites whom**, spotting **influential work**, and navigating this network is still largely manual and unsystematic. Researchers deserve better than scattered spreadsheets and gut-feeling rankings.
+<img src="assets/divider.svg" alt="" width="100%">
 
-**Citation Analysis System** fixes that by modeling scholarly literature as a **directed citation graph**:
+## Overview
 
-<div align="center">
+Research literature grows as a web of citations, yet tracking that web is still mostly manual. Relationships live in siloed databases and spreadsheets, influential papers hide behind scattered counts, and teams end up repeating work that already exists.
 
-| Real World | → | Graph World |
-|:---:|:---:|:---:|
-| 📄 Research Paper | → | 🔵 Vertex |
-| 🔗 "Paper A cites Paper B" | → | ➡️ Directed Edge (A → B) |
-| 🔥 Highly cited paper | → | 🎯 High in-degree vertex |
+Cerberus replaces that with one structure you can query. Papers become vertices, citations become directed edges, and classic graph, hashing and string algorithms turn the result into a navigable network.
 
-</div>
-
-Once the graph exists, the system unleashes core graph algorithms to explore it — traversal, ranking, fast search — turning a tangled mess of academic cross-referencing into a **structured, queryable network**.
+| In the literature | In the graph |
+| :--- | :--- |
+| A research paper | A vertex |
+| Paper A cites Paper B | A directed edge from A to B |
+| A highly cited paper | A vertex with high in-degree |
 
 > [!IMPORTANT]
-> No frameworks doing the heavy lifting. No `java.util` shortcuts. Every graph, hash table, and search algorithm here is **hand-built from scratch**, from the ground up — because that's the entire point of the exercise.
+> Built from first principles. The graph, the hash tables and every search and sort routine are implemented from scratch, with no `java.util` collection classes in the core logic. That constraint is the point of the project.
 
-<br>
+<img src="assets/divider.svg" alt="" width="100%">
 
-## ❗ The Problem
+## Capabilities
 
-Researchers currently lack a systematic, data-structure-driven way to:
+| Capability | Implementation |
+| :--- | :--- |
+| Register papers and record citations | Custom **adjacency-list graph**, plus in-memory mutations over the API |
+| Trace citation relationships | **Level-wise horizon** and **deep lineage** traversal, BFS and DFS visit order |
+| Look up papers by title or author | Custom **open-addressing hash tables**, O(1) average |
+| Search through typos | **Wagner-Fischer** edit distance |
+| Match exact patterns | **KMP** and **Rabin-Karp** |
+| Route between papers | BFS shortest path, all simple paths, **Held-Karp bitmask** optimal route |
+| Rank and report | Custom sorting: top authors, most-cited papers, yearly citation trends |
 
-- 🔍 Track citation relationships across papers
-- ⭐ Identify influential / high-impact work
+<img src="assets/divider.svg" alt="" width="100%">
 
-Most of this happens **manually or across siloed databases** — which slows down research discovery, causes redundant duplicate work, and lets genuinely seminal papers quietly go unnoticed amid scattered citation data.
+## Interfaces
 
-<br>
+One engine, four surfaces. Two terminals and a browser cover the full workflow; each surface speaks the same REST contract or reads the same CSV directly.
 
-## ⚙️ How It Works
-
-```mermaid
-flowchart LR
-    A[📥 Add Paper] --> G[(Citation Graph<br/>Adjacency List)]
-    C[🔗 Add Citation] --> G
-    G --> B{{Citation Reachability<br/>& Lineage Analysis}}
-    G --> S{{Sort by<br/>Citation Count}}
-    H[(Hash Table<br/>Title / Author)] --> Q[🔎 Query Paper]
-    Q --> KMP[KMP / Rabin-Karp<br/>Exact Match]
-    Q --> WF[Wagner-Fischer<br/>Fuzzy Match]
-    B --> R[📊 Reports:<br/>Trends · Top Authors · Popular Papers]
-    S --> R
-
-    style G fill:#4c1d95,color:#fff
-    style H fill:#7c3aed,color:#fff
-    style R fill:#059669,color:#fff
-```
-
-| Capability | Algorithm(s) Used |
-|---|---|
-| 🔗 Add papers & record citation edges | Custom **adjacency-list graph** |
-| 🔍 Traverse citation relationships | **Level-wise Horizon & Deep Lineage Traversal** |
-| ⚡ Search papers by title/author | Custom **hash tables** (open addressing) — O(1) lookup |
-| ✏️ Fuzzy / typo-tolerant search | **Wagner–Fischer edit distance** |
-| 🧵 Exact string/pattern search | **KMP** & **Rabin–Karp** |
-| 📊 Rank papers by citation count | Custom **sorting routines** |
-| 📈 Generate trend & influence reports | Graph + hash-table aggregation |
-
-<br>
-
-## 🏗️ Architecture
-
-```mermaid
-graph TD
-    subgraph Presentation["🖥️ Presentation Layer"]
-        UI[Console / JavaFX Reports]
-    end
-    subgraph Core["⚙️ Core Engine"]
-        Graph[Citation Graph<br/>Adjacency List]
-        Hash[Custom Hash Tables]
-        Search[String Matching<br/>KMP · Rabin-Karp · Wagner-Fischer]
-        Sort[Custom Sort Routines]
-    end
-    subgraph Storage["💾 Persistence"]
-        CSV[(CSV / Local Files)]
-    end
-
-    UI --> Graph
-    UI --> Search
-    Graph --> Hash
-    Graph --> Sort
-    Hash --> CSV
-    Graph --> CSV
-
-    style Core fill:#1e1b4b,color:#fff
-    style Storage fill:#312e81,color:#fff
-    style Presentation fill:#4338ca,color:#fff
-```
-
-<br>
-
-## ✨ Features
-
-- ➕ **Add papers** and record directed citation relationships
-- 🔎 **Search** via hashing, with edit-distance–based fuzzy matching for typos
-- 📉 **Sort & rank** papers by citation count
-- 🕸️ **Traverse** the citation graph (Level-wise Reach / Deep Lineage) to reveal direct & indirect relationships
-- 📑 **Generate reports** — citation trends, top authors, most-cited papers
-
-<br>
-
-## 🛠️ Tech Stack
-
-<div align="center">
-
-| Category | Tools |
-|---|---|
-| **Language** | ![Java](https://img.shields.io/badge/-Java%2026-ED8B00?style=flat-square&logo=openjdk&logoColor=white) hand-built graph, hashing & string algorithms |
-| **Data Structures** | Custom adjacency-list graph · Custom hash tables |
-| **Algorithms** | Reachability Traversal · KMP · Rabin–Karp · Wagner–Fischer |
-| **Data Storage** | CSV / local file-based persistence |
-| **Dev Environment** | ![IntelliJ](https://img.shields.io/badge/-IntelliJ%20IDEA-000000?style=flat-square&logo=intellijidea&logoColor=white) ![VSCode](https://img.shields.io/badge/-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white) |
-| **Version Control** | ![Git](https://img.shields.io/badge/-Git%20%26%20GitHub-181717?style=flat-square&logo=github&logoColor=white) |
-| **Testing** | ![JUnit](https://img.shields.io/badge/-JUnit-25A162?style=flat-square&logo=junit5&logoColor=white) |
-| **UI (optional)** | Console / JavaFX report views |
-
-</div>
-
-> [!WARNING]
-> **No `java.util` collection classes** are used for core logic — every graph, hash table, and algorithm is implemented from scratch, consistent with the course's built-from-first-principles constraint.
-
-<br>
-
-## 📐 Complexity Cheat Sheet
-
-<details>
-<summary><strong>Click to expand the Big-O breakdown</strong></summary>
-
-<br>
-
-| Operation | Algorithm | Time Complexity | Space |
-|---|---|:---:|:---:|
-| Add paper / citation edge | Adjacency list insert | `O(1)` | `O(V + E)` |
-| Traverse graph | Reachability Traversal | `O(V + E)` | `O(V)` |
-| Exact title/author search | Custom Hash Table | `O(1)` avg | `O(n)` |
-| Fuzzy search (typo-tolerant) | Wagner–Fischer | `O(m·n)` | `O(m·n)` |
-| Exact string pattern match | KMP | `O(n + m)` | `O(m)` |
-| Multi-pattern search | Rabin–Karp | `O(n + m)` avg | `O(1)` |
-| Citation-count ranking | Custom Sort | `O(n log n)` | `O(n)` |
-
-*`V` = papers, `E` = citations, `n`/`m` = string lengths.*
-
-</details>
-
-<br>
-
-## 🚀 Getting Started
-
-### Prerequisites
-- JDK 26 (Oracle build)
-- IntelliJ IDEA or VS Code (with Java extensions)
-- Git
-
-### Installation
+### 1. API backend — terminal one
 
 ```bash
-# Clone the repository
-git clone https://github.com/<your-username>/DSA-3_Projects.git
-cd DSA-3_Projects
+pip install -r requirements.txt
+python -m uvicorn server.main:app --port 8005
+```
 
-# Build the project
+Serves the REST API and hosts the web dashboard at `http://127.0.0.1:8005/`. The dataset loads from `citation_data.csv` on boot; `POST /api/reload` re-reads it.
+
+### 2. Rich terminal UI — terminal two
+
+```bash
+PYTHONIOENCODING=utf-8 python -m tui.main
+```
+
+With the backend running: exact and fuzzy search, shortest path / optimal route / lineage, BFS and DFS traversal, top-author and trend reports, and live add-paper / add-citation commands. Set `CERBERUS_API_URL` to point it at a different backend.
+
+### 3. Web dashboard — browser
+
+Start the backend, then open `http://127.0.0.1:8005/`.
+
+| Tab | What it shows |
+| :--- | :--- |
+| Graph | Live metrics, top-cited table, citation lineage |
+| Search | Exact or fuzzy results from the query console |
+| Traversal | BFS/DFS visit order, shortest path, bitmask-optimal route |
+| Reports | Top authors and yearly citation trends |
+| Mutate | Add papers and citation edges; errors surface in the status line |
+
+### Alternate surfaces
+
+```bash
+java -cp out main.Main           # original menu-driven console, reads citation_data.csv directly
+java -cp out main.Main --serve   # pure-Java REST server + dashboard on port 8006 (override: --serve 9000)
+```
+
+The Java server needs no Python at all: JDK `com.sun.net.httpserver` only. Mutations are in-memory and the graph is flushed back to `citation_data.csv` as UTF-8 on Ctrl+C.
+
+### API contract
+
+| Route | Purpose |
+| :--- | :--- |
+| `GET /api/papers?q=&limit=&fuzzy=` | List or search papers |
+| `GET /api/traverse?source=&mode=bfs\|dfs` | Visit order from a paper |
+| `GET /api/reports/authors` and `/api/reports/trends` | Ranked reports |
+| `GET /api/path`, `/api/paths`, `/api/optimal-route`, `/api/lineage` | Routing and reachability |
+| `POST /api/papers`, `POST /api/citations` | In-memory mutations |
+| `GET /api/health`, `GET /api/stats`, `POST /api/reload` | Status and CSV reload |
+
+The pure-Java server mirrors this contract; reports live at `GET /api/report?type=top-authors|top-papers|trends`.
+
+<img src="assets/divider.svg" alt="" width="100%">
+
+## Architecture
+
+<p align="center">
+  <img src="assets/architecture.svg" alt="Cerberus architecture: presentation layer, core engine and persistence" width="100%">
+</p>
+
+The presentation layer — console, terminal UI and dashboard — sends queries into the core engine through the REST layer. The engine keeps the citation graph and the hash tables in step, runs string matching and sorting on demand, and loads from and saves to plain CSV files.
+
+<img src="assets/divider.svg" alt="" width="100%">
+
+## Complexity
+
+| Operation | Algorithm | Time | Space |
+| :--- | :--- | :--- | :--- |
+| Add a paper or citation edge | Adjacency-list insert | `O(1)` | `O(V + E)` |
+| Traverse the graph | Reachability traversal | `O(V + E)` | `O(V)` |
+| Exact title or author search | Custom hash table | `O(1)` average | `O(n)` |
+| Typo-tolerant search | Wagner-Fischer | `O(m * n)` | `O(m * n)` |
+| Exact pattern match | KMP | `O(n + m)` | `O(m)` |
+| Multi-pattern search | Rabin-Karp | `O(n + m)` average | `O(1)` |
+| Citation-count ranking | Custom sort | `O(n log n)` | `O(n)` |
+
+`V` is the number of papers, `E` the number of citations, and `n` and `m` are string lengths.
+
+<img src="assets/divider.svg" alt="" width="100%">
+
+## Getting Started
+
+**Prerequisites**
+
+- JDK 17 or newer (Oracle, Temurin or Corretto builds all work)
+- Python 3.11 or newer, plus `pip install -r requirements.txt`
+- Node 18 or newer — optional, only for the browser end-to-end test
+- Git
+
+**Build and run**
+
+```bash
+git clone https://github.com/venkataramavinaybandla-crypto/DSA-3-hackathon.git
+cd DSA-3-hackathon
+
 javac -encoding UTF-8 -d out $(find src -name "*.java")
-
-# Run
 java -cp out main.Main
 ```
 
-### Quick Usage
+**Full stack in three terminals**
 
+```bash
+# terminal 1 — API backend
+python -m uvicorn server.main:app --port 8005
+
+# terminal 2 — Rich terminal UI
+PYTHONIOENCODING=utf-8 python -m tui.main
+
+# browser — open http://127.0.0.1:8005/
 ```
-1. Add a paper        →  Register title, author(s), year
-2. Add a citation      →  Link Paper A → Paper B (directed edge)
-3. Search a paper       →  By exact title/author, or fuzzy match
-4. Traverse            →  Explore reachable citation network from any paper
-5. Generate report       →  View top authors, popular papers, trends
-```
 
-### 🎨 Console Styling
+**A typical session**
 
-The terminal UI carries a **cyberpunk palette**. Every accent comes from four roles, so the console
-reads as one deliberate system instead of a spectrum sweep:
+1. Add a paper with its title, authors and year.
+2. Add a citation to link Paper A to Paper B.
+3. Search by exact title or author, or fall back to fuzzy matching.
+4. Traverse the network outward from any paper.
+5. Generate a report of top authors, popular papers and trends.
 
-| Role | Hex | Used for |
-|:---|:---|:---|
-| Tech Violet | `#5B0FFF` | The macOS-style window sheet, the interface-panel border, section rules and divider grids |
-| Cyber Purple | `#A32EFF` | Secondary identifiers: authors, categories and complexity tags |
-| Laser Pink | `#FF007F` | Used sparingly — active menu numbers, citation keys, metrics and report bars |
-| Ghost White | `#F5F3F7` | The readable body text |
+<img src="assets/divider.svg" alt="" width="100%">
 
-The display title is a five-row solid-block wordmark (`CERBERUS` / `SYSTEM`) painted as a Tech Violet
-to Laser Pink duotone, printed completely **outside and above** the window sheet. A terminal cannot be
-told to load a font file, so a block wordmark is the closest a console gets to the display face the
-browser build renders with Orbitron. The application content area is then wrapped in a double-line
-box frame with three colourised window-management dots at its top-left margin, and every session is
-drawn inside it. None of it changes a prompt, a menu number or a line of data, and it is detected at
-startup then degrades cleanly:
+## Design System
 
-| Situation | What you see |
-|:---|:---|
-| Modern terminal (UTF-8, ANSI) | Block wordmark, double-line window sheet with `● ● ●`, Tech Violet rules, Laser Pink metrics, graph diagrams whose node chips alternate pink and purple |
-| 24-bit colour (`COLORTERM`) | The palette in full 24-bit; otherwise it is quantised to the 256-colour cube |
-| Legacy console / piped output | Plain ASCII (`█` becomes `#`, `═`/`║` become `=`/`|`, `●` becomes `o`, `-->` arrows), no escape codes at all |
-| Narrow window | The content column narrows to leave room for the frame: long rows fold or truncate, the info panel switches to a single column |
-| Status tags | Always semantic — red for errors, green for success, cyan for notices — so a problem is never hidden by the theme |
+The console and the dashboard share one cyberpunk palette. Sixty percent canvas, thirty percent structure, ten percent accent, and Ghost White for text — never more, never less.
+
+| Role | Hex | Share | Applied to |
+| :--- | :--- | :--- | :--- |
+| Obsidian Night | `#0B0813` | 60% | Canvas: window sheets, panel backgrounds |
+| <img src="https://img.shields.io/badge/Tech_Violet-%235B0FFF?style=flat-square&labelColor=%230B0813" alt="Tech Violet #5B0FFF"> | | 30% | Structure: borders, frames, divider grids |
+| <img src="https://img.shields.io/badge/Cyber_Purple-%23A32EFF?style=flat-square&labelColor=%230B0813" alt="Cyber Purple #A32EFF"> | | secondary | Categories: authors, tags, section labels |
+| <img src="https://img.shields.io/badge/Laser_Pink-%23FF007F?style=flat-square&labelColor=%230B0813" alt="Laser Pink #FF007F"> | | 10% | Action: metrics, citation keys, active states |
+| <img src="https://img.shields.io/badge/Ghost_White-%23F5F3F7?style=flat-square&labelColor=%230B0813" alt="Ghost White #F5F3F7"> | | text | Body copy and table cells |
+
+The terminal wordmark and rules are painted with a three-stop gradient of the same roles — Tech Violet through Cyber Purple to Laser Pink — so the title reads as one deliberate system instead of a spectrum sweep. Styling never changes a prompt, a menu number or a line of data, and it adapts to the terminal at startup.
+
+| Environment | Behavior |
+| :--- | :--- |
+| UTF-8 terminal with ANSI support | Gradient banner and headings, color-coded status tags, hue-tinted graph diagrams |
+| 24-bit color (`COLORTERM`) | Full 24-bit palette, otherwise quantized to the 256-color cube |
+| Legacy console or piped output | Plain ASCII |
+| Narrow window | Rows fold or truncate to fit, and the splash switches to a single column |
+| Status tags | Always semantic: red for errors, green for success, cyan for notices |
 
 ```bash
 NO_COLOR=1 java -cp out main.Main              # force plain output
-CERBERUS_COLOR=always java -cp out main.Main   # force colour (accepts always | never | auto)
+CERBERUS_COLOR=always java -cp out main.Main   # force color (always | never | auto)
 ```
 
-<br>
+<img src="assets/divider.svg" alt="" width="100%">
 
-## 🎯 Expected Outcome
+## Repository Layout
 
-- ✅ A functioning citation graph supporting full **reachability & lineage traversal**
-- ✅ **Ranked citation counts** and automatic identification of top authors
-- ✅ **Citation-trend reports** generated straight from graph + hash-table data
-- ✅ A demonstrable **end-to-end search-and-analysis flow**, start to finish
+```text
+.
+├── src/                              Java engine: graph, hash tables, algorithms, reports, API server
+├── server/                           FastAPI backend: REST API and dashboard host
+├── tui/                              Rich terminal UI
+├── web/static/                       Web dashboard: HTML, CSS and vanilla JS
+├── tools/                            Dataset fetch and PDF text extraction
+├── research_papers/                  Reference papers (PDF and extracted text)
+├── assets/                           README artwork: banner, logo, dividers, architecture
+├── citation_data.csv                 Papers and citation edges (dataset)
+├── papers.csv                        Paper records
+├── BUILD_PLAN.md                     Phase-by-phase build plan
+├── Agents.md                         Agent working notes
+├── e2e_dashboard.mjs                 Headless-browser dashboard end-to-end test
+├── requirements.txt                  Python dependencies
+├── CERBERUS_SYSTEM.pptx              Project presentation
+└── Cerberus_System_Abstract.docx     Project abstract
+```
 
-This project proves that core DSA concepts — **graphs, hashing, and string algorithms** — aren't just theory. They solve a real, practical academic research problem.
+<img src="assets/divider.svg" alt="" width="100%">
 
-<br>
+## Testing
 
-## 🗺️ Roadmap
+**Java — 13 suites, 782 checks.** Plain `main()` runners with pass/fail counters; any failure exits 1.
 
-- [x] Core graph engine (adjacency list, reachability traversal)
-- [x] Custom hash table for O(1) lookup
-- [x] KMP / Rabin-Karp exact search
+```bash
+javac -encoding UTF-8 -d out $(find src -name "*.java")
+for t in $(find src -name '*Test.java'); do
+  java -cp out "$(echo "${t#src/}" | sed 's|\.java$||; s|/|.|g')"
+done
+```
+
+Covers the graph, hash tables, sorting, string matching, CSV I/O, JSON, reports, renderers, integration edge cases and the REST server (every endpoint, validation, 404/405/409 paths, static file serving).
+
+**Browser end-to-end — 23 checks.** Drives the dashboard in headless Chrome over the DevTools protocol: boot, fuzzy search, BFS/DFS traversal, reports, mutations, error surfacing, zero uncaught page exceptions.
+
+```bash
+node e2e_dashboard.mjs                                # against the Python backend :8005
+API_BASE=http://127.0.0.1:8006 node e2e_dashboard.mjs # against the pure-Java server :8006
+```
+
+<img src="assets/divider.svg" alt="" width="100%">
+
+## Roadmap
+
+- [x] Core graph engine with adjacency list and reachability traversal
+- [x] Custom hash table with O(1) lookup
+- [x] KMP and Rabin-Karp exact search
 - [x] Wagner-Fischer fuzzy matching
+- [x] REST API, Rich terminal UI and web dashboard
+- [x] Dataset tooling: arXiv fetch and PDF text extraction
 - [ ] JavaFX visual graph explorer
-- [ ] Export reports to PDF
-- [ ] Import bulk citation datasets (BibTeX)
+- [ ] PDF report export
+- [ ] Bulk citation import from BibTeX
 
-<br>
+## Team
 
-## 👥 Team
-
-<div align="center">
-
-| Name | Roll Number |
-|---|---|
+| Name | Roll number |
+| :--- | :--- |
 | **Bandla Vinay** | 2520030437 |
 | **Sai Sashank** | 2520030454 |
 | **Ganesh** | 2520030252 |
 
-**Section 07 · Team 20 · DSA-3 (25CS2103E)**
-**Guide:** Dr. S. Madhavi
+Section 07, Team 20, DSA-3 (25CS2103E). Guide: Dr. S. Madhavi.
 
-</div>
+## License
 
-<br>
+Released under the [MIT License](https://opensource.org/license/mit). Built as coursework for DSA-3 (25CS2103E).
 
-## 📄 License
+<img src="assets/divider.svg" alt="" width="100%">
 
-This project is built for academic purposes under **DSA-3 (25CS2103E)**. Licensed under [MIT](LICENSE) unless your course says otherwise — check with your guide before going full open-source rebel.
+<p align="center">
+  <img src="assets/logo.svg" alt="Cerberus System" width="320">
+</p>
 
----
-
-<div align="center">
-
-**Built with directed edges, hand-rolled hash tables, and zero `java.util` shortcuts.**
-
-⭐ *If this repo saved your grade, star it. That's the whole ask.*
-
-</div>
+<p align="center">
+  <sub>Built with directed edges and hand-rolled hash tables.</sub>
+</p>

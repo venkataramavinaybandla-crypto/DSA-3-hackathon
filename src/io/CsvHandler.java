@@ -7,9 +7,12 @@ import core.Paper;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 
 /**
  * CSV Persistence handler for loading and saving the citation graph using only {@code java.io}.
@@ -48,7 +51,8 @@ public final class CsvHandler {
             parent.mkdirs();
         }
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+        try (BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8))) {
             // Section 1: Papers
             writer.write("# PAPERS");
             writer.newLine();
@@ -123,7 +127,8 @@ public final class CsvHandler {
             throw new IOException("File does not exist: " + filePath);
         }
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
             String line;
             boolean inPapersSection = true;
 

@@ -40,6 +40,11 @@ MENU: tuple[tuple[str, str], ...] = (
     ("6", "Search"),
     ("7", "Paper record"),
     ("8", "Reload CSV"),
+    ("9", "Traverse"),
+    ("R", "Reports"),
+    ("F", "Fuzzy search"),
+    ("N", "New paper"),
+    ("C", "New citation"),
     ("Q", "Quit"),
 )
 
@@ -93,9 +98,11 @@ class CerberusTUI:
         hint.append("  ▸ key or inline: ", style=theme.GHOST_FAINT)
         hint.append("path A B", theme.CYPER_BRIGHT)
         hint.append(" · ", theme.GHOST_FAINT)
-        hint.append("route P101,P104,P107", theme.CYPER_BRIGHT)
-        hint.append(" · ", theme.GHOST_FAINT)
         hint.append("search attention", theme.CYPER_BRIGHT)
+        hint.append(" · ", theme.GHOST_FAINT)
+        hint.append("fuzzy atention", theme.CYPER_BRIGHT)
+        hint.append(" · ", theme.GHOST_FAINT)
+        hint.append("traverse P101 dfs", theme.CYPER_BRIGHT)
         return Group(Rule(style=theme.TECH_DIM), Text(""), grid, Text(""), hint)
 
     def render(self) -> RenderableType:
@@ -106,6 +113,13 @@ class CerberusTUI:
         )
 
     # ------------------------------------------------------------- helpers --
+
+    def refresh_stats(self) -> None:
+        """Refresh headline metrics only — keeps the current result view intact."""
+        try:
+            self.stats = self.client.stats()
+        except ApiError as exc:
+            self.set_status(str(exc).splitlines()[0], ok=False)
 
     def refresh_home(self) -> None:
         try:
@@ -179,15 +193,17 @@ class CerberusTUI:
         self.views_stack = [views.lineage_view(resp)]
         self.set_status(f"lineage · BFS horizon from {source.upper()} · depth {depth}")
 
-    def action_search(self, query: str) -> None:
+    def action_search(self, query: str, fuzzy: bool = False) -> None:
         try:
-            resp = self.client.papers(limit=15, query=query)
+            resp = self.client.papers(limit=15, query=query, fuzzy=fuzzy)
         except ApiError as exc:
             self._fail(exc)
             return
         results = resp.get("results", [])
-        self.views_stack = [views.papers_table(results, f"SEARCH · '{query}' · {len(results)} hits")]
-        self.set_status(f"search '{query}' · {len(results)} results" if results else f"no hits for '{query}'",
+        label = "FUZZY SEARCH" if fuzzy else "SEARCH"
+        self.views_stack = [views.papers_table(results, f"{label} · '{query}' · {len(results)} hits")]
+        self.set_status(f"{'fuzzy ' if fuzzy else ''}search '{query}' · {len(results)} results" if results
+                        else f"no hits for '{query}' — try 'F {query}'",
                         ok=bool(results))
 
     def action_paper(self, paper_id: str) -> None:
@@ -207,6 +223,71 @@ class CerberusTUI:
         except ApiError as exc:
             self._fail(exc)
 
+    def action_traverse(self, source: str, mode: str = "bfs") -> None:
+        mode = (mode or "bfs").strip().lower()
+        if mode not in {"bfs", "dfs"}:
+            self.views_stack = [views.error_panel("Traversal mode must be 'bfs' or 'dfs'.", "TRAVERSE")]
+            return
+        try:
+            resp = self.client.traverse(source, mode)
+        except ApiError as exc:
+            self._fail(exc)
+            return
+        label = f"TRAVERSAL · {mode.upper()} · FROM {source.upper()}"
+        self.views_stack = [views.traversal_view(resp, label)]
+        self.set_status(f"traverse {mode} · {source.upper()} · {resp.get('reached', 0)} papers reached")
+
+    def action_reports(self) -> None:
+        try:
+            authors = self.client.top_authors(limit=8)
+            trends = self.client.trends()
+        except ApiError as exc:
+            self._fail(exc)
+            return
+        author_rows = authors.get("authors", [])
+        trend_rows = trends.get("trends", [])
+        self.views_stack = [
+            views.authors_table(author_rows, theme.console.width),
+            Text(""),
+            views.trends_view(trend_rows, theme.console.width),
+        ]
+        self.set_status(f"reports · {len(author_rows)} authors · {len(trend_rows)} year buckets")
+
+    def action_add_paper(self, paper_id: str, title: str, author: str, year_text: str) -> None:
+        try:
+            year = int(year_text)
+        except (TypeError, ValueError):
+            self.views_stack = [views.error_panel(f"Year must be an integer, got '{year_text}'.", "NEW PAPER")]
+            return
+        if not 1500 <= year <= 2100:
+            self.views_stack = [views.error_panel("Publication year must be between 1500 and 2100.", "NEW PAPER")]
+            return
+        try:
+            record = self.client.add_paper(paper_id, title, author, year)
+        except ApiError as exc:
+            self._fail(exc)
+            return
+        self.refresh_stats()
+        self.views_stack = [views.paper_detail_panel(record)]
+        self.set_status(f"paper {record.get('id')} added · {record.get('citationCount', 0)} citations")
+
+    def action_add_citation(self, citing: str, cited: str) -> None:
+        try:
+            resp = self.client.add_citation(citing, cited)
+        except ApiError as exc:
+            self._fail(exc)
+            return
+        self.refresh_stats()
+        if resp.get("added"):
+            self.views_stack = [views.status_panel(
+                f"edge added · {resp.get('citing')} → {resp.get('cited')} · "
+                f"{resp.get('edges')} edges · most cited {resp.get('most_cited')}")]
+            self.set_status(f"citation {resp.get('citing')} → {resp.get('cited')} added")
+        else:
+            self.views_stack = [views.status_panel(
+                f"edge {resp.get('citing')} → {resp.get('cited')} already existed — graph unchanged")]
+            self.set_status("citation already present", ok=True)
+
     # -------------------------------------------------------------- parse --
 
     def parse_inline(self, raw: str) -> Optional[tuple[str, List[str]]]:
@@ -218,7 +299,12 @@ class CerberusTUI:
             "path": "2", "paths": "3", "all": "3", "route": "4", "optimal": "4",
             "lineage": "5", "search": "6", "find": "6", "paper": "7", "view": "7",
             "overview": "1", "stats": "1", "home": "1", "dashboard": "1",
-            "reload": "8", "quit": "q", "exit": "q",
+            "reload": "8", "traverse": "9", "walk": "9", "visit": "9",
+            "report": "R", "reports": "R", "trends": "R", "authors": "R",
+            "fuzzy": "F", "typo": "F",
+            "new": "N", "add": "N", "create": "N",
+            "cite": "C", "cites": "C",
+            "quit": "q", "exit": "q",
         }
         key = alias.get(word, tokens[0])
         return key, tokens[1:]
@@ -229,7 +315,7 @@ class CerberusTUI:
             self.set_status("empty input — choose a module key", ok=False)
             return
         key, args = parsed
-        key = key.upper() if key.upper() in {"Q"} else key
+        key = key.upper()
         handlers: Dict[str, Callable[..., None]] = {
             "1": self.action_overview,
             "2": self.action_shortest_path,
@@ -239,12 +325,17 @@ class CerberusTUI:
             "6": self.action_search,
             "7": self.action_paper,
             "8": self.action_reload,
+            "9": self.action_traverse,
+            "R": self.action_reports,
+            "F": self.action_search,
+            "N": self.action_add_paper,
+            "C": self.action_add_citation,
         }
         if key == "Q":
             self.running = False
             return
         if key not in handlers:
-            self.set_status(f"unknown module '{key}' — pick 1-8 or Q", ok=False)
+            self.set_status(f"unknown module '{key}' — pick 1-9, R, F, N, C or Q", ok=False)
             return
 
         # Interactive fill-in for missing arguments, all inside the input zone.
@@ -276,6 +367,29 @@ class CerberusTUI:
             paper_id = args[0] if args else self._prompt("Enter paper ID", "P101")
             if paper_id:
                 handler(paper_id.upper())
+        elif key == "9":
+            source = args[0] if args else self._prompt("Enter SOURCE paper ID", "P101")
+            mode = args[1] if len(args) > 1 else self._prompt("Traversal mode [bfs/dfs]", "bfs")
+            if source:
+                handler(source.upper(), mode or "bfs")
+        elif key == "F":
+            query = " ".join(args) if args else self._prompt("Fuzzy query (typo-tolerant)", "atention")
+            if query:
+                handler(query, True)
+        elif key == "N":
+            paper_id = (args[0] if args else None) or self._prompt("New paper ID", "P900")
+            title = self._prompt("Title", "Citation Graphs at Scale")
+            author = self._prompt("Author", "Ada Lovelace")
+            year = self._prompt("Publication year (1500-2100)", "2024")
+            if paper_id and title and author and year:
+                handler(paper_id.upper(), title, author, year)
+            else:
+                self.set_status("new paper cancelled", ok=False)
+        elif key == "C":
+            citing = args[0] if args else self._prompt("Citing paper ID (from)", "P103")
+            cited = args[1] if len(args) > 1 else self._prompt("Cited paper ID (to)", "P101")
+            if citing and cited:
+                handler(citing.upper(), cited.upper())
         else:
             handler()
 

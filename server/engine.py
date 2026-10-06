@@ -132,6 +132,23 @@ class Graph:
                     queue.append(nxt)
         return order
 
+    def dfs_order(self, start_id: str) -> List[str]:
+        """DFS pre-order visit order from start_id (port of GraphTraversal.dfs)."""
+        if start_id not in self._papers:
+            return []
+        visited: Set[str] = set()
+        order: List[str] = []
+
+        def dfs(current: str) -> None:
+            visited.add(current)
+            order.append(current)
+            for nxt in self._adjacency[current]:
+                if nxt not in visited:
+                    dfs(nxt)
+
+        dfs(start_id)
+        return order
+
     def shortest_path(self, start_id: str, end_id: str) -> Optional[List[str]]:
         """One minimum-hop directed path start -> end via parent-tracking BFS.
 
@@ -337,6 +354,46 @@ class Graph:
 
     # ------------------------------------------------------------ reports
 
+    def top_authors(self, limit: int = 10) -> List[dict]:
+        """Port of ReportGenerator.getTopAuthors: total citations per author
+        (blank author -> "Unknown"), sorted by total citations descending."""
+        totals: Dict[str, List[int]] = {}
+        for pid in self._papers:
+            paper = self._papers[pid]
+            author = paper.author.strip() or "Unknown"
+            citations = self._citation_counts[pid]
+            if author in totals:
+                totals[author][0] += 1
+                totals[author][1] += citations
+            else:
+                totals[author] = [1, citations]
+        rows = [
+            {"author": author, "papers": pair[0], "totalCitations": pair[1]}
+            for author, pair in totals.items()
+        ]
+        rows.sort(key=lambda r: (-r["totalCitations"], r["author"]))
+        return rows[:limit]
+
+    def yearly_trends(self) -> List[dict]:
+        """Port of ReportGenerator.getCitationTrends: papers and summed
+        citations grouped by year, ascending by year."""
+        by_year: Dict[int, List[int]] = {}
+        for pid in self._papers:
+            paper = self._papers[pid]
+            year = paper.year
+            citations = self._citation_counts[pid]
+            if year in by_year:
+                by_year[year][0] += 1
+                by_year[year][1] += citations
+            else:
+                by_year[year] = [1, citations]
+        rows = [
+            {"year": year, "papers": pair[0], "totalCitations": pair[1]}
+            for year, pair in by_year.items()
+        ]
+        rows.sort(key=lambda r: r["year"])
+        return rows
+
     def top_cited(self, limit: int = 10) -> List[Paper]:
         """Papers sorted by citation count (desc), then id — like the report menu."""
         ranked = sorted(self._papers.values(), key=lambda p: (-self._citation_counts[p.id], p.id))
@@ -414,8 +471,48 @@ def load_csv(path: str | Path) -> Graph:
     return graph
 
 
+# --------------------------------------------------------------------------
+# Fuzzy matching — port of algo/FuzzyMatcher usage (Wagner-Fischer, 2-row DP)
+# --------------------------------------------------------------------------
+
+def edit_distance(a: str, b: str) -> int:
+    """Wagner-Fischer edit distance, space-optimized to two rows."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    previous = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, start=1):
+        current = [i] + [0] * len(b)
+        for j, char_b in enumerate(b, start=1):
+            current[j] = min(
+                previous[j] + 1,          # deletion
+                current[j - 1] + 1,       # insertion
+                previous[j - 1] + (char_a != char_b),  # substitution
+            )
+        previous = current
+    return previous[-1]
+
+_WORD_SPLIT_RE = None  # compiled lazily to keep the module import-light
+
+
+def _title_words(title: str) -> List[str]:
+    global _WORD_SPLIT_RE
+    if _WORD_SPLIT_RE is None:
+        import re
+
+        _WORD_SPLIT_RE = re.compile(r"[\s,.:;!?()\[\]-]+")
+    return [w for w in _WORD_SPLIT_RE.split(title) if w]
+
+
 class CitationEngine:
-    """Facade the FastAPI layer binds to. Reloads the CSV dataset on demand."""
+    """Facade the FastAPI layer binds to. Reloads the CSV dataset on demand.
+
+    Mutations (add_paper / add_citation) apply in memory only — they are
+    discarded by reload(), exactly like the Java engine's unsavedChanges
+    model where CSV is the source of truth until explicitly saved."""
 
     def __init__(self, csv_path: str | Path = "citation_data.csv") -> None:
         self.csv_path = Path(csv_path)
@@ -469,8 +566,10 @@ class CitationEngine:
         result["nodes"] = [self._node(pid) for pid in result["walk"]]
         return result
 
-    def search(self, query: str, limit: int = 20) -> List[dict]:
-        """Case-insensitive substring search over id/title/author (web + TUI search)."""
+    def search(self, query: str, limit: int = 20, fuzzy: bool = False) -> List[dict]:
+        """Substring search (KMP semantics) or typo-tolerant fuzzy search."""
+        if fuzzy:
+            return self.fuzzy_search(query, limit=limit)
         q = query.strip().lower()
         if not q:
             return []
@@ -482,6 +581,78 @@ class CitationEngine:
             or q in self.graph.get_paper(pid).author.lower()  # type: ignore[union-attr]
         ]
         return [h for h in hits if h][:limit]
+
+    def fuzzy_search(self, query: str, limit: int = 20) -> List[dict]:
+        """Port of Main.handleSearchPaper's fuzzy branch: Wagner-Fischer
+        distance <= 2 (<= 3 for queries of 8+ chars), with the same
+        title-word pre-filter the Java UI applies."""
+        q = query.strip().lower()
+        if not q:
+            return []
+        max_dist = 3 if len(q) >= 8 else 2
+        hits: List[dict] = []
+        for pid in self.graph.paper_ids:
+            paper = self.graph.get_paper(pid)
+            if paper is None:
+                continue
+            title = paper.title.lower()
+            matched = edit_distance(q, title) <= max_dist
+            if not matched:
+                for word in _title_words(title):
+                    if abs(len(word) - len(q)) <= max_dist and edit_distance(q, word) <= max_dist:
+                        matched = True
+                        break
+            if matched:
+                hits.append(self.graph.paper_payload(pid))
+        return [h for h in hits if h][:limit]
+
+    def traverse(self, source: str, mode: str = "bfs") -> dict:
+        """Full traversal visit order from a source paper (BFS or DFS)."""
+        src = source.strip()
+        if not self.graph.has_paper(src):
+            return {"found": False, "mode": mode.lower(), "order": []}
+        order = self.graph.dfs_order(src) if mode.lower() == "dfs" else self.graph.bfs_order(src)
+        return {
+            "found": True,
+            "mode": mode.lower(),
+            "source": src,
+            "reached": len(order),
+            "order": [self._node(pid) for pid in order],
+        }
+
+    def add_paper(self, paper_id: str, title: str, author: str, year: int) -> dict:
+        """In-memory paper insertion with the Java console's validation rules."""
+        paper_id = (paper_id or "").strip()
+        title = (title or "").strip()
+        author = (author or "").strip()
+        if not paper_id:
+            raise ValueError("Paper ID cannot be empty")
+        if not title:
+            raise ValueError("Paper title cannot be empty")
+        if not author:
+            raise ValueError("Author name cannot be empty")
+        if not isinstance(year, int) or not (1500 <= year <= 2100):
+            raise ValueError("Publication year must be between 1500 and 2100")
+        if self.graph.has_paper(paper_id):
+            raise ValueError(f"A paper with ID '{paper_id}' already exists")
+        self.graph.add_paper(Paper(id=paper_id, title=title, author=author, year=year))
+        return self.graph.paper_payload(paper_id)
+
+    def add_citation(self, citing_id: str, cited_id: str) -> dict:
+        """In-memory directed edge with the Java engine's error messages."""
+        citing_id = (citing_id or "").strip()
+        cited_id = (cited_id or "").strip()
+        if not self.graph.has_paper(citing_id):
+            raise ValueError(f"Citing paper ID not found in graph: {citing_id}")
+        if not self.graph.has_paper(cited_id):
+            raise ValueError(f"Cited paper ID not found in graph: {cited_id}")
+        added = self.graph.add_citation(citing_id, cited_id)
+        return {
+            "added": added,
+            "citing": citing_id,
+            "cited": cited_id,
+            **self.graph.stats(),
+        }
 
     def lineage(self, source: str, depth: int = 1) -> dict:
         """BFS reachability horizon: every paper within `depth` hops of source."""

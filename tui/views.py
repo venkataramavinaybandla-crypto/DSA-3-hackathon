@@ -215,6 +215,94 @@ def lineage_view(resp: Dict[str, Any]) -> RenderableType:
     return Panel(table, title="CITATION LINEAGE · BFS HORIZON", border_style=theme.TECH, box=ROUNDED, expand=True)
 
 
+def traversal_view(resp: Dict[str, Any], title: str) -> RenderableType:
+    """BFS/DFS visit order from /api/traverse as a hop-numbered table."""
+    order = resp.get("order") or []
+    if not order:
+        return error_panel("Traversal reached no papers.", title)
+    table = Table(box=SQUARE, border_style=theme.TECH_DIM, header_style=f"bold {theme.CYBER}", expand=False, pad_edge=False)
+    table.add_column("#", justify="right", width=4, style=theme.GHOST_FAINT)
+    table.add_column("ID", width=6, style=f"bold {theme.LASER}")
+    table.add_column("Title", width=44, style=theme.GHOST, no_wrap=True, overflow="ellipsis")
+    table.add_column("Year", justify="right", width=5, style=theme.GHOST_MUTED)
+    table.add_column("Cites", justify="right", width=6, style=f"bold {theme.LASER}")
+    for i, node in enumerate(order, start=1):
+        table.add_row(
+            str(i),
+            node["id"],
+            clip(node["title"], TRUNCATE_TITLES_AT),
+            str(node.get("year", "")),
+            str(node.get("citationCount", 0)),
+        )
+    summary = Text()
+    summary.append("visit order · ", theme.GHOST_FAINT)
+    summary.append(str(resp.get("reached", len(order))), style=f"bold {theme.LASER}")
+    summary.append(" papers reached · hop 1 is the source · ", theme.GHOST_FAINT)
+    summary.append(str(resp.get("mode", "bfs")).upper(), style=f"bold {theme.CYPER_BRIGHT}")
+    return Panel(Group(table, Text(""), summary), title=title, border_style=theme.TECH, box=ROUNDED, expand=True)
+
+
+def authors_table(rows: List[Dict[str, Any]], width: int) -> RenderableType:
+    """Top authors by summed citations — share bars like the top-cited table."""
+    if not rows:
+        return error_panel("No authors found in the graph.", "TOP AUTHORS")
+    table = Table(box=SQUARE, border_style=theme.TECH_DIM, header_style=f"bold {theme.CYBER}", expand=False, pad_edge=False)
+    table.add_column("#", justify="right", width=3, style=theme.GHOST_FAINT)
+    table.add_column("Author", width=34, style=theme.CYPER_BRIGHT, no_wrap=True, overflow="ellipsis")
+    table.add_column("Papers", justify="right", width=6, style=theme.GHOST)
+    table.add_column("Citations", justify="right", width=9, style=f"bold {theme.LASER}")
+    table.add_column("Share", width=10 if width >= 100 else 6)
+
+    top_count = max((r.get("totalCitations", 0) for r in rows), default=0) or 1
+    bar_w = 10 if width >= 100 else 6
+    for i, row in enumerate(rows, start=1):
+        count = row.get("totalCitations", 0)
+        filled = round((count / top_count) * bar_w)
+        bar = Text("█" * filled + "░" * (bar_w - filled), style=f"{theme.LASER} on {theme.OBSIDIAN_SOFT}")
+        table.add_row(
+            str(i),
+            clip(row.get("author", "Unknown"), 34),
+            str(row.get("papers", 0)),
+            str(count),
+            bar,
+        )
+    summary = Text()
+    summary.append("sorted by ", theme.GHOST_FAINT)
+    summary.append("total citations", style=f"bold {theme.CYPER_BRIGHT}")
+    summary.append(" · papers counted per author", theme.GHOST_FAINT)
+    return Panel(Group(table, Text(""), summary), title="TOP AUTHORS · YEARLY INFLUENCE",
+                 border_style=theme.TECH, box=ROUNDED, expand=True)
+
+
+def trends_view(rows: List[Dict[str, Any]], width: int) -> RenderableType:
+    """Yearly citation trend with a proportional citation bar per bucket."""
+    if not rows:
+        return error_panel("No year buckets in the graph.", "CITATION TRENDS")
+    table = Table(box=SQUARE, border_style=theme.TECH_DIM, header_style=f"bold {theme.CYBER}", expand=False, pad_edge=False)
+    table.add_column("Year", justify="right", width=6, style=f"bold {theme.CYPER_BRIGHT}")
+    table.add_column("Papers", justify="right", width=6, style=theme.GHOST)
+    table.add_column("Citations", justify="right", width=9, style=f"bold {theme.LASER}")
+    table.add_column("Citation load", width=24 if width >= 100 else 14)
+
+    top_count = max((r.get("totalCitations", 0) for r in rows), default=0) or 1
+    bar_w = 24 if width >= 100 else 14
+    for row in rows:
+        count = row.get("totalCitations", 0)
+        filled = round((count / top_count) * bar_w)
+        bar = Text("█" * filled + "░" * (bar_w - filled), style=f"{theme.CYPER_BRIGHT} on {theme.OBSIDIAN_SOFT}")
+        table.add_row(
+            str(row.get("year", "—")),
+            str(row.get("papers", 0)),
+            str(count),
+            bar,
+        )
+    summary = Text()
+    summary.append(f"{len(rows)} year buckets · ", theme.GHOST_FAINT)
+    summary.append("citations summed by publication year of the cited paper", theme.GHOST_FAINT)
+    return Panel(Group(table, Text(""), summary), title="YEARLY CITATION TRENDS",
+                 border_style=theme.TECH, box=ROUNDED, expand=True)
+
+
 def paper_detail_panel(record: Dict[str, Any]) -> RenderableType:
     body = Table.grid(padding=(0, 2), expand=True)
     body.add_column(justify="right", width=10)

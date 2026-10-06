@@ -78,10 +78,12 @@ class CerberusClient:
     def stats(self) -> Dict[str, Any]:
         return self._get("/api/stats")
 
-    def papers(self, limit: int = 20, query: str = "") -> Dict[str, Any]:
+    def papers(self, limit: int = 20, query: str = "", fuzzy: bool = False) -> Dict[str, Any]:
         params: Dict[str, Any] = {"limit": limit}
         if query:
             params["q"] = query
+        if fuzzy:
+            params["fuzzy"] = True
         return self._get("/api/papers", params=params)
 
     def paper(self, paper_id: str) -> Dict[str, Any]:
@@ -98,6 +100,24 @@ class CerberusClient:
 
     def lineage(self, source: str, depth: int = 2) -> Dict[str, Any]:
         return self._get("/api/lineage", {"source": source, "depth": depth})
+
+    def traverse(self, source: str, mode: str = "bfs") -> Dict[str, Any]:
+        """Full visit order from a paper — BFS or DFS, computed by the engine."""
+        return self._get("/api/traverse", {"source": source, "mode": mode})
+
+    def top_authors(self, limit: int = 10) -> Dict[str, Any]:
+        return self._get("/api/reports/authors", {"limit": limit})
+
+    def trends(self) -> Dict[str, Any]:
+        return self._get("/api/reports/trends")
+
+    def add_paper(self, paper_id: str, title: str, author: str, year: int) -> Dict[str, Any]:
+        return self._post("/api/papers", {
+            "id": paper_id, "title": title, "author": author, "year": year,
+        })
+
+    def add_citation(self, citing: str, cited: str) -> Dict[str, Any]:
+        return self._post("/api/citations", {"citing": citing, "cited": cited})
 
     def reload(self) -> Dict[str, Any]:
         return self._post("/api/reload")

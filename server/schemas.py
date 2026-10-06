@@ -84,3 +84,54 @@ class LineageResponse(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     results: List[PaperRecord]
+    fuzzy: bool = False
+
+
+class TraverseResponse(BaseModel):
+    found: bool
+    mode: str
+    source: Optional[str] = None
+    reached: int = 0
+    order: List[PathNodeStep] = Field(default_factory=list)
+
+
+class AuthorStatsRow(BaseModel):
+    author: str
+    papers: int
+    totalCitations: int
+
+
+class AuthorsResponse(BaseModel):
+    authors: List[AuthorStatsRow]
+
+
+class YearTrendRow(BaseModel):
+    year: int
+    papers: int
+    totalCitations: int
+
+
+class TrendsResponse(BaseModel):
+    trends: List[YearTrendRow]
+
+
+class PaperCreate(BaseModel):
+    id: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1)
+    author: str = Field(..., min_length=1)
+    year: int = Field(..., ge=1500, le=2100)
+
+
+class CitationCreate(BaseModel):
+    citing: str = Field(..., min_length=1)
+    cited: str = Field(..., min_length=1)
+
+
+class CitationResponse(BaseModel):
+    added: bool
+    citing: str
+    cited: str
+    papers: int
+    edges: int
+    most_cited: Optional[str] = None
+    most_cited_count: int = 0

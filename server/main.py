@@ -39,14 +39,20 @@ from fastapi.staticfiles import StaticFiles
 from . import engine as eng
 from .schemas import (
     AllPathsResponse,
+    AuthorsResponse,
+    CitationCreate,
+    CitationResponse,
     LineageResponse,
     OptimalPathResponse,
+    PaperCreate,
     PaperRecord,
     PathNodeStep,
     ReloadResponse,
     SearchResponse,
     ShortestPathResponse,
     StatsResponse,
+    TraverseResponse,
+    TrendsResponse,
 )
 
 API_VERSION = "1.0.0"
@@ -124,13 +130,65 @@ def reload_dataset() -> ReloadResponse:
 def papers(
     q: str = Query("", description="Substring match on id/title/author; empty = all"),
     limit: int = Query(20, ge=1, le=200),
+    fuzzy: bool = Query(False, description="Typo-tolerant Wagner-Fischer matching"),
 ) -> SearchResponse:
     e = _engine()
     if q.strip():
-        results = e.search(q, limit=limit)
+        results = e.search(q, limit=limit, fuzzy=fuzzy)
     else:
         results = e.papers(limit=limit)
-    return SearchResponse(query=q, results=results)
+    return SearchResponse(query=q, results=results, fuzzy=fuzzy)
+
+
+@app.get("/api/search", response_model=SearchResponse)
+def search(
+    q: str = Query("...", min_length=1, description="Search query"),
+    fuzzy: bool = Query(False, description="true = Wagner-Fischer fuzzy match"),
+    limit: int = Query(20, ge=1, le=200),
+) -> SearchResponse:
+    """Plan Phase 8 contract endpoint: explicit fuzzy toggle."""
+    e = _engine()
+    return SearchResponse(query=q, results=e.search(q, limit=limit, fuzzy=fuzzy), fuzzy=fuzzy)
+
+
+@app.get("/api/traverse", response_model=TraverseResponse)
+def traverse(
+    source: str = Query(..., min_length=1, description="Start paper id"),
+    mode: str = Query("bfs", pattern="^(bfs|dfs)$", description="Traversal strategy"),
+) -> TraverseResponse:
+    e = _engine()
+    _resolve_paper(e, source)
+    return e.traverse(source, mode=mode)
+
+
+@app.get("/api/reports/authors", response_model=AuthorsResponse)
+def reports_authors(limit: int = Query(10, ge=1, le=100)) -> AuthorsResponse:
+    return AuthorsResponse(authors=_engine().graph.top_authors(limit))
+
+
+@app.get("/api/reports/trends", response_model=TrendsResponse)
+def reports_trends() -> TrendsResponse:
+    return TrendsResponse(trends=_engine().graph.yearly_trends())
+
+
+@app.post("/api/papers", response_model=PaperRecord)
+def create_paper(body: PaperCreate) -> PaperRecord:
+    e = _engine()
+    try:
+        return e.add_paper(body.id, body.title, body.author, body.year)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/citations", response_model=CitationResponse)
+def create_citation(body: CitationCreate) -> CitationResponse:
+    e = _engine()
+    try:
+        return e.add_citation(body.citing, body.cited)
+    except ValueError as exc:
+        message = str(exc)
+        code = 404 if "not found" in message else 409
+        raise HTTPException(status_code=code, detail=message) from exc
 
 
 @app.get("/api/papers/{paper_id}", response_model=PaperRecord)

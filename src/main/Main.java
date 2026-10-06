@@ -11,6 +11,7 @@ import report.FlowRenderer;
 import report.GraphRenderer;
 import report.ReportGenerator;
 import report.Style;
+import server.ApiServer;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -30,6 +31,9 @@ import java.nio.charset.StandardCharsets;
 public class Main {
 
     private static final String DEFAULT_CSV_FILE = "citation_data.csv";
+
+    /** Default port for {@code --serve} (the Python backend owns 8005). */
+    private static final int DEFAULT_SERVE_PORT = 8006;
 
     /** Simulated shell location shown in the window sheet's title bar. */
     private static final String WINDOW_PATH =
@@ -53,8 +57,79 @@ public class Main {
     }
 
     public static void main(String[] args) {
+        if (args.length > 0 && "--serve".equals(args[0])) {
+            int port = parseServePort(args);
+            if (port < 0) {
+                System.out.println(Style.warn("Invalid port. Usage: java -cp out main.Main --serve [port]"));
+                return;
+            }
+            serve(port);
+            return;
+        }
         Main app = new Main();
         app.run();
+    }
+
+    /**
+     * Phase 10 integration mode: serves the REST API and static dashboard from
+     * the same graph the interactive console uses. Blocks until the JVM exits;
+     * a shutdown hook flushes the in-memory graph back to
+     * {@link #DEFAULT_CSV_FILE} so API mutations survive a graceful shutdown.
+     *
+     * @param port TCP port to listen on, or 0 for an ephemeral port
+     */
+    private static void serve(int port) {
+        Main app = new Main();
+
+        final ApiServer server;
+        try {
+            server = new ApiServer(app.graph, port);
+            server.start();
+        } catch (IOException e) {
+            System.out.println(Style.warn("Could not start API server on port " + port + ": " + e.getMessage()));
+            return;
+        }
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            server.stop();
+            try {
+                CsvHandler.syncCitationCounts(app.graph);
+                CsvHandler.save(app.graph, DEFAULT_CSV_FILE);
+                System.out.println("[Shutdown] Graph flushed to '" + DEFAULT_CSV_FILE + "' ("
+                        + app.graph.vertexCount() + " papers, " + app.graph.edgeCount() + " citations).");
+            } catch (IOException e) {
+                System.out.println("[Shutdown] Failed to flush CSV: " + e.getMessage());
+            }
+        }, "serve-shutdown"));
+
+        int actualPort = server.getPort();
+        System.out.println("CERBERUS API server listening on http://127.0.0.1:" + actualPort + "/");
+        System.out.println("  Endpoints: /api/papers  /api/search  /api/traverse  /api/report");
+        System.out.println("  Point the TUI or dashboard at http://127.0.0.1:" + actualPort + " to use this engine.");
+        System.out.println("  Press Ctrl+C to stop — the graph is flushed to '" + DEFAULT_CSV_FILE + "' on exit.");
+
+        try {
+            Thread.currentThread().join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Parses the optional port after {@code --serve}.
+     *
+     * @return the port, {@link #DEFAULT_SERVE_PORT} when omitted, or {@code -1} if invalid
+     */
+    private static int parseServePort(String[] args) {
+        if (args.length < 2) {
+            return DEFAULT_SERVE_PORT;
+        }
+        try {
+            int port = Integer.parseInt(args[1].trim());
+            return (port >= 0 && port <= 65535) ? port : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     /**
