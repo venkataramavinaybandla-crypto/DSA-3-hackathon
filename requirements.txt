@@ -1,1 +1,5 @@
+fastapi>=0.110
+uvicorn>=0.29
+rich>=13.7
+requests>=2.31
 pdfplumber

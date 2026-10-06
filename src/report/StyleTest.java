@@ -22,7 +22,7 @@ public class StyleTest {
         testStatusColourisesOnlyKnownTags();
         testPanelLinesFitDisplayWidth();
         testBannerLayout();
-        testRainbowTheme();
+        testPaletteTheme();
         testRuleSpansDisplayWidth();
         testBarScalesAndFills();
         testMenuLineKeepsWording();
@@ -246,35 +246,42 @@ public class StyleTest {
         assertTrue("The splash is unframed", !bare.contains("\u2502") && !bare.contains("+"));
     }
 
-    private static void testRainbowTheme() {
-        System.out.println("\n--- rainbow theme ---");
+    private static void testPaletteTheme() {
+        System.out.println("\n--- cyberpunk palette ---");
         String plainText = "CERBERUS SYSTEM";
-        String rainbow = Style.rainbow(plainText);
-        String words = Style.rainbowWords("Rank ID Title");
+        String duotone = Style.duotone(plainText);
+        String header = Style.tableHeader("Rank ID Title");
 
-        assertEquals("Rainbow adds no visible width", Style.visibleLength(plainText),
-                Style.visibleLength(rainbow));
-        assertEquals("Word rainbow adds no visible width", Style.visibleLength("Rank ID Title"),
-                Style.visibleLength(words));
-        assertEquals("Word rainbow keeps every word intact",
-                plainText.length(), Style.visibleLength(Style.rainbowWords(plainText)));
-        assertTrue("Word rainbow keeps words searchable", words.contains("Rank") && words.contains("Title"));
-        assertEquals("Empty text is returned untouched", "", Style.rainbow(""));
-        assertEquals("Null text is tolerated", null, Style.rainbow(null));
-        assertEquals("A zero-length sweep is tolerated", "", Style.rainbowSweep(""));
+        assertEquals("Duotone adds no visible width", Style.visibleLength(plainText),
+                Style.visibleLength(duotone));
+        assertEquals("Table header adds no visible width", Style.visibleLength("Rank ID Title"),
+                Style.visibleLength(header));
+        assertEquals("Table header keeps every word intact",
+                plainText.length(), Style.visibleLength(Style.tableHeader(plainText)));
+        assertTrue("Table header keeps words searchable",
+                header.contains("Rank") && header.contains("Title"));
+        assertEquals("Empty text is returned untouched", "", Style.duotone(""));
+        assertEquals("Null text is tolerated", null, Style.duotone(null));
+        assertEquals("An empty header is tolerated", "", Style.tableHeader(""));
+
+        // The four palette roles are decorators: they must never alter the printable text.
+        assertEquals("Tech role keeps its text", plainText, plain(Style.tech(plainText)));
+        assertEquals("Cyber role keeps its text", plainText, plain(Style.cyber(plainText)));
+        assertEquals("Laser role keeps its text", plainText, plain(Style.laser(plainText)));
+        assertEquals("Ghost role keeps its text", plainText, plain(Style.ghost(plainText)));
 
         if (Style.colors()) {
-            assertTrue("Rainbow emits colour", rainbow.indexOf('\u001B') >= 0);
-            assertTrue("Each rainbow character is closed",
-                    rainbow.indexOf('\u001B') < rainbow.indexOf('C'));
+            assertTrue("Duotone emits colour", duotone.indexOf('\u001B') >= 0);
+            assertTrue("Table header emits colour", header.indexOf('\u001B') >= 0);
+            assertTrue("Laser role emits colour", Style.laser("x").indexOf('\u001B') >= 0);
             assertTrue("Menu numbering is painted per entry",
                     plain(Style.menuLine("  1. one", 0)).contains("1."));
-            assertEquals("Rainbow menu numbering stays on one column",
+            assertEquals("Menu numbering stays on one column",
                     plain(Style.menuLine("  1. one", 0)).indexOf('.'),
                     plain(Style.menuLine(" 10. ten", 1)).indexOf('.'));
         } else {
-            assertEquals("Without colour the text is unchanged", plainText, rainbow);
-            assertEquals("Without colour words are unchanged", "Rank ID Title", words);
+            assertEquals("Without colour the duotone text is unchanged", plainText, duotone);
+            assertEquals("Without colour the header is unchanged", "Rank ID Title", header);
         }
     }
 

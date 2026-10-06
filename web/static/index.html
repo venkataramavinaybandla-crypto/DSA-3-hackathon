@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CERBERUS SYSTEM — Citation Analysis Dashboard</title>
+  <meta name="description" content="A data structures-driven approach to tracking academic citations. Every paper is a vertex, every citation a directed edge.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <main class="stage">
+
+    <!-- =====================================================================
+         1. EXTERNAL GIANT TITLE
+         Deliberately outside and directly above the interface window.
+         ================================================================== -->
+    <header class="masthead">
+      <p class="masthead__eyebrow">DSA-3 &middot; Section 07 &middot; Team 20</p>
+
+      <h1 class="glitch-title" data-text="CERBERUS SYSTEM">CERBERUS SYSTEM</h1>
+
+      <p class="masthead__sub">
+        Pure Java Data Structures &amp; Algorithms <em>&middot;</em> Citation Analysis
+      </p>
+    </header>
+
+    <!-- =====================================================================
+         2. macOS / MacBook WINDOW SHEET FRAME
+         ================================================================== -->
+    <section class="window" aria-label="Cerberus citation dashboard window">
+
+      <!-- Title bar: three window controls + path + live status -->
+      <header class="window__bar">
+        <div class="window__dots" role="group" aria-label="Window controls">
+          <span class="dot dot--close"    title="Close"></span>
+          <span class="dot dot--minimise" title="Minimise"></span>
+          <span class="dot dot--maximise" title="Maximise"></span>
+        </div>
+
+        <p class="window__title">cerberus@dsa3 : ~/citation-graph — <b>citation_data.csv</b></p>
+        <p class="window__status"><i>&#9679;</i> 75 papers &middot; 91 edges</p>
+      </header>
+
+      <!-- Sharp Tech-Violet bordered interface panel, nested inside the sheet -->
+      <div class="panel-shell">
+
+        <header class="panel-shell__head">
+          <h2 class="panel-shell__title">Citation Intelligence Console</h2>
+          <nav class="tabs" aria-label="Dashboard views">
+            <span id="tab-graph" class="is-active">Graph</span>
+            <span id="tab-search">Search</span>
+            <span id="tab-traversal">Traversal</span>
+            <span id="tab-reports">Reports</span>
+          </nav>
+        </header>
+
+        <!-- Dashboard divider grid (1px Tech Violet lines between every cell) -->
+        <div class="dashboard">
+
+          <!-- ------- left rail: data-structure types / categories ------- -->
+          <aside class="rail" aria-label="Data structures and algorithms">
+            <h3 class="rail__heading">Data Structures</h3>
+            <ul class="rail__list">
+              <li><span>Adjacency List Graph</span><span class="tag">O(V+E)</span></li>
+              <li><span>Custom Hash Table</span><span class="tag">O(1)</span></li>
+              <li><span>Array Stack &amp; Queue</span><span class="tag">O(1)</span></li>
+              <li><span>Dynamic Array</span><span class="tag">O(1)&#8226;amortised</span></li>
+            </ul>
+
+            <h3 class="rail__heading">Algorithms</h3>
+            <ul class="rail__list">
+              <li><span>KMP Matcher</span><span class="tag">O(n+m)</span></li>
+              <li><span>Rabin&#8211;Karp</span><span class="tag">O(n+m)</span></li>
+              <li><span>Wagner&#8211;Fischer</span><span class="tag">O(m&middot;n)</span></li>
+              <li><span>MergeSort (stable)</span><span class="tag">O(n&nbsp;log&nbsp;n)</span></li>
+              <li><span>Bitmask DP Route</span><span class="tag">O(2&#8319;&middot;n&#178;)</span></li>
+            </ul>
+          </aside>
+
+          <!-- ------- main column ------- -->
+          <div class="panels">
+
+            <!-- metric tiles — Laser Pink numbers -->
+            <section class="metrics" aria-label="Key metrics">
+              <div class="metric">
+                <span class="metric__label">Papers</span>
+                <span class="metric__value">75</span>
+              </div>
+              <div class="metric">
+                <span class="metric__label">Citation Edges</span>
+                <span class="metric__value">91</span>
+              </div>
+              <div class="metric">
+                <span class="metric__label">Most Cited</span>
+                <span class="metric__value">15<small> P101</small></span>
+              </div>
+              <div class="metric">
+                <span class="metric__label">Traversal Cost</span>
+                <span class="metric__value">O(V+E)</span>
+              </div>
+            </section>
+
+            <!-- top cited papers — report table -->
+            <section class="panel" aria-label="Most-cited papers">
+              <h3 class="panel__heading">Top Cited Papers</h3>
+
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th class="rank" scope="col">#</th>
+                    <th scope="col">ID</th>
+                    <th scope="col">Title</th>
+                    <th class="col-author" scope="col">Author</th>
+                    <th scope="col">Year</th>
+                    <th scope="col" style="text-align:right;">Citations</th>
+                    <th scope="col">Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="rank">1</td>
+                    <td class="id">P101</td>
+                    <td>Attention Is All You Need</td>
+                    <td class="author">Ashish Vaswani et al.</td>
+                    <td>2017</td>
+                    <td class="count">15</td>
+                    <td><span class="share"><span class="share__fill" style="width:100%"></span></span></td>
+                  </tr>
+                  <tr>
+                    <td class="rank">2</td>
+                    <td class="id">P104</td>
+                    <td>Deep Residual Learning for Image Recognition</td>
+                    <td class="author">Kaiming He et al.</td>
+                    <td>2015</td>
+                    <td class="count">8</td>
+                    <td><span class="share"><span class="share__fill" style="width:53%"></span></span></td>
+                  </tr>
+                  <tr>
+                    <td class="rank">3</td>
+                    <td class="id">P107</td>
+                    <td>ImageNet Classification with Deep CNNs</td>
+                    <td class="author">Krizhevsky et al.</td>
+                    <td>2012</td>
+                    <td class="count">7</td>
+                    <td><span class="share"><span class="share__fill" style="width:47%"></span></span></td>
+                  </tr>
+                  <tr>
+                    <td class="rank">4</td>
+                    <td class="id">P102</td>
+                    <td>BERT: Pre-training of Deep Bidirectional Transformers</td>
+                    <td class="author">Jacob Devlin et al.</td>
+                    <td>2018</td>
+                    <td class="count">7</td>
+                    <td><span class="share"><span class="share__fill" style="width:47%"></span></span></td>
+                  </tr>
+                  <tr>
+                    <td class="rank">5</td>
+                    <td class="id">P103</td>
+                    <td>Language Models are Few-Shot Learners</td>
+                    <td class="author">Tom B. Brown et al.</td>
+                    <td>2020</td>
+                    <td class="count">4</td>
+                    <td><span class="share"><span class="share__fill" style="width:27%"></span></span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+
+            <!-- citation lineage strip -->
+            <section class="panel" aria-label="Citation chain">
+              <h3 class="panel__heading">Citation Lineage &mdash; P103 &rarr; P101</h3>
+              <div class="flow">
+                <span class="node node--hot">P103</span>
+                <span class="arrow">&rarr;</span>
+                <span class="node">P102</span>
+                <span class="arrow">&rarr;</span>
+                <span class="node node--hot">P101</span>
+                <span class="arrow">&rarr;</span>
+                <span class="node">P104</span>
+                <span class="arrow">&rarr;</span>
+                <span class="node">P107</span>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Terminal status line -->
+      <footer class="window__foot">
+        <span class="ok">&#10003; engine ready &mdash; zero java.util in core logic</span>
+        <span><kbd>KMP</kbd> &middot; <kbd>Rabin&#8211;Karp</kbd> &middot; <kbd>Wagner&#8211;Fischer</kbd> &middot; <kbd>MergeSort</kbd></span>
+      </footer>
+
+    </section>
+
+  </main>
+  <script src="app.js" defer></script>
+</body>
+</html>

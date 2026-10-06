@@ -18,6 +18,7 @@ import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -30,9 +31,19 @@ public class Main {
 
     private static final String DEFAULT_CSV_FILE = "citation_data.csv";
 
+    /** Simulated shell location shown in the window sheet's title bar. */
+    private static final String WINDOW_PATH =
+            "cerberus@dsa3 : ~/citation-graph  --  " + DEFAULT_CSV_FILE;
+
     private Graph graph;
     private final BufferedReader reader;
     private boolean unsavedChanges;
+
+    /** The real stdout, kept so it can be restored when the window sheet is closed. */
+    private PrintStream console;
+
+    /** The framed stdout wrapper, or {@code null} when no window sheet is installed. */
+    private Style.Window window;
 
     public Main() {
         this.graph = new Graph();
@@ -148,18 +159,47 @@ public class Main {
                     message("[Error] Invalid choice: '" + choice + "'. Please enter a number between 1 and 12.");
             }
         }
+
+        closeBanner();
     }
 
     private void printBanner() {
-        System.out.print(Style.banner("C E R B E R U S   S Y S T E M",
-                Style.muted("Pure Java Data Structures & Algorithms  " + dot() + "  Citation Analysis"),
-                infoPanel()));
+        // The display wordmark sits completely outside and directly above the window sheet.
+        System.out.print(Style.wordmark());
+        Style.openWindow(WINDOW_PATH);
+
+        // Everything printed from here on is drawn inside the window's interface panel.
+        this.console = System.out;
+        this.window = new Style.Window(console);
+        System.setOut(window.stream());
+
+        System.out.println(Style.heading("CERBERUS SYSTEM"));
+        System.out.println(Style.rule());
+        System.out.println();
+        for (String row : Style.columns(infoPanel(), 2)) {
+            System.out.println(row);
+        }
+        // Folded to the content width so the subtitle never bleeds past the window frame.
+        System.out.println(Style.fold(Style.muted("Pure Java Data Structures & Algorithms  " + dot()
+                + "  Citation Analysis"), Style.width()));
+        System.out.println();
         // Folded to the display width, so the summary never wraps on a narrow terminal.
-        System.out.println(Style.fold("  " + Style.muted("Graph loaded with ")
+        System.out.println(Style.fold(Style.muted("Graph loaded with ")
                 + Style.emphasis(String.valueOf(graph.vertexCount()))
                 + Style.muted(" research papers and ")
                 + Style.emphasis(String.valueOf(graph.edgeCount()))
                 + Style.muted(" citation edges."), Style.width()));
+    }
+
+    /** Restores stdout and draws the bottom of the window sheet. */
+    private void closeBanner() {
+        if (window == null) {
+            return;
+        }
+        window.endLine();
+        System.setOut(console);
+        Style.closeWindow();
+        window = null;
     }
 
     private void printMainMenu() {
@@ -470,10 +510,11 @@ public class Main {
 
         for (int i = 0; i < visitOrder.size(); i++) {
             Paper p = graph.getPaper(visitOrder.get(i));
-            System.out.println(Style.muted(String.format("%2d. ", (i + 1)))
+            // Folded to the content width so a long title never runs past the window frame.
+            System.out.println(Style.fold(Style.muted(String.format("%2d. ", (i + 1)))
                     + Style.highlight("[" + p.getId() + "]")
                     + " \"" + p.getTitle() + "\" by " + Style.note(p.getAuthor())
-                    + " (" + p.getYear() + ")");
+                    + " (" + p.getYear() + ")", Style.width()));
         }
 
         // Narrate the citation chain from the start paper to the last paper in the traversal
@@ -481,8 +522,9 @@ public class Main {
             String lastPaperId = graph.getPaper(visitOrder.get(visitOrder.size() - 1)).getId();
             GraphTraversal traverser = new GraphTraversal();
             String chain = traverser.narrateChain(graph, startId, lastPaperId);
-            System.out.println(Style.muted("Narrated chain to ")
-                    + Style.highlight("[" + lastPaperId + "]") + Style.muted(": ") + chain);
+            System.out.println(Style.fold(Style.muted("Narrated chain to ")
+                    + Style.highlight("[" + lastPaperId + "]") + Style.muted(": ") + chain,
+                    Style.width()));
         }
     }
 
@@ -977,7 +1019,9 @@ public class Main {
             }
         }
         System.out.println();
-        System.out.println(Style.highlight("Thank you for using the Citation Analysis System. Goodbye!"));
+        System.out.println(Style.fold(
+                Style.highlight("Thank you for using the Citation Analysis System. Goodbye!"),
+                Style.width()));
         return false; // Stop main loop
     }
 

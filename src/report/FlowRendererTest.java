@@ -186,7 +186,20 @@ public class FlowRendererTest {
             }
         }
         assertEquals("Every paper of the wrapped chain is drawn", 0, missing);
-        assertEquals("The joining paper is repeated between rows", 2, countOccurrences(art, "N105"));
+        // Where the chain wraps depends on the display width (the renderer derives its boxes-per-row
+        // from Style.width()), so assert the shape of the row join rather than one hardcoded ID:
+        // every paper is drawn, every joining paper is repeated exactly once, and none is drawn
+        // three times.
+        int joins = 0;
+        for (int i = 0; i < 40; i++) {
+            int seen = countOccurrences(art, "N" + (100 + i));
+            assertTrue("No paper is dropped from the wrapped chain", seen >= 1);
+            assertTrue("No paper is drawn more than twice", seen <= 2);
+            if (seen == 2) {
+                joins++;
+            }
+        }
+        assertTrue("At least one paper is repeated at a row join", joins > 0);
         assertTrue("More than one box row was drawn",
                 countOccurrences(art, Style.unicode() ? "\u21B3" : "\\") > 0);
     }

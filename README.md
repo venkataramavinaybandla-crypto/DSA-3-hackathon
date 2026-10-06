@@ -216,20 +216,31 @@ java -cp out main.Main
 
 ### 🎨 Console Styling
 
-The terminal UI carries a **rainbow theme**: system titles, section headings, menu numbering, rule
-captions and report table headers are all painted with a spectrum sweep, and every node in a graph
-diagram gets its own hue. The layout is deliberately **open** — sections are separated by a coloured
-hairline rule and a line of air instead of drawn boxes — so nothing is spent on borders and the
-console reads cleanly at any width. None of it changes a prompt, a menu number or a line of data, and
-it is detected at startup then degrades cleanly:
+The terminal UI carries a **cyberpunk palette**. Every accent comes from four roles, so the console
+reads as one deliberate system instead of a spectrum sweep:
+
+| Role | Hex | Used for |
+|:---|:---|:---|
+| Tech Violet | `#5B0FFF` | The macOS-style window sheet, the interface-panel border, section rules and divider grids |
+| Cyber Purple | `#A32EFF` | Secondary identifiers: authors, categories and complexity tags |
+| Laser Pink | `#FF007F` | Used sparingly — active menu numbers, citation keys, metrics and report bars |
+| Ghost White | `#F5F3F7` | The readable body text |
+
+The display title is a five-row solid-block wordmark (`CERBERUS` / `SYSTEM`) painted as a Tech Violet
+to Laser Pink duotone, printed completely **outside and above** the window sheet. A terminal cannot be
+told to load a font file, so a block wordmark is the closest a console gets to the display face the
+browser build renders with Orbitron. The application content area is then wrapped in a double-line
+box frame with three colourised window-management dots at its top-left margin, and every session is
+drawn inside it. None of it changes a prompt, a menu number or a line of data, and it is detected at
+startup then degrades cleanly:
 
 | Situation | What you see |
 |:---|:---|
-| Modern terminal (UTF-8, ANSI) | Rainbow banner and headings, gradient hairline rules, colour-coded status tags, report bars, graph diagrams whose nodes are hue-tinted chips |
-| 24-bit colour (`COLORTERM`) | The spectrum in full 24-bit; otherwise it is quantised to the 256-colour cube |
-| Legacy console / piped output | Plain ASCII (`▌` becomes `|`, `─` becomes `-`, `-->` arrows, `[P102]` nodes), no escape codes at all |
-| Narrow window | Every open section fits the terminal width: long rows fold or truncate, the splash switches to a single column |
-| Status tags | Always semantic - red for errors, green for success, cyan for notices - so the rainbow never hides a problem |
+| Modern terminal (UTF-8, ANSI) | Block wordmark, double-line window sheet with `● ● ●`, Tech Violet rules, Laser Pink metrics, graph diagrams whose node chips alternate pink and purple |
+| 24-bit colour (`COLORTERM`) | The palette in full 24-bit; otherwise it is quantised to the 256-colour cube |
+| Legacy console / piped output | Plain ASCII (`█` becomes `#`, `═`/`║` become `=`/`|`, `●` becomes `o`, `-->` arrows), no escape codes at all |
+| Narrow window | The content column narrows to leave room for the frame: long rows fold or truncate, the info panel switches to a single column |
+| Status tags | Always semantic — red for errors, green for success, cyan for notices — so a problem is never hidden by the theme |
 
 ```bash
 NO_COLOR=1 java -cp out main.Main              # force plain output

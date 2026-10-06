@@ -2,6 +2,10 @@ package report;
 
 import core.DynamicArray;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
 
@@ -48,7 +52,6 @@ public final class Style {
     private static final String BLUE = CSI + "94m";
     private static final String MAGENTA = CSI + "95m";
     private static final String CYAN = CSI + "96m";
-    private static final String WHITE = CSI + "97m";
 
     /**
      * Colour depth the current stdout can render.
@@ -144,23 +147,35 @@ public final class Style {
     }
 
     /**
-     * Chooses the display width used by every frame and rule.
+     * Chooses the content width used by every rule, panel and frame body.
      *
-     * @return the shell's reported {@code COLUMNS}, clamped to a readable range, else {@value #DEFAULT_WIDTH}
+     * <p>The window chrome always eats {@link #FRAME_OVERHEAD} columns, so what this returns is what
+     * is left for the content. {@link #MIN_WIDTH} is a floor on the <em>whole window</em>, chrome
+     * included - applying it to the content instead would push the frame past the terminal edge.
+     *
+     * @return the shell's reported {@code COLUMNS} less the chrome, clamped to a readable range,
+     *         else {@value #DEFAULT_WIDTH} less the chrome
      */
     public static int width() {
-        String columns = env("COLUMNS");
-        if (columns != null) {
+        int columns = DEFAULT_WIDTH;
+        String reported = env("COLUMNS");
+        if (reported != null) {
             try {
-                int parsed = Integer.parseInt(columns.trim());
+                int parsed = Integer.parseInt(reported.trim());
                 if (parsed > 0) {
-                    return parsed < MIN_WIDTH ? MIN_WIDTH : (parsed > MAX_WIDTH ? MAX_WIDTH : parsed);
+                    columns = parsed;
                 }
             } catch (NumberFormatException ignored) {
                 // fall through to the default width
             }
         }
-        return DEFAULT_WIDTH;
+        // The window chrome eats FRAME_OVERHEAD columns, so the content width is what remains.
+        int content = columns - FRAME_OVERHEAD;
+        int minimumContent = MIN_WIDTH - FRAME_OVERHEAD;
+        if (content < minimumContent) {
+            return minimumContent;
+        }
+        return content > MAX_WIDTH ? MAX_WIDTH : content;
     }
 
     // ------------------------------------------------------------------ painting
@@ -175,19 +190,19 @@ public final class Style {
         return sgr + text + RESET;
     }
 
-    /** Section/file headings. */
+    /** Citation keys and references, e.g. {@code [P101]} - Laser Pink, the action accent. */
     public static String highlight(String text) {
-        return paint(BOLD + CYAN, text);
+        return laser(text);
     }
 
-    /** Emphasised labels and values. */
+    /** Emphasised labels and values - Ghost White, the readable body voice. */
     public static String strong(String text) {
-        return paint(BOLD + WHITE, text);
+        return ghost(text);
     }
 
-    /** The most important number or word on a line. */
+    /** The most important number or word on a line - a metric, so Laser Pink. */
     public static String emphasis(String text) {
-        return paint(BOLD + MAGENTA, text);
+        return laser(text);
     }
 
     /** Secondary text that should recede. */
@@ -210,158 +225,121 @@ public final class Style {
         return paint(YELLOW, text);
     }
 
-    /** Informational aside. */
+    /** Secondary identifiers: authors, categories, complexity tags - Cyber Purple. */
     public static String note(String text) {
-        return paint(CYAN, text);
+        return cyber(text);
     }
 
-    // ------------------------------------------------------------------ rainbow theme
-
-    /** Saturation and brightness of the rainbow sweep: vivid, but still readable on dark terminals. */
-    private static final double RAINBOW_SATURATION = 0.85;
-    private static final double RAINBOW_VALUE = 1.0;
-    /** Hue advance, in degrees, per character for {@link #rainbow(String)}. */
-    private static final double RAINBOW_STEP = 12.0;
+    // ------------------------------------------------------------------ cyberpunk palette
 
     /**
-     * Paints text with a rainbow sweep, advancing the hue at every character. This is the project's
-     * text theme: titles, headings, menu numbers, table headers and rule captions all run through it.
+     * The recognised Cyberpunk colour system. Every accent in the interface is drawn from these five
+     * roles, so the console reads as one deliberate palette instead of a spectrum sweep:
      *
-     * @param text the text to paint
-     * @return the rainbow text, or the text unchanged when colour is unavailable
+     * <ul>
+     *   <li>{@link #OBSIDIAN} - 60%, the ink-dark canvas</li>
+     *   <li>{@link #TECH} - 30%, frames, inner borders and the dashboard divider grid</li>
+     *   <li>{@link #CYBER} - structural categories, secondary labels and data-structure types</li>
+     *   <li>{@link #LASER} - 10%, reserved for metrics and interactive tokens</li>
+     *   <li>{@link #GHOST} - the crisp, hyper-readable body text</li>
+     * </ul>
      */
-    public static String rainbow(String text) {
-        return rainbow(text, RAINBOW_STEP, false);
+    private static final int[] OBSIDIAN = {11, 8, 19};
+    private static final int[] TECH = {91, 15, 255};
+    private static final int[] CYBER = {163, 46, 255};
+    private static final int[] LASER = {255, 0, 127};
+    private static final int[] GHOST = {245, 243, 247};
+
+    /** Paints text in Tech Violet, bold: the structural voice of the interface. */
+    public static String tech(String text) {
+        return inkBold(TECH, text);
     }
 
-    /** As {@link #rainbow(String)}, in bold. */
-    public static String rainbowBold(String text) {
-        return rainbow(text, RAINBOW_STEP, true);
+    /** Paints text in Cyber Purple: secondary labels, categories and data-structure types. */
+    public static String cyber(String text) {
+        return ink(CYBER, text);
     }
 
-    /** Spreads exactly one full spectrum from red back to red, however long the text is. */
-    public static String rainbowSweep(String text) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        return rainbow(text, 360.0 / text.length(), false);
+    /** Paints text in Laser Pink, bold: reserved for metrics and interactive tokens. */
+    public static String laser(String text) {
+        return inkBold(LASER, text);
     }
 
-    /** As {@link #rainbowSweep(String)}, in bold. */
-    public static String rainbowSweepBold(String text) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        return rainbow(text, 360.0 / text.length(), true);
+    /** Paints text in Ghost White, bold: the readable body voice for data blocks. */
+    public static String ghost(String text) {
+        return inkBold(GHOST, text);
     }
 
     /**
-     * Paints text word by word, stepping the hue between words. Because each word is emitted as one
-     * contiguous coloured run, the plain text stays intact and remains safe to search or assert on
-     * (unlike {@link #rainbowSweep(String)}, which colours each character separately).
+     * Paints text as a two-tone sweep, Tech Violet shading into Laser Pink across the characters.
+     * This is the project's title treatment: one deliberate duotone, never a rainbow.
      *
      * @param text the text to paint
-     * @return the painted text
+     * @return the painted text, or the text unchanged when colour is unavailable
      */
-    public static String rainbowWords(String text) {
+    public static String duotone(String text) {
+        return duotone(text, false);
+    }
+
+    /** As {@link #duotone(String)}, in bold. */
+    public static String duotoneBold(String text) {
+        return duotone(text, true);
+    }
+
+    private static String duotone(String text, boolean bold) {
         if (text == null || text.isEmpty() || !COLORS) {
             return text;
         }
-        StringBuilder sb = new StringBuilder(text.length() * 20);
-        int hue = 0;
-        int i = 0;
-        while (i < text.length()) {
-            if (text.charAt(i) == ' ') {
-                sb.append(' ');
-                i++;
-                continue;
-            }
-            int wordStart = i;
-            while (i < text.length() && text.charAt(i) != ' ') {
-                i++;
-            }
-            sb.append(hue(hue, text.substring(wordStart, i)));
-            hue = (hue + 45) % 360;
-        }
-        return sb.toString();
-    }
-
-    /** Paints a single character in the hue for a given position, used for the menu numbering. */
-    public static String hue(int degrees, String text) {
-        int[] rgb = hsvToRgb(degrees, RAINBOW_SATURATION, RAINBOW_VALUE);
-        return paint(BOLD + fg(rgb[0], rgb[1], rgb[2]), text);
-    }
-
-    private static String rainbow(String text, double degreesPerChar, boolean bold) {
-        if (text == null || text.isEmpty() || !COLORS) {
-            return text;
-        }
-        StringBuilder sb = new StringBuilder(text.length() * 20);
-        double hue = 0;
+        StringBuilder sb = new StringBuilder(text.length() * 24);
+        int last = Math.max(1, text.length() - 1);
         for (int i = 0; i < text.length(); i++) {
             char glyph = text.charAt(i);
-            if (glyph == ' ' || glyph == '\n') {
+            if (glyph == ' ') {
                 sb.append(glyph);
-            } else {
-                int[] rgb = hsvToRgb(hue, RAINBOW_SATURATION, RAINBOW_VALUE);
-                sb.append(fg(rgb[0], rgb[1], rgb[2]));
-                if (bold) {
-                    sb.append(BOLD);
-                }
-                sb.append(glyph).append(RESET);
+                continue;
             }
-            hue += degreesPerChar;
+            int[] rgb = mix(TECH, LASER, (double) i / last);
+            sb.append(fg(rgb[0], rgb[1], rgb[2]));
+            if (bold) {
+                sb.append(BOLD);
+            }
+            sb.append(glyph).append(RESET);
         }
         return sb.toString();
     }
 
-    /** Converts an HSV triple (hue in degrees, saturation and value in 0..1) to RGB bytes. */
-    private static int[] hsvToRgb(double hue, double saturation, double value) {
-        double degrees = ((hue % 360) + 360) % 360;
-        double chroma = value * saturation;
-        double sixth = degrees / 60.0;
-        double second = chroma * (1 - Math.abs(sixth % 2 - 1));
-        double red;
-        double green;
-        double blue;
-        switch ((int) Math.floor(sixth) % 6) {
-            case 0:
-                red = chroma;
-                green = second;
-                blue = 0;
-                break;
-            case 1:
-                red = second;
-                green = chroma;
-                blue = 0;
-                break;
-            case 2:
-                red = 0;
-                green = chroma;
-                blue = second;
-                break;
-            case 3:
-                red = 0;
-                green = second;
-                blue = chroma;
-                break;
-            case 4:
-                red = second;
-                green = 0;
-                blue = chroma;
-                break;
-            default:
-                red = chroma;
-                green = 0;
-                blue = second;
-                break;
-        }
-        double match = value - chroma;
+    /**
+     * Paints a report table header in Tech Violet. The header is emitted as one contiguous run, so
+     * the plain text stays intact and remains safe to search or assert on.
+     *
+     * @param text the header row
+     * @return the painted header
+     */
+    public static String tableHeader(String text) {
+        return inkBold(TECH, text);
+    }
+
+    /** Blends two palette roles; {@code t} runs 0 (all {@code from}) to 1 (all {@code to}). */
+    private static int[] mix(int[] from, int[] to, double t) {
+        double ratio = t < 0 ? 0 : (t > 1 ? 1 : t);
         return new int[]{
-                (int) Math.round((red + match) * 255),
-                (int) Math.round((green + match) * 255),
-                (int) Math.round((blue + match) * 255)
+                (int) Math.round(from[0] + (to[0] - from[0]) * ratio),
+                (int) Math.round(from[1] + (to[1] - from[1]) * ratio),
+                (int) Math.round(from[2] + (to[2] - from[2]) * ratio)
         };
+    }
+
+    /** @return the bold foreground escape for a palette role, or {@code ""} without colour */
+    private static String sgr(int[] role) {
+        return BOLD + fg(role[0], role[1], role[2]);
+    }
+
+    private static String ink(int[] role, String text) {
+        return paint(fg(role[0], role[1], role[2]), text);
+    }
+
+    private static String inkBold(int[] role, String text) {
+        return paint(sgr(role), text);
     }
 
     // ------------------------------------------------------------------ measuring
@@ -466,17 +444,12 @@ public final class Style {
 
     // ------------------------------------------------------------------ open sections
 
-    /** Hue span of a full-width rule: one soft rainbow hairline across each section gap. */
-    private static final int RULE_SWEEP = 359;
-    /** Rules sit deliberately softer than the text, so they read as light rather than as ink. */
-    private static final double RULE_SATURATION = 0.72;
-    private static final double RULE_VALUE = 0.85;
     /** One step of nesting inside an open section - the whole console lines up on one edge. */
     private static final String INDENT = "  ";
 
-    /** @return a full-width rule lit by the rainbow gradient (a hairline, not a border) */
+    /** @return a full-width Tech Violet rule: the divider grid between dashboard sections */
     public static String rule() {
-        return gradient(H.repeat(width()), 0, RULE_SWEEP);
+        return paint(sgr(TECH), H.repeat(width()));
     }
 
     /** @return a full-width rule with a labelled centre, e.g. {@code TOP 5 PAPERS} */
@@ -491,40 +464,15 @@ public final class Style {
         }
         int left = fill / 2;
         int right = fill - left;
-        int mid = RULE_SWEEP * left / Math.max(1, width());
-        return gradient(H.repeat(left), 0, mid)
-                + " " + rainbowWords(label) + " "
-                + gradient(H.repeat(right), mid, RULE_SWEEP);
+        return paint(sgr(TECH), H.repeat(left))
+                + " " + laser(label) + " "
+                + paint(sgr(TECH), H.repeat(right));
     }
 
     /**
-     * Paints a run of characters with a hue gradient. The characters themselves are untouched, so a
-     * gradient run keeps its exact width however the hue walks.
-     *
-     * @param text    the characters to light up
-     * @param fromHue starting hue, in degrees
-     * @param toHue   ending hue, in degrees
-     * @return the gradient run, or the plain text when colour is unavailable
-     */
-    private static String gradient(String text, int fromHue, int toHue) {
-        if (text == null || text.isEmpty() || !COLORS) {
-            return text;
-        }
-        StringBuilder sb = new StringBuilder(text.length() * 20);
-        int last = Math.max(1, text.length() - 1);
-        for (int i = 0; i < text.length(); i++) {
-            int degrees = fromHue + (toHue - fromHue) * i / last;
-            int[] rgb = hsvToRgb(degrees, RULE_SATURATION, RULE_VALUE);
-            sb.append(fg(rgb[0], rgb[1], rgb[2])).append(text.charAt(i));
-        }
-        return sb.append(RESET).toString();
-    }
-
-    /**
-     * Draws an <em>open</em> section - there are no borders anywhere: an accent bar carrying the
-     * rainbow title, a hairline rule, a breath of space, then the body rows indented beneath it.
-     * Sections are separated by light and air instead of frames, which keeps the console clean and
-     * legible at any terminal width.
+     * Draws a section inside the window frame: an accent bar carrying the title, a hairline rule, a
+     * breath of space, then the body rows indented beneath it. The window chrome supplies the only
+     * borders, so sections are separated by light and air and the console stays legible at any width.
      *
      * @param title optional caption placed above the rule; may be {@code null}
      * @param lines body rows, already decorated if desired
@@ -562,8 +510,8 @@ public final class Style {
     }
 
     /**
-     * Highlights the leading {@code N.} marker, walking the hue down the menu so the numbering reads
-     * as a rainbow column while the wording stays exactly what the caller supplied.
+     * Highlights the leading {@code N.} marker in Laser Pink, so the numbering reads as one
+     * interactive column while the wording stays exactly what the caller supplied.
      *
      * @param entry the menu text, e.g. {@code "  1. Add a paper"}
      * @param index zero-based position of the entry in the menu
@@ -581,17 +529,17 @@ public final class Style {
         if (dot > start && dot - start <= 2) {
             String number = entry.substring(start, dot);
             // A two-cell right-aligned number keeps every '.' on one column.
-            return hue(index * 30, padLeft(number, 2)) + entry.substring(dot);
+            return laser(padLeft(number, 2)) + entry.substring(dot);
         }
         return entry;
     }
 
     /**
-     * Builds the startup splash: the rainbow system name centred on the page, a subtitle, a hairline
-     * rule, then the environment information laid out in balanced columns. Nothing is framed, so the
-     * splash reads as an open title page rather than a dialog box.
+     * Builds the startup splash: the system name centred on the page, a subtitle, a hairline rule,
+     * then the environment information laid out in balanced columns. The splash itself is unframed -
+     * the window chrome is drawn separately by {@link #openWindow(String)}.
      *
-     * @param title    the system name, painted with one full rainbow sweep
+     * @param title    the system name, painted as a Tech Violet to Laser Pink duotone
      * @param subtitle optional dim line under the title
      * @param info     information rows (already styled), or {@code null}
      * @return a multi-line splash (ends with a newline)
@@ -601,7 +549,7 @@ public final class Style {
         DynamicArray<String> rows = new DynamicArray<>();
         rows.add("");
         if (title != null && !title.isEmpty()) {
-            rows.add(center(rainbowSweepBold(truncate(title, content)), content));
+            rows.add(center(duotoneBold(truncate(title, content)), content));
         }
         if (subtitle != null && !subtitle.isEmpty()) {
             rows.add(center(truncate(subtitle, content), content));
@@ -628,7 +576,7 @@ public final class Style {
      * @param count how many columns to use
      * @return one string per output line
      */
-    private static String[] columns(String[] rows, int count) {
+    public static String[] columns(String[] rows, int count) {
         if (rows == null || rows.length == 0) {
             return new String[0];
         }
@@ -709,14 +657,24 @@ public final class Style {
         return null;
     }
 
-    /** Renders a section heading: an accent bar followed by the title in the rainbow theme. */
+    /** Renders a section heading: a Laser Pink accent bar followed by the title in Tech Violet. */
     public static String heading(String text) {
-        return paint(BOLD + CYAN, BAR) + " " + rainbowSweepBold(text);
+        return paint(sgr(LASER), BAR) + " " + tech(text);
     }
 
-    /** Renders a labelled value line, e.g. {@code Hop Count : 3}. */
+    /** Column the value of a {@link #field(String, String)} starts on. */
+    private static final int FIELD_LABEL_WIDTH = 18;
+
+    /**
+     * Renders a labelled value line, e.g. {@code Hop Count : 3}. A value longer than the space left
+     * beside the label is folded underneath it, so a long narrated chain cannot run past the window
+     * frame.
+     */
     public static String field(String label, String value) {
-        return paint(DIM, padRight(label, 18)) + paint(BOLD + WHITE, value);
+        String head = paint(sgr(CYBER), padRight(label, FIELD_LABEL_WIDTH));
+        String folded = fold(paint(sgr(GHOST), value == null ? "" : value),
+                Math.max(12, width() - FIELD_LABEL_WIDTH));
+        return head + folded.replace("\n", "\n" + " ".repeat(FIELD_LABEL_WIDTH));
     }
 
     /**
@@ -738,7 +696,7 @@ public final class Style {
                 filled = cells;
             }
         }
-        return paint(GREEN, FULL.repeat(filled)) + paint(DIM, EMPTY.repeat(cells - filled));
+        return paint(sgr(LASER), FULL.repeat(filled)) + paint(DIM, EMPTY.repeat(cells - filled));
     }
 
     /**
@@ -825,9 +783,9 @@ public final class Style {
     }
 
     /**
-     * Turns every {@code [ID]} box in a diagram into a coloured node chip, walking the hue for each
-     * node so a graph reads as a rainbow of papers rather than a wall of grey text. The characters
-     * themselves are untouched, so the diagram keeps its exact width and layout.
+     * Turns every {@code [ID]} box in a diagram into a coloured node chip, alternating between the
+     * Laser Pink and Cyber Purple roles so a graph reads as a set of nodes rather than a wall of grey
+     * text. The characters themselves are untouched, so the diagram keeps its exact width and layout.
      */
     private static String colourLabels(String art) {
         StringBuilder sb = new StringBuilder(art.length() + 64);
@@ -855,11 +813,275 @@ public final class Style {
      * hue, so the chip stays readable on any terminal background.
      */
     private static String nodeChip(String label, int index) {
-        int hue = (index * 53) % 360;
-        int[] ink = hsvToRgb(hue, 0.5, 1.0);
-        int[] panel = hsvToRgb(hue, 0.75, 0.24);
-        return fg(ink[0], ink[1], ink[2]) + bg(panel[0], panel[1], panel[2]) + BOLD
-                + label + RESET;
+        int[] role = (index % 2 == 0) ? LASER : CYBER;
+        return paint(sgr(role) + bg(OBSIDIAN[0], OBSIDIAN[1], OBSIDIAN[2]), label);
+    }
+
+    // ------------------------------------------------------------------ macbook window frame
+
+    /** Columns the window chrome adds around the content: "| | " on each side of a line. */
+    private static final int FRAME_OVERHEAD = 8;
+    /** The window sheet is drawn in double-line box art: \u2554 \u2550 \u2557 on top, \u2551 down the sides. */
+    private static final String OUTER_TOP_LEFT = UNICODE ? "\u2554" : "+";
+    private static final String OUTER_TOP_RIGHT = UNICODE ? "\u2557" : "+";
+    private static final String OUTER_BOTTOM_LEFT = UNICODE ? "\u255A" : "+";
+    private static final String OUTER_BOTTOM_RIGHT = UNICODE ? "\u255D" : "+";
+    private static final String OUTER_TEE_LEFT = UNICODE ? "\u2560" : "+";
+    private static final String OUTER_TEE_RIGHT = UNICODE ? "\u2563" : "+";
+    private static final String OUTER_VERTICAL = UNICODE ? "\u2551" : "|";
+    /** The window sheet's horizontal stroke: \u2550 where the console can draw it, else {@code =}. */
+    private static final String OUTER_HORIZONTAL = UNICODE ? "\u2550" : "=";
+    /** The interface panel nested inside the sheet is deliberately sharp-cornered and single-line. */
+    private static final String PANEL_TOP_LEFT = UNICODE ? "\u250C" : "+";
+    private static final String PANEL_TOP_RIGHT = UNICODE ? "\u2510" : "+";
+    private static final String PANEL_BOTTOM_LEFT = UNICODE ? "\u2514" : "+";
+    private static final String PANEL_BOTTOM_RIGHT = UNICODE ? "\u2518" : "+";
+    private static final String PANEL_VERTICAL = UNICODE ? "\u2502" : "|";
+    /** The three window-management dots in the title bar. */
+    private static final String DOT_GLYPH = UNICODE ? "\u25CF" : "o";
+
+    /**
+     * Prints the top of the macOS-style window sheet: a rounded Tech Violet frame with a title bar
+     * carrying the three colour-coded window controls, then the sharp Tech Violet border of the
+     * interface panel that holds the dashboard. Everything written afterwards belongs inside it,
+     * so install the stream from {@link Window#stream()} once this returns.
+     *
+     * @param path the simulated shell path shown in the title bar
+     */
+    public static void openWindow(String path) {
+        int inner = width();
+        int outer = inner + FRAME_OVERHEAD;
+        System.out.print(edge(OUTER_TOP_LEFT, OUTER_TOP_RIGHT, outer));
+        System.out.print(titleBar(path, outer));
+        System.out.print(edge(OUTER_TEE_LEFT, OUTER_TEE_RIGHT, outer));
+        System.out.print(nestedEdge(PANEL_TOP_LEFT, PANEL_TOP_RIGHT, inner));
+    }
+
+    /** Closes the interface panel and the window sheet. Call once stdout is restored. */
+    public static void closeWindow() {
+        int inner = width();
+        int outer = inner + FRAME_OVERHEAD;
+        System.out.print(nestedEdge(PANEL_BOTTOM_LEFT, PANEL_BOTTOM_RIGHT, inner));
+        System.out.print(edge(OUTER_BOTTOM_LEFT, OUTER_BOTTOM_RIGHT, outer));
+    }
+
+    /** @return one window-management dot, ringed in the given palette role */
+    private static String windowDot(int[] role) {
+        return paint(sgr(role), DOT_GLYPH);
+    }
+
+    /** @return a full-width border row: the two corners with the horizontal rule between them */
+    private static String edge(String left, String right, int outer) {
+        return paint(sgr(TECH), left + OUTER_HORIZONTAL.repeat(outer - 2) + right)
+                + System.lineSeparator();
+    }
+
+    /** @return a border row of the interface panel, sitting one cell inside the window sheet */
+    private static String nestedEdge(String left, String right, int inner) {
+        String bar = paint(sgr(TECH), OUTER_VERTICAL);
+        return bar + " " + paint(sgr(TECH), left + H.repeat(inner + 2) + right) + " " + bar
+                + System.lineSeparator();
+    }
+
+    /** @return the title bar: three colour-coded dots, then the simulated shell path */
+    private static String titleBar(String path, int outer) {
+        int inner = outer - 2;
+        String lead = " " + windowDot(LASER) + " " + windowDot(TECH) + " " + windowDot(CYBER) + "   ";
+        int room = Math.max(0, inner - visibleLength(lead));
+        String label = truncate(path == null ? "" : path, room);
+        return paint(sgr(TECH), OUTER_VERTICAL) + lead + paint(sgr(GHOST), label)
+                + " ".repeat(Math.max(0, room - visibleLength(label)))
+                + paint(sgr(TECH), OUTER_VERTICAL) + System.lineSeparator();
+    }
+
+    /**
+     * A stdout replacement that draws every complete line inside the window's interface panel. The
+     * left border is written as soon as a line starts, so an interactive prompt stays visibly inside
+     * the frame; the right border is completed when the line ends.
+     *
+     * <p>Bytes are forwarded as they arrive so an interactive prompt is on screen before the user is
+     * asked to type. A consequence is that a line wider than the panel has already been written by
+     * the time the line ends, so it cannot be retroactively clipped: such a row keeps its data and
+     * runs past the right border instead of being silently truncated. Every table the console builds
+     * sizes its own columns to {@link Style#width()}, so this only happens for genuinely oversized
+     * content on a very narrow terminal.
+     */
+    public static final class Window extends OutputStream {
+
+        private final OutputStream sink;
+        private final Charset charset;
+        private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        private final PrintStream stream;
+        private boolean started;
+
+        public Window(OutputStream sink) {
+            this.sink = sink;
+            this.charset = stdoutCharset();
+            this.stream = new PrintStream(this, true, this.charset);
+        }
+
+        /** @return the replacement for {@code System.out} */
+        public PrintStream stream() {
+            return stream;
+        }
+
+        /** Completes the current line, if one is open. Safe to call at any time. */
+        public void endLine() {
+            try {
+                if (started) {
+                    closeLine();
+                }
+            } catch (IOException ignored) {
+                // a broken pipe is not worth aborting the session for
+            }
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            if (b == '\n') {
+                closeLine();
+                return;
+            }
+            if (b == '\r') {
+                return;
+            }
+            if (!started) {
+                openLine();
+            }
+            sink.write(b);
+            buffer.write(b);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            for (int i = 0; i < length; i++) {
+                write(bytes[offset + i]);
+            }
+            // An interactive prompt is printed without a newline; flush so it is visible before
+            // the user is asked to type.
+            sink.flush();
+        }
+
+        @Override
+        public void flush() throws IOException {
+            sink.flush();
+        }
+
+        private void openLine() throws IOException {
+            sink.write((paint(sgr(TECH), OUTER_VERTICAL) + " "
+                    + paint(sgr(TECH), PANEL_VERTICAL) + " ").getBytes(charset));
+            started = true;
+        }
+
+        private void closeLine() throws IOException {
+            if (!started) {
+                openLine();
+            }
+            String content = buffer.toString(charset);
+            buffer.reset();
+            int pad = Math.max(0, width() - visibleLength(content));
+            String tail = " ".repeat(pad)
+                    + " " + paint(sgr(TECH), PANEL_VERTICAL) + " " + paint(sgr(TECH), OUTER_VERTICAL)
+                    + System.lineSeparator();
+            sink.write(tail.getBytes(charset));
+            sink.flush();
+            started = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ wordmark
+
+    /**
+     * Renders the project wordmark above the window: CERBERUS set in heavy five-row block lettering
+     * shaded Tech Violet into Laser Pink, with SYSTEM letterspaced beneath and a Tech Violet rule.
+     *
+     * <p>A terminal cannot be told to load a font file, so the display face is approximated with a
+     * block wordmark. That is the closest a console gets to the typographic treatment the browser
+     * build renders with Orbitron.
+     *
+     * @return the multi-line wordmark, centred in the full terminal width (ends with a newline)
+     */
+    public static String wordmark() {
+        String word = "CERBERUS";
+        int rows = 5;
+        StringBuilder out = new StringBuilder();
+        out.append(System.lineSeparator());
+        for (int r = 0; r < rows; r++) {
+            StringBuilder line = new StringBuilder();
+            for (int g = 0; g < word.length(); g++) {
+                if (g > 0) {
+                    line.append(' ');
+                }
+                String[] glyph = glyph(word.charAt(g));
+                line.append(glyph == null ? "    " : glyph[r]);
+            }
+            out.append(center(duotone(line.toString()), fullWidth())).append(System.lineSeparator());
+        }
+        out.append(center(letterspace("SYSTEM"), fullWidth())).append(System.lineSeparator());
+        out.append(center(paint(sgr(TECH), H.repeat(Math.min(fullWidth(), 44))), fullWidth()))
+                .append(System.lineSeparator()).append(System.lineSeparator());
+        return out.toString();
+    }
+
+    /** @return the whole terminal width available to the wordmark, chrome included */
+    private static int fullWidth() {
+        return width() + FRAME_OVERHEAD;
+    }
+
+    /** @return {@code text} with one space between every character */
+    private static String letterspace(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder(text.length() * 2);
+        for (int i = 0; i < text.length(); i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            sb.append(text.charAt(i));
+        }
+        return paint(sgr(CYBER), sb.toString());
+    }
+
+    /** @return the five rows of a block glyph, four cells wide, or {@code null} when unsupported */
+    private static String[] glyph(char c) {
+        String[] pattern;
+        switch (c) {
+            case 'C':
+                pattern = new String[]{" ###", "##  ", "##  ", "##  ", " ###"};
+                break;
+            case 'E':
+                pattern = new String[]{"####", "### ", "### ", "##  ", "####"};
+                break;
+            case 'R':
+                pattern = new String[]{"####", "## #", "####", "## #", "## #"};
+                break;
+            case 'B':
+                pattern = new String[]{"####", "## #", "### ", "## #", "####"};
+                break;
+            case 'U':
+                pattern = new String[]{"## #", "## #", "## #", "## #", " ###"};
+                break;
+            case 'S':
+                pattern = new String[]{" ###", "##  ", " ## ", "  ##", "### "};
+                break;
+            case 'Y':
+                pattern = new String[]{"## #", "## #", " ###", "  ##", "  ##"};
+                break;
+            case 'T':
+                pattern = new String[]{"####", " ## ", " ## ", " ## ", " ## "};
+                break;
+            case 'M':
+                pattern = new String[]{"## #", "####", "# ##", "## #", "## #"};
+                break;
+            default:
+                return null;
+        }
+        String[] out = new String[pattern.length];
+        for (int i = 0; i < pattern.length; i++) {
+            out[i] = pattern[i].replace("#", FULL);
+        }
+        return out;
     }
 
     // ------------------------------------------------------------------ detection
@@ -926,7 +1148,8 @@ public final class Style {
                 return false;
             }
             CharsetEncoder encoder = charset.newEncoder();
-            return encoder.canEncode("\u2588\u2591\u258C\u256D\u256E\u2570\u256F");
+            return encoder.canEncode("\u2588\u2591\u258C\u2550\u2551\u2554\u2557\u255A\u255D\u2560\u2563"
+                    + "\u2502\u250C\u2510\u2514\u2518\u25CF");
         } catch (RuntimeException e) {
             return false;
         }

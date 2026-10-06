@@ -262,26 +262,30 @@ public final class ReportGenerator {
             return "No papers available to display.";
         }
 
+        // Rank, ID, Year and Citations keep their width, as do the six " | " separators and the
+        // share bar. Title and Author share whatever is left, so the row always fits the window the
+        // console drew around it rather than spilling past the frame on a normal-width terminal.
+        int fixed = 5 + 10 + 6 + 9 + 6 * 3 + BAR_CELLS;
+        int slack = Math.max(14, Style.width() - fixed);
+        int authorWidth = Math.min(18, Math.max(6, slack / 3));
+        int titleWidth = Math.max(8, slack - authorWidth);
+
         StringBuilder sb = new StringBuilder();
-        String header = String.format("%-5s | %-10s | %-30s | %-18s | %-6s | %-9s | %-10s",
+        String header = String.format("%-5s | %-10s | %-" + titleWidth + "s | %-" + authorWidth
+                        + "s | %-6s | %-9s | %-10s",
                 "Rank", "ID", "Title", "Author", "Year", "Citations", "Share");
-        sb.append(Style.rainbowWords(header)).append('\n');
+        sb.append(Style.tableHeader(header)).append('\n');
         sb.append(Style.muted("-".repeat(header.length()))).append('\n');
 
         int maxCitations = papers.get(0).getCitationCount();
 
         for (int i = 0; i < papers.size(); i++) {
             Paper p = papers.get(i);
-            String title = p.getTitle();
-            if (title.length() > 28) {
-                title = title.substring(0, 25) + "...";
-            }
-            String author = p.getAuthor();
-            if (author.length() > 16) {
-                author = author.substring(0, 13) + "...";
-            }
+            String title = shorten(p.getTitle(), titleWidth);
+            String author = shorten(p.getAuthor(), authorWidth);
 
-            sb.append(String.format("%-5d | %-10s | %-30s | %-18s | %-6d | %-9d | %s%n",
+            sb.append(String.format("%-5d | %-10s | %-" + titleWidth + "s | %-" + authorWidth
+                            + "s | %-6d | %-9d | %s%n",
                     (i + 1), p.getId(), title, author, p.getYear(), p.getCitationCount(),
                     Style.bar(p.getCitationCount(), maxCitations, BAR_CELLS)));
         }
@@ -297,21 +301,22 @@ public final class ReportGenerator {
             return "No author data available to display.";
         }
 
+        // Only the author name flexes; every other column, the separators and the bar are fixed.
+        int fixed = 5 + 15 + 12 + 4 * 3 + BAR_CELLS;
+        int authorWidth = Math.min(25, Math.max(8, Style.width() - fixed));
+
         StringBuilder sb = new StringBuilder();
-        String header = String.format("%-5s | %-25s | %-15s | %-12s | %-10s",
+        String header = String.format("%-5s | %-" + authorWidth + "s | %-15s | %-12s | %-10s",
                 "Rank", "Author", "Total Citations", "Paper Count", "Share");
-        sb.append(Style.rainbowWords(header)).append('\n');
+        sb.append(Style.tableHeader(header)).append('\n');
         sb.append(Style.muted("-".repeat(header.length()))).append('\n');
 
         int maxCitations = authors.get(0).getTotalCitations();
 
         for (int i = 0; i < authors.size(); i++) {
             AuthorStats a = authors.get(i);
-            String name = a.getAuthor();
-            if (name.length() > 23) {
-                name = name.substring(0, 20) + "...";
-            }
-            sb.append(String.format("%-5d | %-25s | %-15d | %-12d | %s%n",
+            String name = shorten(a.getAuthor(), authorWidth);
+            sb.append(String.format("%-5d | %-" + authorWidth + "s | %-15d | %-12d | %s%n",
                     (i + 1), name, a.getTotalCitations(), a.getPaperCount(),
                     Style.bar(a.getTotalCitations(), maxCitations, BAR_CELLS)));
         }
@@ -327,10 +332,17 @@ public final class ReportGenerator {
             return "No trend data available to display.";
         }
 
+        // Year and Share are fixed; the two counting columns split what is left between them.
+        int fixed = 8 + 10 + 3 * 3;
+        int slack = Math.max(20, Style.width() - fixed);
+        int papersWidth = Math.max(10, slack / 2);
+        int citationsWidth = Math.max(10, slack - papersWidth);
+
         StringBuilder sb = new StringBuilder();
-        String header = String.format("%-8s | %-16s | %-15s | %-10s",
+        String header = String.format("%-8s | %-" + papersWidth + "s | %-" + citationsWidth
+                        + "s | %-10s",
                 "Year", "Papers Published", "Total Citations", "Share");
-        sb.append(Style.rainbowWords(header)).append('\n');
+        sb.append(Style.tableHeader(header)).append('\n');
         sb.append(Style.muted("-".repeat(header.length()))).append('\n');
 
         int maxCitations = 0;
@@ -341,11 +353,26 @@ public final class ReportGenerator {
         for (int i = 0; i < trends.size(); i++) {
             YearTrend t = trends.get(i);
             String yearStr = (t.getYear() <= 0) ? "N/A" : String.valueOf(t.getYear());
-            sb.append(String.format("%-8s | %-16d | %-15d | %s%n",
+            sb.append(String.format("%-8s | %-" + papersWidth + "d | %-" + citationsWidth + "d | %s%n",
                     yearStr, t.getPaperCount(), t.getTotalCitations(),
                     Style.bar(t.getTotalCitations(), maxCitations, BAR_CELLS)));
         }
         return sb.toString();
+    }
+
+    /**
+     * Shortens a table cell to at most {@code max} characters, marking the cut with an ellipsis.
+     *
+     * @param text the cell text
+     * @param max  the column width it has to fit
+     * @return the text unchanged when it fits, else a shortened copy
+     */
+    private static String shorten(String text, int max) {
+        String value = (text == null) ? "" : text;
+        if (value.length() <= max) {
+            return value;
+        }
+        return max <= 3 ? value.substring(0, Math.max(0, max)) : value.substring(0, max - 3) + "...";
     }
 
     /**
