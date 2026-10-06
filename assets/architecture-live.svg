@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" role="img" aria-label="Cerberus runtime topology: interfaces flow through the REST contract into the pure-Java core engine and down to CSV persistence">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#1C1430" stroke-width="1"/>
+    </pattern>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5B0FFF"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="700" fill="#0B0813"/>
+  <rect width="1200" height="700" fill="url(#grid)" opacity="0.55"/>
+
+  <text x="40" y="46" font-family="Consolas, 'Courier New', monospace" font-size="24" font-weight="bold" fill="#F5F3F7" letter-spacing="6">CERBERUS RUNTIME TOPOLOGY</text>
+  <text x="40" y="70" font-family="Consolas, 'Courier New', monospace" font-size="12" fill="#A32EFF" letter-spacing="4">ONE ENGINE / FOUR SURFACES / ONE CONTRACT</text>
+  <text x="1082" y="43" font-family="Consolas, 'Courier New', monospace" font-size="14" fill="#FF007F" letter-spacing="4">LIVE</text>
+  <circle cx="1168" cy="38" r="7" fill="#FF007F">
+    <animate attributeName="opacity" values="1;0.15;1" dur="1.4s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- connectors -->
+  <g fill="none" stroke="#5B0FFF" stroke-width="2" stroke-dasharray="7 7" marker-end="url(#arw)">
+    <path d="M220,172 C220,220 410,212 410,256">
+      <animate attributeName="stroke-dashoffset" values="0;-28" dur="1.1s" repeatCount="indefinite"/>
+    </path>
+    <path d="M600,172 C600,220 410,212 410,256">
+      <animate attributeName="stroke-dashoffset" values="0;-28" dur="1.1s" repeatCount="indefinite"/>
+    </path>
+    <path d="M980,172 C1062,250 1062,330 952,406">
+      <animate attributeName="stroke-dashoffset" values="0;-28" dur="1.4s" repeatCount="indefinite"/>
+    </path>
+    <path d="M410,334 L410,404">
+      <animate attributeName="stroke-dashoffset" values="0;-28" dur="0.9s" repeatCount="indefinite"/>
+    </path>
+    <path d="M830,334 L830,404">
+      <animate attributeName="stroke-dashoffset" values="0;-28" dur="0.9s" repeatCount="indefinite"/>
+    </path>
+    <path d="M600,578 L600,618">
+      <animate attributeName="stroke-dashoffset" values="0;-28" dur="0.8s" repeatCount="indefinite"/>
+    </path>
+  </g>
+  <path d="M580,296 L660,296" stroke="#3E0AAE" stroke-width="2" stroke-dasharray="3 5" fill="none">
+    <animate attributeName="stroke-dashoffset" values="0;-16" dur="1.6s" repeatCount="indefinite"/>
+  </path>
+
+  <text x="1074" y="300" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#B9B1C9" letter-spacing="1">CSV-direct</text>
+  <text x="620" y="368" text-anchor="middle" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#A32EFF" letter-spacing="1">one contract</text>
+  <text x="614" y="604" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#B9B1C9" letter-spacing="1">load / flush</text>
+
+  <!-- surfaces -->
+  <g font-family="Consolas, 'Courier New', monospace">
+    <rect x="70" y="96" width="300" height="76" fill="#120D1F" stroke="#5B0FFF" stroke-width="1.5"/>
+    <rect x="86" y="116" width="10" height="10" fill="#A32EFF"/>
+    <text x="106" y="126" font-size="15" font-weight="bold" fill="#F5F3F7" letter-spacing="1">WEB DASHBOARD</text>
+    <text x="86" y="152" font-size="11" fill="#B9B1C9">web/static - tabs, fuzzy, reports, mutate</text>
+
+    <rect x="450" y="96" width="300" height="76" fill="#120D1F" stroke="#5B0FFF" stroke-width="1.5"/>
+    <rect x="466" y="116" width="10" height="10" fill="#A32EFF"/>
+    <text x="486" y="126" font-size="15" font-weight="bold" fill="#F5F3F7" letter-spacing="1">RICH TERMINAL UI</text>
+    <text x="466" y="152" font-size="11" fill="#B9B1C9">tui/ - search, traverse, reports, mutations</text>
+
+    <rect x="830" y="96" width="300" height="76" fill="#120D1F" stroke="#5B0FFF" stroke-width="1.5"/>
+    <rect x="846" y="116" width="10" height="10" fill="#A32EFF"/>
+    <text x="866" y="126" font-size="15" font-weight="bold" fill="#F5F3F7" letter-spacing="1">JAVA CONSOLE</text>
+    <text x="846" y="152" font-size="11" fill="#B9B1C9">main.Main - menu driven - CSV direct</text>
+
+    <!-- api layer -->
+    <rect x="240" y="258" width="340" height="76" fill="#120D1F" stroke="#5B0FFF" stroke-width="1.5"/>
+    <rect x="256" y="278" width="10" height="10" fill="#FF007F"/>
+    <text x="276" y="288" font-size="15" font-weight="bold" fill="#F5F3F7" letter-spacing="1">FASTAPI BACKEND :8005</text>
+    <text x="256" y="314" font-size="11" fill="#B9B1C9">server/ - REST API - hosts the dashboard</text>
+
+    <rect x="660" y="258" width="340" height="76" fill="#120D1F" stroke="#5B0FFF" stroke-width="1.5"/>
+    <rect x="676" y="278" width="10" height="10" fill="#FF007F"/>
+    <text x="696" y="288" font-size="15" font-weight="bold" fill="#F5F3F7" letter-spacing="1">JAVA APISERVER :8006</text>
+    <text x="676" y="314" font-size="11" fill="#B9B1C9">src/server - zero dependency - serves static</text>
+  </g>
+
+  <!-- core engine -->
+  <g font-family="Consolas, 'Courier New', monospace">
+    <rect x="180" y="408" width="840" height="170" fill="#120D1F" stroke="#5B0FFF" stroke-width="2"/>
+    <rect x="180" y="408" width="840" height="170" fill="none" stroke="#FF007F" stroke-width="3" stroke-dasharray="26 528" stroke-dashoffset="0" opacity="0.9">
+      <animate attributeName="stroke-dashoffset" values="0;-1088" dur="6s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="204" y="434" width="12" height="12" fill="#FF007F"/>
+    <text x="228" y="445" font-size="16" font-weight="bold" fill="#FF007F" letter-spacing="3">CORE ENGINE</text>
+    <text x="360" y="445" font-size="12" fill="#B9B1C9" letter-spacing="1">pure Java - zero java.util in core logic - graph stays in sync with the hash tables</text>
+
+    <rect x="204" y="466" width="386" height="46" fill="#0B0813" stroke="#3E0AAE" stroke-width="1.5"/>
+    <rect x="218" y="484" width="10" height="10" fill="#A32EFF"/>
+    <text x="238" y="493" font-size="13" fill="#F5F3F7">Adjacency-list citation graph</text>
+
+    <rect x="610" y="466" width="386" height="46" fill="#0B0813" stroke="#3E0AAE" stroke-width="1.5"/>
+    <rect x="624" y="484" width="10" height="10" fill="#A32EFF"/>
+    <text x="644" y="493" font-size="13" fill="#F5F3F7">Open-addressing hash tables</text>
+
+    <rect x="204" y="522" width="386" height="46" fill="#0B0813" stroke="#3E0AAE" stroke-width="1.5"/>
+    <rect x="218" y="540" width="10" height="10" fill="#A32EFF"/>
+    <text x="238" y="549" font-size="13" fill="#F5F3F7">KMP / Rabin-Karp / Wagner-Fischer</text>
+
+    <rect x="610" y="522" width="386" height="46" fill="#0B0813" stroke="#3E0AAE" stroke-width="1.5"/>
+    <rect x="624" y="540" width="10" height="10" fill="#A32EFF"/>
+    <text x="644" y="549" font-size="13" fill="#F5F3F7">MergeSort / Held-Karp bitmask DP</text>
+
+    <rect x="182" y="410" width="836" height="3" fill="#FF007F" opacity="0.55">
+      <animate attributeName="y" values="410;574;410" dur="5s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.15;0.6;0.15" dur="5s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+
+  <!-- persistence -->
+  <g font-family="Consolas, 'Courier New', monospace">
+    <rect x="420" y="620" width="360" height="58" fill="#120D1F" stroke="#5B0FFF" stroke-width="1.5"/>
+    <rect x="436" y="640" width="10" height="10" fill="#FF007F"/>
+    <text x="456" y="650" font-size="14" font-weight="bold" fill="#F5F3F7" letter-spacing="1">CSV PERSISTENCE</text>
+    <text x="436" y="670" font-size="11" fill="#B9B1C9">citation_data.csv + papers.csv - UTF-8 - flush on exit</text>
+  </g>
+
+  <!-- data packets -->
+  <g fill="#FF007F">
+    <circle r="4.5">
+      <animateMotion dur="2.6s" begin="0s" repeatCount="indefinite" path="M220,172 C220,220 410,212 410,256"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="2.6s" begin="0s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="4.5">
+      <animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite" path="M220,172 C220,220 410,212 410,256"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="2.6s" begin="1.3s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="4.5">
+      <animateMotion dur="2.6s" begin="0.6s" repeatCount="indefinite" path="M600,172 C600,220 410,212 410,256"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="2.6s" begin="0.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="4.5">
+      <animateMotion dur="3.2s" begin="0.9s" repeatCount="indefinite" path="M980,172 C1062,250 1062,330 952,406"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="3.2s" begin="0.9s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="4.5">
+      <animateMotion dur="1.8s" begin="0.2s" repeatCount="indefinite" path="M410,334 L410,404"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="1.8s" begin="0.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="4.5">
+      <animateMotion dur="1.8s" begin="1.0s" repeatCount="indefinite" path="M830,334 L830,404"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="1.8s" begin="1.0s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="4.5">
+      <animateMotion dur="1.4s" begin="0.4s" repeatCount="indefinite" path="M600,578 L600,618"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="1.4s" begin="0.4s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+</svg>

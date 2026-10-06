@@ -126,10 +126,19 @@ The pure-Java server mirrors this contract; reports live at `GET /api/report?typ
 ## Architecture
 
 <p align="center">
-  <img src="assets/architecture.svg" alt="Cerberus architecture: presentation layer, core engine and persistence" width="100%">
+  <img src="assets/architecture-live.svg" alt="Cerberus runtime topology, animated: surfaces flow through the REST contract into the pure-Java core engine and down to CSV persistence" width="100%">
 </p>
 
-The presentation layer — console, terminal UI and dashboard — sends queries into the core engine through the REST layer. The engine keeps the citation graph and the hash tables in step, runs string matching and sorting on demand, and loads from and saves to plain CSV files.
+The diagram runs live: dashes travel along every connector, Laser Pink packets carry requests from surface to API to engine, a scanline sweeps the core, and the exit node pulses. It maps the same path a real request takes.
+
+| Layer | Role |
+| :--- | :--- |
+| Surfaces | Web dashboard, Rich terminal UI and the Java console, the three ways in |
+| API | FastAPI on `:8005` and the zero-dependency Java `ApiServer` on `:8006`, one shared contract |
+| Core engine | Adjacency-list graph, open-addressing hash tables, string matchers and sorts, pure Java with no `java.util` in core logic |
+| Persistence | `citation_data.csv` and `papers.csv`, UTF-8, loaded on boot and flushed on exit |
+
+The Java console skips the API entirely and drives the engine against the CSV directly, which is the path drawn down the right-hand side.
 
 <img src="assets/divider.svg" alt="" width="100%">
 
@@ -196,11 +205,11 @@ The console and the dashboard share one cyberpunk palette. Sixty percent canvas,
 
 | Role | Hex | Share | Applied to |
 | :--- | :--- | :--- | :--- |
-| Obsidian Night | `#0B0813` | 60% | Canvas: window sheets, panel backgrounds |
-| <img src="https://img.shields.io/badge/Tech_Violet-%235B0FFF?style=flat-square&labelColor=%230B0813" alt="Tech Violet #5B0FFF"> | | 30% | Structure: borders, frames, divider grids |
-| <img src="https://img.shields.io/badge/Cyber_Purple-%23A32EFF?style=flat-square&labelColor=%230B0813" alt="Cyber Purple #A32EFF"> | | secondary | Categories: authors, tags, section labels |
-| <img src="https://img.shields.io/badge/Laser_Pink-%23FF007F?style=flat-square&labelColor=%230B0813" alt="Laser Pink #FF007F"> | | 10% | Action: metrics, citation keys, active states |
-| <img src="https://img.shields.io/badge/Ghost_White-%23F5F3F7?style=flat-square&labelColor=%230B0813" alt="Ghost White #F5F3F7"> | | text | Body copy and table cells |
+| <img src="https://img.shields.io/badge/Obsidian_Night-%230B0813?style=flat-square&labelColor=%230B0813" alt="Obsidian Night #0B0813"> | `#0B0813` | 60% | Canvas: window sheets, panel backgrounds |
+| <img src="https://img.shields.io/badge/Tech_Violet-%235B0FFF?style=flat-square&labelColor=%230B0813" alt="Tech Violet #5B0FFF"> | `#5B0FFF` | 30% | Structure: borders, frames, divider grids |
+| <img src="https://img.shields.io/badge/Cyber_Purple-%23A32EFF?style=flat-square&labelColor=%230B0813" alt="Cyber Purple #A32EFF"> | `#A32EFF` | secondary | Categories: authors, tags, section labels |
+| <img src="https://img.shields.io/badge/Laser_Pink-%23FF007F?style=flat-square&labelColor=%230B0813" alt="Laser Pink #FF007F"> | `#FF007F` | 10% | Action: metrics, citation keys, active states |
+| <img src="https://img.shields.io/badge/Ghost_White-%23F5F3F7?style=flat-square&labelColor=%230B0813" alt="Ghost White #F5F3F7"> | `#F5F3F7` | text | Body copy and table cells |
 
 The terminal wordmark and rules are painted with a three-stop gradient of the same roles — Tech Violet through Cyber Purple to Laser Pink — so the title reads as one deliberate system instead of a spectrum sweep. Styling never changes a prompt, a menu number or a line of data, and it adapts to the terminal at startup.
 
