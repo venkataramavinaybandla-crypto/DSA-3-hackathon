@@ -13,7 +13,9 @@ Run from the project root:
     GET /api/health            -> engine status
     GET /api/stats             -> headline metrics (papers, edges, most cited)
     GET /api/papers?q=&limit=  -> ranked papers / substring search
-    GET /api/papers/{id}       -> paper detail with in/out citation edges
+    GET /api/papers/{id}       -> paper detail with in/out citation edges + document info
+    GET /api/papers/{id}/document?format=pdf|text -> the paper's own file
+                                                   from research_papers/
     GET /api/path?source=&target=           -> BFS shortest citation path
     GET /api/paths?source=&target=&limit=   -> all simple paths + Hamiltonian flags
     GET /api/optimal-route?papers=a,b,c     -> Held-Karp bitmask DP optimal route
@@ -21,7 +23,14 @@ Run from the project root:
     POST /api/reload                        -> re-read citation_data.csv
 
 Environment:
-    CERBERUS_CSV     path to the dataset (default: citation_data.csv at repo root)
+    CERBERUS_CSV           path to the dataset (default: citation_data.csv at repo root)
+    CERBERUS_PAPERS_DIR    paper corpus directory (default: research_papers/)
+    CERBERUS_CORS_ORIGINS  comma-separated allowed origins (default: *)
+
+Deployment note: this app serves the dashboard *and* the API from one origin,
+so the browser client talks to the same host it was loaded from by default.
+Behind a reverse proxy set CERBERUS_CORS_ORIGINS to the frontend origin(s)
+when the dashboard is hosted separately.
 """
 
 from __future__ import annotations
@@ -33,10 +42,11 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import engine as eng
+from .documents import DocumentIndex
 from .schemas import (
     AllPathsResponse,
     AuthorsResponse,
@@ -58,9 +68,10 @@ from .schemas import (
 API_VERSION = "1.0.0"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = REPO_ROOT / "web" / "static"
+DEFAULT_PAPERS_DIR = REPO_ROOT / "research_papers"
 
-# The engine is created in lifespan startup (see below).
-state: dict = {"engine": None}
+# The engine and document index are created in lifespan startup (see below).
+state: dict = {"engine": None, "documents": None}
 
 
 def _engine() -> eng.CitationEngine:
@@ -75,12 +86,50 @@ def _resolve_paper(engine: eng.CitationEngine, paper_id: str) -> None:
         raise HTTPException(status_code=404, detail=f"Paper ID '{paper_id}' not found in the graph.")
 
 
+def _document_info(paper_id: str) -> dict:
+    """Describe, and link to, the paper's own file in research_papers/.
+
+    URLs are relative on purpose: the dashboard resolves them against whatever
+    API base it is configured with, so nothing here assumes a host or port.
+    """
+    documents = state["documents"]
+    entry = documents.resolve(paper_id) if documents else {"kind": None, "pdf": None, "text": None}
+    base = f"/api/papers/{paper_id}/document"
+    return {
+        "available": entry["kind"] is not None,
+        "kind": entry["kind"],
+        "pdfUrl": f"{base}?format=pdf" if entry.get("pdf") else None,
+        "textUrl": f"{base}?format=text" if entry.get("text") else None,
+    }
+
+
+def _with_document(record: dict) -> dict:
+    """Attach document availability to a single paper payload."""
+    return {**record, "document": _document_info(record["id"])}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     csv_path = os.environ.get("CERBERUS_CSV", str(REPO_ROOT / "citation_data.csv"))
+    papers_dir = os.environ.get("CERBERUS_PAPERS_DIR", str(DEFAULT_PAPERS_DIR))
     state["engine"] = eng.CitationEngine(csv_path)
+    state["documents"] = DocumentIndex(papers_dir)
     yield
     state["engine"] = None
+    state["documents"] = None
+
+
+def _cors_origins() -> list:
+    """Allowed browser origins.
+
+    Defaults to `*` so the dashboard works from any static host during local
+    development. In production set CERBERUS_CORS_ORIGINS to an explicit
+    comma-separated allow-list, e.g. "https://cerberus.example.edu".
+    """
+    raw = os.environ.get("CERBERUS_CORS_ORIGINS", "*").strip()
+    if not raw or raw == "*":
+        return ["*"]
+    return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
 
 
 app = FastAPI(
@@ -91,11 +140,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# The dashboard may be served by this app (same origin) or opened from any
-# static server / file:// — allow everything in local development.
+# The dashboard is served by this app (same origin) by default, but it also
+# works when hosted separately — the allowed origins are configurable so a
+# deployed frontend on another host can still reach the API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -137,7 +187,7 @@ def papers(
         results = e.search(q, limit=limit, fuzzy=fuzzy)
     else:
         results = e.papers(limit=limit)
-    return SearchResponse(query=q, results=results, fuzzy=fuzzy)
+    return SearchResponse(query=q, results=[_with_document(r) for r in results], fuzzy=fuzzy)
 
 
 @app.get("/api/search", response_model=SearchResponse)
@@ -148,7 +198,8 @@ def search(
 ) -> SearchResponse:
     """Plan Phase 8 contract endpoint: explicit fuzzy toggle."""
     e = _engine()
-    return SearchResponse(query=q, results=e.search(q, limit=limit, fuzzy=fuzzy), fuzzy=fuzzy)
+    results = e.search(q, limit=limit, fuzzy=fuzzy)
+    return SearchResponse(query=q, results=[_with_document(r) for r in results], fuzzy=fuzzy)
 
 
 @app.get("/api/traverse", response_model=TraverseResponse)
@@ -195,7 +246,49 @@ def create_citation(body: CitationCreate) -> CitationResponse:
 def paper_detail(paper_id: str) -> PaperRecord:
     e = _engine()
     _resolve_paper(e, paper_id)
-    return e.paper(paper_id)
+    return _with_document(e.paper(paper_id))
+
+
+@app.get("/api/papers/{paper_id}/document")
+def paper_document(
+    paper_id: str,
+    format: str = Query("", pattern="^(pdf|text)?$", description="pdf or text; default prefers the PDF"),
+) -> FileResponse:
+    """Serve the paper's own file from research_papers/.
+
+    PDFs are served inline so the browser's PDF viewer can display them; text
+    records are served as UTF-8 plain text. No document is ever synthesised —
+    if the corpus has no file for this id the request 404s.
+    """
+    e = _engine()
+    _resolve_paper(e, paper_id)
+
+    documents = state["documents"]
+    entry = documents.resolve(paper_id) if documents else {"pdf": None, "text": None}
+    pdf, text = entry.get("pdf"), entry.get("text")
+
+    if format == "pdf":
+        chosen, media_type, filename = pdf, "application/pdf", f"{paper_id}.pdf"
+    elif format == "text":
+        chosen, media_type, filename = text, "text/plain; charset=utf-8", f"{paper_id}.txt"
+    elif pdf is not None:
+        chosen, media_type, filename = pdf, "application/pdf", f"{paper_id}.pdf"
+    else:
+        chosen, media_type, filename = text, "text/plain; charset=utf-8", f"{paper_id}.txt"
+
+    if chosen is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {format or 'pdf'} document on disk for paper '{paper_id}'.",
+        )
+
+    # `inline` so both viewers render in-place instead of forcing a download.
+    return FileResponse(
+        chosen,
+        media_type=media_type,
+        filename=filename,
+        content_disposition_type="inline",
+    )
 
 
 @app.get("/api/path", response_model=ShortestPathResponse)

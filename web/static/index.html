@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CERBERUS SYSTEM — Citation Analysis Dashboard</title>
-  <meta name="description" content="A data structures-driven approach to tracking academic citations. Every paper is a vertex, every citation a directed edge.">
+  <title>CERBERUS SYSTEM — Citation Analysis</title>
+  <meta name="description" content="A data-structures-driven approach to tracking academic citations. Every paper is a vertex, every citation a directed edge.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="style.css">
@@ -18,175 +18,187 @@
   <main class="stage">
 
     <!-- =====================================================================
-         1. EXTERNAL GIANT TITLE
-         Deliberately outside and directly above the interface window.
+         Masthead — the product name and the course context. Deliberately
+         outside the workspace frame, kept restrained rather than neon.
          ================================================================== -->
     <header class="masthead">
       <p class="masthead__eyebrow">DSA-3 &middot; Section 07 &middot; Team 20</p>
-
-      <h1 class="glitch-title" data-text="CERBERUS SYSTEM">CERBERUS SYSTEM</h1>
-
+      <h1 class="wordmark">CERBERUS SYSTEM</h1>
       <p class="masthead__sub">
-        Pure Java Data Structures &amp; Algorithms <em>&middot;</em> Citation Analysis
+        Citation analysis &middot; every paper a vertex, every citation a directed edge
       </p>
     </header>
 
     <!-- =====================================================================
-         2. macOS / MacBook WINDOW SHEET FRAME
+         Workspace
          ================================================================== -->
-    <section class="window" aria-label="Cerberus citation dashboard window">
+    <section class="window" id="dashboard-view" aria-label="Citation network workspace">
 
-      <!-- Title bar: three window controls + path + live status -->
+      <!-- App header: what the workspace shows and which dataset it loaded -->
       <header class="window__bar">
-        <div class="window__dots" role="group" aria-label="Window controls">
-          <span class="dot dot--close"    title="Close"></span>
-          <span class="dot dot--minimise" title="Minimise"></span>
-          <span class="dot dot--maximise" title="Maximise"></span>
-        </div>
-
-        <p class="window__title">cerberus@dsa3 : ~/citation-graph — <b>citation_data.csv</b></p>
-        <p class="window__status"><i>&#9679;</i> 75 papers &middot; 91 edges</p>
+        <h2 class="window__title">
+          Citation network
+          <span class="window__source">citation_data.csv</span>
+        </h2>
+        <p class="window__status"><i aria-hidden="true">&#9679;</i> 75 papers &middot; 91 edges</p>
       </header>
 
-      <!-- Sharp Tech-Violet bordered interface panel, nested inside the sheet -->
       <div class="panel-shell">
 
-        <header class="panel-shell__head">
-          <h2 class="panel-shell__title">Citation Intelligence Console</h2>
-          <nav class="tabs" aria-label="Dashboard views">
-            <span id="tab-graph" class="is-active">Graph</span>
-            <span id="tab-search">Search</span>
-            <span id="tab-traversal">Traversal</span>
-            <span id="tab-reports">Reports</span>
-            <span id="tab-mutate">Mutate</span>
+        <!-- View switcher -->
+        <div class="panel-shell__head">
+          <nav class="tabs" role="tablist" aria-label="Views">
+            <span id="tab-graph" role="tab" tabindex="0" aria-selected="true" class="is-active">Graph</span>
+            <span id="tab-search" role="tab" tabindex="-1" aria-selected="false">Search</span>
+            <span id="tab-traversal" role="tab" tabindex="-1" aria-selected="false">Traversal</span>
+            <span id="tab-reports" role="tab" tabindex="-1" aria-selected="false">Reports</span>
+            <span id="tab-mutate" role="tab" tabindex="-1" aria-selected="false">Manage</span>
           </nav>
-        </header>
+        </div>
 
-        <!-- Dashboard divider grid (1px Tech Violet lines between every cell) -->
+        <!-- Query toolbar — populated by app.js (buildQueryConsole) -->
+        <div class="toolbar" id="query-toolbar"></div>
+
         <div class="dashboard">
 
-          <!-- ------- left rail: data-structure types / categories ------- -->
-          <aside class="rail" aria-label="Data structures and algorithms">
-            <h3 class="rail__heading">Data Structures</h3>
-            <ul class="rail__list">
-              <li><span>Adjacency List Graph</span><span class="tag">O(V+E)</span></li>
-              <li><span>Custom Hash Table</span><span class="tag">O(1)</span></li>
-              <li><span>Array Stack &amp; Queue</span><span class="tag">O(1)</span></li>
-              <li><span>Dynamic Array</span><span class="tag">O(1)&#8226;amortised</span></li>
-            </ul>
+          <!-- ------- sidebar: dataset summary + method reference ------- -->
+          <aside class="rail" aria-label="Dataset and methods">
+            <section class="rail__block">
+              <h3 class="rail__heading">Dataset</h3>
+              <dl class="rail__facts">
+                <div><dt>Source</dt><dd id="rail-source">citation_data.csv</dd></div>
+                <div><dt>Papers</dt><dd id="rail-papers">&mdash;</dd></div>
+                <div><dt>Citation edges</dt><dd id="rail-edges">&mdash;</dd></div>
+                <div><dt>Papers with PDF</dt><dd id="rail-docs">&mdash;</dd></div>
+              </dl>
+              <button type="button" class="btn btn--ghost" id="rail-reload">Reload dataset</button>
+            </section>
 
-            <h3 class="rail__heading">Algorithms</h3>
-            <ul class="rail__list">
-              <li><span>KMP Matcher</span><span class="tag">O(n+m)</span></li>
-              <li><span>Rabin&#8211;Karp</span><span class="tag">O(n+m)</span></li>
-              <li><span>Wagner&#8211;Fischer</span><span class="tag">O(m&middot;n)</span></li>
-              <li><span>MergeSort (stable)</span><span class="tag">O(n&nbsp;log&nbsp;n)</span></li>
-              <li><span>Bitmask DP Route</span><span class="tag">O(2&#8319;&middot;n&#178;)</span></li>
-            </ul>
+            <details class="rail__block rail__block--methods">
+              <summary class="rail__heading">Methods</summary>
+              <ul class="method-list">
+                <li><span>Adjacency-list graph</span><span class="tag">O(V+E)</span></li>
+                <li><span>Hash-table lookup</span><span class="tag">O(1)</span></li>
+                <li><span>KMP substring search</span><span class="tag">O(n+m)</span></li>
+                <li><span>Rabin&ndash;Karp matching</span><span class="tag">O(n+m)</span></li>
+                <li><span>Wagner&ndash;Fischer distance</span><span class="tag">O(m&middot;n)</span></li>
+                <li><span>Merge sort ranking</span><span class="tag">O(n log n)</span></li>
+                <li><span>Held&ndash;Karp bitmask route</span><span class="tag">O(2&#8319;&middot;n&#178;)</span></li>
+              </ul>
+              <p class="rail__note">Implemented from scratch in the Java core &mdash; no <code>java.util</code> collections.</p>
+            </details>
           </aside>
 
           <!-- ------- main column ------- -->
           <div class="panels">
 
-            <!-- metric tiles — Laser Pink numbers -->
-            <section class="metrics" aria-label="Key metrics">
+            <!-- summary metrics -->
+            <section class="metrics" aria-label="Citation network metrics">
               <div class="metric">
                 <span class="metric__label">Papers</span>
                 <span class="metric__value">75</span>
               </div>
               <div class="metric">
-                <span class="metric__label">Citation Edges</span>
+                <span class="metric__label">Citation edges</span>
                 <span class="metric__value">91</span>
               </div>
               <div class="metric">
-                <span class="metric__label">Most Cited</span>
+                <span class="metric__label">Most cited</span>
                 <span class="metric__value">15<small> P101</small></span>
               </div>
               <div class="metric">
-                <span class="metric__label">Traversal Cost</span>
-                <span class="metric__value">O(V+E)</span>
+                <span class="metric__label">Avg. citations</span>
+                <span class="metric__value">1.2</span>
               </div>
             </section>
 
-            <!-- top cited papers — report table -->
-            <section class="panel" aria-label="Most-cited papers">
-              <h3 class="panel__heading">Top Cited Papers</h3>
+            <!-- most cited papers (graph view only) -->
+            <section class="panel" data-view="graph" aria-label="Most cited papers">
+              <div class="panel__head">
+                <h3 class="panel__heading">Most cited papers</h3>
+                <p class="panel__note" id="top-cited-note">ranked by in-degree &middot; merge sort</p>
+              </div>
 
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th class="rank" scope="col">#</th>
-                    <th scope="col">ID</th>
-                    <th scope="col">Title</th>
-                    <th class="col-author" scope="col">Author</th>
-                    <th scope="col">Year</th>
-                    <th scope="col" style="text-align:right;">Citations</th>
-                    <th scope="col">Share</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td class="rank">1</td>
-                    <td class="id">P101</td>
-                    <td>Attention Is All You Need</td>
-                    <td class="author">Ashish Vaswani et al.</td>
-                    <td>2017</td>
-                    <td class="count">15</td>
-                    <td><span class="share"><span class="share__fill" style="width:100%"></span></span></td>
-                  </tr>
-                  <tr>
-                    <td class="rank">2</td>
-                    <td class="id">P104</td>
-                    <td>Deep Residual Learning for Image Recognition</td>
-                    <td class="author">Kaiming He et al.</td>
-                    <td>2015</td>
-                    <td class="count">8</td>
-                    <td><span class="share"><span class="share__fill" style="width:53%"></span></span></td>
-                  </tr>
-                  <tr>
-                    <td class="rank">3</td>
-                    <td class="id">P107</td>
-                    <td>ImageNet Classification with Deep CNNs</td>
-                    <td class="author">Krizhevsky et al.</td>
-                    <td>2012</td>
-                    <td class="count">7</td>
-                    <td><span class="share"><span class="share__fill" style="width:47%"></span></span></td>
-                  </tr>
-                  <tr>
-                    <td class="rank">4</td>
-                    <td class="id">P102</td>
-                    <td>BERT: Pre-training of Deep Bidirectional Transformers</td>
-                    <td class="author">Jacob Devlin et al.</td>
-                    <td>2018</td>
-                    <td class="count">7</td>
-                    <td><span class="share"><span class="share__fill" style="width:47%"></span></span></td>
-                  </tr>
-                  <tr>
-                    <td class="rank">5</td>
-                    <td class="id">P103</td>
-                    <td>Language Models are Few-Shot Learners</td>
-                    <td class="author">Tom B. Brown et al.</td>
-                    <td>2020</td>
-                    <td class="count">4</td>
-                    <td><span class="share"><span class="share__fill" style="width:27%"></span></span></td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th class="rank" scope="col">#</th>
+                      <th scope="col">ID</th>
+                      <th scope="col">Title</th>
+                      <th class="col-author" scope="col">Author</th>
+                      <th scope="col">Year</th>
+                      <th class="col-count" scope="col">Citations</th>
+                      <th class="col-share" scope="col">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr data-paper-id="P101">
+                      <td class="rank" data-label="#">1</td>
+                      <td class="id" data-label="ID"><a class="paper-link" href="#/paper/P101" data-paper-id="P101">P101</a></td>
+                      <td class="title" data-label="Title"><a class="paper-link paper-link--title" href="#/paper/P101" data-paper-id="P101">Attention Is All You Need</a></td>
+                      <td class="author" data-label="Author">Ashish Vaswani et al.</td>
+                      <td data-label="Year">2017</td>
+                      <td class="count" data-label="Citations">15</td>
+                      <td data-label="Share"><span class="share"><span class="share__fill" style="width:100%"></span></span></td>
+                    </tr>
+                    <tr data-paper-id="P104">
+                      <td class="rank" data-label="#">2</td>
+                      <td class="id" data-label="ID"><a class="paper-link" href="#/paper/P104" data-paper-id="P104">P104</a></td>
+                      <td class="title" data-label="Title"><a class="paper-link paper-link--title" href="#/paper/P104" data-paper-id="P104">Deep Residual Learning for Image Recognition</a></td>
+                      <td class="author" data-label="Author">Kaiming He et al.</td>
+                      <td data-label="Year">2015</td>
+                      <td class="count" data-label="Citations">8</td>
+                      <td data-label="Share"><span class="share"><span class="share__fill" style="width:53%"></span></span></td>
+                    </tr>
+                    <tr data-paper-id="P107">
+                      <td class="rank" data-label="#">3</td>
+                      <td class="id" data-label="ID"><a class="paper-link" href="#/paper/P107" data-paper-id="P107">P107</a></td>
+                      <td class="title" data-label="Title"><a class="paper-link paper-link--title" href="#/paper/P107" data-paper-id="P107">ImageNet Classification with Deep Convolutional Neural Networks</a></td>
+                      <td class="author" data-label="Author">Krizhevsky et al.</td>
+                      <td data-label="Year">2012</td>
+                      <td class="count" data-label="Citations">7</td>
+                      <td data-label="Share"><span class="share"><span class="share__fill" style="width:47%"></span></span></td>
+                    </tr>
+                    <tr data-paper-id="P102">
+                      <td class="rank" data-label="#">4</td>
+                      <td class="id" data-label="ID"><a class="paper-link" href="#/paper/P102" data-paper-id="P102">P102</a></td>
+                      <td class="title" data-label="Title"><a class="paper-link paper-link--title" href="#/paper/P102" data-paper-id="P102">BERT: Pre-training of Deep Bidirectional Transformers</a></td>
+                      <td class="author" data-label="Author">Jacob Devlin et al.</td>
+                      <td data-label="Year">2018</td>
+                      <td class="count" data-label="Citations">7</td>
+                      <td data-label="Share"><span class="share"><span class="share__fill" style="width:47%"></span></span></td>
+                    </tr>
+                    <tr data-paper-id="P103">
+                      <td class="rank" data-label="#">5</td>
+                      <td class="id" data-label="ID"><a class="paper-link" href="#/paper/P103" data-paper-id="P103">P103</a></td>
+                      <td class="title" data-label="Title"><a class="paper-link paper-link--title" href="#/paper/P103" data-paper-id="P103">Language Models are Few-Shot Learners</a></td>
+                      <td class="author" data-label="Author">Tom B. Brown et al.</td>
+                      <td data-label="Year">2020</td>
+                      <td class="count" data-label="Citations">4</td>
+                      <td data-label="Share"><span class="share"><span class="share__fill" style="width:27%"></span></span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </section>
 
-            <!-- citation lineage strip -->
-            <section class="panel" aria-label="Citation chain">
-              <h3 class="panel__heading">Citation Lineage &mdash; P103 &rarr; P101</h3>
+            <!-- citation lineage (graph view only) -->
+            <section class="panel" data-view="graph" aria-label="Citation lineage">
+              <div class="panel__head">
+                <h3 class="panel__heading">Citation lineage</h3>
+                <p class="panel__note" id="lineage-note">BFS shortest chain</p>
+              </div>
               <div class="flow">
-                <span class="node node--hot">P103</span>
-                <span class="arrow">&rarr;</span>
-                <span class="node">P102</span>
-                <span class="arrow">&rarr;</span>
-                <span class="node node--hot">P101</span>
-                <span class="arrow">&rarr;</span>
-                <span class="node">P104</span>
-                <span class="arrow">&rarr;</span>
-                <span class="node">P107</span>
+                <a class="node node--hot" href="#/paper/P103" data-paper-id="P103">P103</a>
+                <span class="arrow" aria-hidden="true">&rarr;</span>
+                <a class="node" href="#/paper/P102" data-paper-id="P102">P102</a>
+                <span class="arrow" aria-hidden="true">&rarr;</span>
+                <a class="node node--hot" href="#/paper/P101" data-paper-id="P101">P101</a>
+                <span class="arrow" aria-hidden="true">&rarr;</span>
+                <a class="node" href="#/paper/P104" data-paper-id="P104">P104</a>
+                <span class="arrow" aria-hidden="true">&rarr;</span>
+                <a class="node" href="#/paper/P107" data-paper-id="P107">P107</a>
               </div>
             </section>
 
@@ -194,15 +206,47 @@
         </div>
       </div>
 
-      <!-- Terminal status line -->
+      <!-- Status line -->
       <footer class="window__foot">
-        <span class="ok">&#10003; engine ready &mdash; zero java.util in core logic</span>
-        <span><kbd>KMP</kbd> &middot; <kbd>Rabin&#8211;Karp</kbd> &middot; <kbd>Wagner&#8211;Fischer</kbd> &middot; <kbd>MergeSort</kbd></span>
+        <span class="ok">&#10003; engine ready</span>
+        <span class="window__foot-meta">
+          API <code id="api-base">&hellip;</code>
+          <a class="link-quiet" href="#/" id="api-help">connection help</a>
+        </span>
       </footer>
 
     </section>
 
+    <!-- =====================================================================
+         Paper viewer — a calmer, document-first view reached at #/paper/<id>
+         ================================================================== -->
+    <section class="window paper-view" id="paper-view" hidden aria-labelledby="paper-view-title">
+      <header class="window__bar paper-view__bar">
+        <a class="back-link" href="#/" id="paper-back">
+          <span aria-hidden="true">&larr;</span> Back to CERBERUS
+        </a>
+        <p class="window__status" id="paper-view-status"></p>
+      </header>
+
+      <div class="panel-shell">
+        <article class="paper-view__meta">
+          <p class="paper-view__eyebrow" id="paper-view-id">&nbsp;</p>
+          <h2 class="paper-view__title" id="paper-view-title">Loading&hellip;</h2>
+          <p class="paper-view__authors" id="paper-view-authors"></p>
+          <dl class="paper-view__facts" id="paper-view-facts"></dl>
+          <p class="paper-view__actions" id="paper-view-actions"></p>
+          <div class="paper-view__abstract" id="paper-view-abstract"></div>
+        </article>
+
+        <section class="paper-view__doc" id="paper-view-doc" aria-label="Paper document">
+          <p class="doc-state">Loading document&hellip;</p>
+        </section>
+      </div>
+    </section>
+
   </main>
+
+  <script src="config.js"></script>
   <script src="app.js" defer></script>
 </body>
 </html>

@@ -2,8 +2,9 @@
    headless Chrome over the DevTools protocol (no puppeteer dependency).
    Run: node e2e_dashboard.mjs
    Env: API_BASE=http://127.0.0.1:8006 (defaults to Python backend :8005)
-   23 checks: boot, fuzzy search, BFS/DFS traverse, reports, mutations,
-   panel visibility, error surfacing, zero uncaught page exceptions. */
+   29 checks: boot, fuzzy search, BFS/DFS traverse, reports, mutations,
+   panel visibility, paper-viewer open/back, API-base resolution, error
+   surfacing, zero uncaught page exceptions. */
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -102,6 +103,10 @@ async function main() {
   /* backend contract probe: Python has /api/stats, pure-Java ApiServer does not */
   const statsProbe = await fetch(API + '/api/stats').then((r) => r.ok).catch(() => false);
   const isJava = !statsProbe;
+  // The mutation checks add papers and edges in memory, so reset the dataset
+  // first: reruns stay deterministic against a warm backend. The pure-Java
+  // surface has no reload route and already starts from a fresh graph.
+  await fetch(API + '/api/reload', { method: 'POST' }).catch(() => {});
   const listPayload = await (await fetch(API + '/api/papers?limit=200')).json();
   const expectedPapers = (listPayload.results || []).length;
   console.log(`backend: ${API} (${isJava ? 'pure-Java ApiServer' : 'Python FastAPI'}) · ${expectedPapers} papers\n`);
@@ -123,9 +128,9 @@ async function main() {
     f.requestSubmit(f.querySelector('[data-action=traverse]'));
     return true;
   })()`);
-  await waitFor(`document.querySelector('.panel--traversal') && document.querySelector('.panel--traversal').textContent.includes('FROM P101')`, 'traversal panel rendered');
+  await waitFor(`document.querySelector('.panel--traversal') && document.querySelector('.panel--traversal').textContent.includes('from P101')`, 'traversal panel rendered');
   const travText = await evalJs(`document.querySelector('.panel--traversal').textContent`);
-  check('traverse: title shows BFS + source', travText.includes('Traversal') && travText.includes('BFS') && travText.includes('FROM P101'));
+  check('traverse: title shows BFS + source', travText.includes('Traversal') && travText.includes('BFS') && travText.includes('from P101'));
   check('traverse: visit order table has hop numbers', /1/.test(travText) && travText.includes('Attention Is All You Need'));
   check('traverse: status flash shows reached count', (await evalJs(`document.querySelector('.window__foot .ok').textContent`)).includes('papers reached'));
 
@@ -142,10 +147,10 @@ async function main() {
 
   /* ---- 4. reports tab ---- */
   await evalJs(`document.querySelectorAll('.tabs > span')[3].click()`);
-  await waitFor(`document.querySelector('.panel--reports') && document.querySelector('.panel--reports').textContent.includes('Top Authors')`, 'reports panel rendered');
+  await waitFor(`document.querySelector('.panel--reports') && document.querySelector('.panel--reports').textContent.includes('Top authors')`, 'reports panel rendered');
   const repText = await evalJs(`document.querySelector('.panel--reports').textContent`);
   check('reports: top authors table populated', repText.includes('Ashish Vaswani') || repText.includes('Vaswani'));
-  check('reports: yearly trends table populated', /\d{4}/.test(repText) && repText.includes('Citation Trends'));
+  check('reports: yearly trends table populated', /\d{4}/.test(repText) && repText.includes('Citation trends'));
   check('reports: traversal panel hidden on reports tab', await evalJs(`document.querySelector('.panel--traversal').hidden === true`));
 
   /* ---- 5. mutate tab: add paper ---- */
@@ -257,11 +262,40 @@ async function main() {
     await waitFor(`document.querySelector('.window__foot .ok').classList.contains('is-error')`, 'graceful error flash for missing /api/path');
     check('missing endpoint: error surfaced in status line, page alive', true);
   } else {
-    await waitFor(`document.querySelector('.panel--traversal').textContent.includes('BFS Shortest Path')`, 'shortest path rendered');
+    await waitFor(`document.querySelector('.panel--traversal').textContent.includes('Shortest path')`, 'shortest path rendered');
     check('shortest path: submit listener wired end-to-end', true);
   }
 
-  /* ---- 9. paper detail flow unchanged ---- */
+  /* ---- 9. paper viewer: rows open the paper's own document ---- */
+  // The pure-Java ApiServer has no /api/papers/{id} detail route, so this
+  // surface degrades to a clear error state instead — checked separately.
+  await evalJs(`window.location.hash = ''; document.querySelectorAll('.tabs > span')[0].click();`);
+  await waitFor(`!!document.querySelector('.panels .panel a.paper-link[href="#/paper/P101"]')`, 'paper links rendered');
+  check('papers: entries are real links', await evalJs(`document.querySelectorAll('.panels .panel a.paper-link[href^="#/paper/"]').length`) > 0);
+  await evalJs(`document.querySelector('.panels .panel a.paper-link[href="#/paper/P101"]').click()`);
+  if (isJava) {
+    await waitFor(`!document.getElementById('paper-view').hidden && document.getElementById('paper-view-title').textContent.includes('could not be opened')`, 'viewer degrades on the Java surface');
+    check('papers: missing detail route degrades to a clear error', true);
+  } else {
+    await waitFor(`!document.getElementById('paper-view').hidden && document.getElementById('paper-view-title').textContent.includes('Attention')`, 'paper viewer opened');
+    check('papers: viewer opens the clicked paper', await evalJs(`document.getElementById('paper-view-id').textContent`) === 'P101');
+    check('papers: dashboard hidden while viewing', await evalJs(`document.getElementById('dashboard-view').hidden === true`));
+    check('papers: PDF embedded for a paper that ships one', await evalJs(`!!document.querySelector('.doc-frame')`));
+    await evalJs(`document.getElementById('paper-back').click()`);
+    await waitFor(`document.getElementById('dashboard-view').hidden === false`, 'back to dashboard');
+    check('papers: Back returns to the dashboard', true);
+  }
+  await evalJs(`window.location.hash = ''`);
+  await sleep(200);
+
+  /* ---- 10. deployment-safe API base ---- */
+  // The dashboard must resolve to the backend it is actually served by (or was
+  // explicitly pointed at), never to a hardcoded developer machine.
+  const resolvedBase = await evalJs(`document.getElementById('api-base').textContent`);
+  check('api: base resolved to the active backend, not a hardcoded host',
+    resolvedBase === API, `(base=${resolvedBase} api=${API})`);
+
+  /* ---- 11. paper detail flow unchanged ---- */
   check('no uncaught page exceptions', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
 }
 

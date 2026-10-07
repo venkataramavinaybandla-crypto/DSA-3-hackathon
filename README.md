@@ -63,6 +63,7 @@ Cerberus replaces that with one structure you can query. Papers become vertices,
 | Match exact patterns | **KMP** and **Rabin-Karp** |
 | Route between papers | BFS shortest path, all simple paths, **Held-Karp bitmask** optimal route |
 | Rank and report | Custom sorting: top authors, most-cited papers, yearly citation trends |
+| Read the source paper | Per-paper viewer: the PDF from `research_papers/` inline, or its text record |
 
 <img src="assets/divider.svg" alt="" width="100%">
 
@@ -91,13 +92,19 @@ With the backend running: exact and fuzzy search, shortest path / optimal route 
 
 Start the backend, then open `http://127.0.0.1:8005/`.
 
-| Tab | What it shows |
+| View | What it shows |
 | :--- | :--- |
-| Graph | Live metrics, top-cited table, citation lineage |
-| Search | Exact or fuzzy results from the query console |
+| Graph | Live metrics, most-cited table, citation lineage |
+| Search | Exact (KMP) or typo-tolerant (Wagner–Fischer) results |
 | Traversal | BFS/DFS visit order, shortest path, bitmask-optimal route |
 | Reports | Top authors and yearly citation trends |
-| Mutate | Add papers and citation edges; errors surface in the status line |
+| Manage | Add papers and citation edges; errors surface in the status line |
+
+Every paper row links to its own document. Clicking one opens `#/paper/<id>`: a
+restrained viewer with the paper's metadata, citation links and either the PDF
+from `research_papers/` (embedded inline) or, when no PDF ships, the paper's
+text record. The algorithm used for a result is named in that result's own
+header — the dashboard never advertises complexity numbers as decoration.
 
 ### Alternate surfaces
 
@@ -113,13 +120,45 @@ The Java server needs no Python at all: JDK `com.sun.net.httpserver` only. Mutat
 | Route | Purpose |
 | :--- | :--- |
 | `GET /api/papers?q=&limit=&fuzzy=` | List or search papers |
+| `GET /api/papers/{id}` | Paper detail with in/out citation edges and document availability |
+| `GET /api/papers/{id}/document?format=pdf\|text` | The paper's own file from `research_papers/` |
 | `GET /api/traverse?source=&mode=bfs\|dfs` | Visit order from a paper |
 | `GET /api/reports/authors` and `/api/reports/trends` | Ranked reports |
 | `GET /api/path`, `/api/paths`, `/api/optimal-route`, `/api/lineage` | Routing and reachability |
 | `POST /api/papers`, `POST /api/citations` | In-memory mutations |
 | `GET /api/health`, `GET /api/stats`, `POST /api/reload` | Status and CSV reload |
 
-The pure-Java server mirrors this contract; reports live at `GET /api/report?type=top-authors|top-papers|trends`.
+The pure-Java server mirrors this contract; reports live at `GET /api/report?type=top-authors|top-papers|trends`. It does not serve paper documents, so the viewer's document step degrades to a clear message on that surface.
+
+<img src="assets/divider.svg" alt="" width="100%">
+
+## Configuration
+
+The backend reads its paths and CORS policy from the environment:
+
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `CERBERUS_CSV` | `citation_data.csv` | Dataset path |
+| `CERBERUS_PAPERS_DIR` | `research_papers/` | Paper corpus directory |
+| `CERBERUS_CORS_ORIGINS` | `*` | Comma-separated allowed browser origins |
+
+The dashboard resolves its API base without a hardcoded developer host. First
+match wins:
+
+| Order | Source | Use |
+| :--- | :--- | :--- |
+| 1 | `?api=<url>` | One-off testing |
+| 2 | `localStorage['cerberusApiBase']` | Per-browser override (Connection help in the footer) |
+| 3 | `window.CERBERUS_API_URL` in `web/static/config.js` | Deploy-time configuration |
+| 4 | the page's own origin | Default: the API serves the dashboard |
+| 5 | `http://127.0.0.1:8005` | Fallback when opened from `file://` |
+
+So local development and a single-service deploy need no configuration at all.
+When the dashboard is hosted separately from the API, set `CERBERUS_API_URL` in
+`config.js` to the deployed backend origin **and** set `CERBERUS_CORS_ORIGINS` on
+the backend to that same origin. Nothing is hardcoded, and a placeholder URL is
+never substituted — if the backend is not reachable the footer says so and links
+to the connection help.
 
 <img src="assets/divider.svg" alt="" width="100%">
 
@@ -196,6 +235,7 @@ PYTHONIOENCODING=utf-8 python -m tui.main
 3. Search by exact title or author, or fall back to fuzzy matching.
 4. Traverse the network outward from any paper.
 5. Generate a report of top authors, popular papers and trends.
+6. Click a paper to open its document, then use the citation links to keep reading.
 
 <img src="assets/divider.svg" alt="" width="100%">
 
@@ -233,9 +273,10 @@ CERBERUS_COLOR=always java -cp out main.Main   # force color (always | never | a
 ```text
 .
 ├── src/                              Java engine: graph, hash tables, algorithms, reports, API server
-├── server/                           FastAPI backend: REST API and dashboard host
+├── server/                           FastAPI backend: REST API, dashboard host, document index
 ├── tui/                              Rich terminal UI
 ├── web/static/                       Web dashboard: HTML, CSS and vanilla JS
+│   └── config.js                     Deploy-time API base (empty = same origin)
 ├── tools/                            Dataset fetch and PDF text extraction
 ├── research_papers/                  Reference papers (PDF and extracted text)
 ├── assets/                           README artwork: banner, logo, dividers, architecture
@@ -264,7 +305,7 @@ done
 
 Covers the graph, hash tables, sorting, string matching, CSV I/O, JSON, reports, renderers, integration edge cases and the REST server (every endpoint, validation, 404/405/409 paths, static file serving).
 
-**Browser end-to-end — 23 checks.** Drives the dashboard in headless Chrome over the DevTools protocol: boot, fuzzy search, BFS/DFS traversal, reports, mutations, error surfacing, zero uncaught page exceptions.
+**Browser end-to-end — 29 checks.** Drives the dashboard in headless Chrome over the DevTools protocol: boot, fuzzy search, BFS/DFS traversal, reports, mutations, error surfacing, paper-viewer open/back, API-base resolution, zero uncaught page exceptions.
 
 ```bash
 node e2e_dashboard.mjs                                # against the Python backend :8005

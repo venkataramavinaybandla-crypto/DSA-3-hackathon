@@ -16,6 +16,20 @@ class PaperNode(BaseModel):
     citationCount: int
 
 
+class DocumentInfo(BaseModel):
+    """Where the paper's own file lives, when the corpus ships one.
+
+    `kind` is the format the viewer should lead with; a paper may carry both a
+    PDF and a text record. `available` is false when the corpus has no file
+    for this id, so the UI can render the entry as non-openable.
+    """
+
+    available: bool
+    kind: Optional[str] = None
+    pdfUrl: Optional[str] = None
+    textUrl: Optional[str] = None
+
+
 class PaperRecord(BaseModel):
     """Full paper record."""
 
@@ -26,6 +40,7 @@ class PaperRecord(BaseModel):
     citationCount: int
     cites: List[str] = Field(default_factory=list)
     citedBy: List[str] = Field(default_factory=list)
+    document: Optional[DocumentInfo] = None
 
 
 class StatsResponse(BaseModel):
