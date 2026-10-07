@@ -943,15 +943,6 @@ function buildConnectionHelp(applied, actual) {
   });
 
   meta.appendChild(details);
-  const helpLink = $('#api-help');
-  if (helpLink) {
-    helpLink.addEventListener('click', (event) => {
-      event.preventDefault();
-      window.location.hash = '#/';
-      details.open = true;
-      details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-  }
 }
 
 /* ------------------------------------------------------------- boot ---- */
