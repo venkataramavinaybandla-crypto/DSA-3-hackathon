@@ -322,9 +322,9 @@ API_BASE=http://127.0.0.1:8006 node e2e_dashboard.mjs # against the pure-Java se
 - [x] Wagner-Fischer fuzzy matching
 - [x] REST API, Rich terminal UI and web dashboard
 - [x] Dataset tooling: arXiv fetch and PDF text extraction
-- [ ] JavaFX visual graph explorer
-- [ ] PDF report export
-- [ ] Bulk citation import from BibTeX
+- [x] JavaFX visual graph explorer
+- [x] PDF report export
+- [x] Bulk citation import from BibTeX
 
 ## Team
 
